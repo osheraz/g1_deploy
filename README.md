@@ -50,5 +50,5 @@ Set [`configs/g1_23dof.yaml`](configs/g1_23dof.yaml) so `depth_server_ip` points
 - [`common/tactile_client.py`](common/tactile_client.py)
 - [`common/depth_client.py`](common/depth_client.py)
 - [`scripts/bootstrap.sh`](scripts/bootstrap.sh)
-- [`scripts/replay_rollout.py`](scripts/replay_rollout.py)
-- [`scripts/make_video.py`](scripts/make_video.py)
+- [`tools/replay_rollout.py`](tools/replay_rollout.py)
+- [`tools/make_video.py`](tools/make_video.py)
