@@ -1,0 +1,262 @@
+###############################################################
+# Depth Configuration
+###############################################################
+
+# TODO: all of this from the trained actor cfg
+
+use_depth_obs: true
+use_tactile: false
+tactile_max_age_s: 0.05
+tactile_sensor_order: ["LF", "RF", "WB"]
+
+# from ego_camera.clipping_range in sim
+min_d: 0.1
+max_d: 2.0
+depth_scale: 0.001
+
+# resolution used for observation vector
+depth_img_width: 64 #96
+depth_img_height: 64 #54
+depth_obs_dim: 4096
+
+depth_server_ip: "192.168.123.164"
+depth_server_port: 5555
+
+# raw RealSense depth
+depth_raw_height: 480
+depth_raw_width: 640
+
+###############################################################
+# Control + Teleop Config
+###############################################################
+
+viser_display: true
+control_dt: 0.02
+
+msg_type: "hg"            # "hg" or "go"
+imu_type: "pelvis"        # "torso" or "pelvis"
+
+lowcmd_topic: "rt/lowcmd"
+lowstate_topic: "rt/lowstate"
+
+
+# Complete mapping of all 23 joints to motor indices
+action_joint2motor_idx: [
+    # Left Leg (6 joints)
+    0,    # left_hip_pitch_joint
+    1,    # left_hip_roll_joint
+    2,    # left_hip_yaw_joint
+    3,    # left_knee_joint
+    4,    # left_ankle_pitch_joint
+    5,    # left_ankle_roll_joint
+
+    # Right Leg (6 joints)
+    6,    # right_hip_pitch_joint
+    7,    # right_hip_roll_joint
+    8,    # right_hip_yaw_joint
+    9,    # right_knee_joint
+    10,   # right_ankle_pitch_joint
+    11,   # right_ankle_roll_joint
+
+    # Waist (3 joints)
+    12,   # waist_yaw_joint
+#    13,   # waist_roll_joint   # FIXED
+#    14,   # waist_pitch_joint  # FIXED
+
+    # Left Arm (4 joints)
+    15,   # left_shoulder_pitch_joint
+    16,   # left_shoulder_roll_joint
+    17,   # left_shoulder_yaw_joint
+    18,   # left_elbow_joint,
+    19,   # left_wrist_joint
+    # 20, left_wrist_pitch_joint # FIXED
+    # 21, left_wrist_yaw_joint   # FIXED
+
+    # Right Arm (4 joints)
+    22,   # right_shoulder_pitch_joint
+    23,   # right_shoulder_roll_joint
+    24,   # right_shoulder_yaw_joint
+    25,   # right_elbow_joint
+    26,   # right_wrist_roll_joint
+    # right_wrist_pitch_joint: 27  # FIXED
+    # right_wrist_yaw_joint: 28    # FIXED
+]
+
+# PD gains for all 23 joints
+# kps: [200, 200, 200, 275, 40, 40,      # Left leg
+#      200, 200, 200, 275, 40, 40,      # Right leg
+#      100,  4, 4,                                # Waist
+#      100, 100, 100, 100, 100, 10, 10,                  # Left arm
+#      100, 100, 100, 100, 100, 10, 10]                  # Right arm
+
+# kds: [4.0, 4.0, 4.0, 6.0, 2.0, 2.0,
+#       4.0, 4.0, 4.0, 6.0, 2.0, 2.0,
+#       4.0, 4.0, 4.0,
+#       4.0, 4.0, 4.0, 4.0, 4.0, 0.0, 0.0,
+#       4.0, 4.0, 4.0, 4.0, 4.0, 0.0, 0.0]
+
+# kps: [80, 80, 80, 100, 20, 20,      # Left leg
+#       80, 80, 80, 100, 20, 20,      # Right leg
+#       100, 4, 4,                                   # Waist
+#       30, 20, 5, 20, 5, 5, 5,                  # Left arm
+#       30, 20, 5, 20, 5, 5, 5]                  # Right arm
+
+# kds: [2.5, 2.5, 2.5, 5.0, 0.2, 0.1,                   # Left leg
+#       2.5, 2.5, 2.5, 5.0, 0.2, 0.1,                   # Right leg
+#       5.0, 5.0, 5.0,                                  # Waist
+#       2.0, 1.0, 0.4, 1.0, 0.4, 0.4, 0.4,              # Left arm
+#       2.0, 1.0, 0.4, 1.0, 0.4, 0.4, 0.4]              # Right arm
+
+kps: [
+    100, 100, 100, 200, 20, 20,
+    100, 100, 100, 200, 20, 20,
+    400, 400, 400,
+    90, 60, 20, 60, 4, 4, 0,
+    90, 60, 20, 60, 4, 4, 4
+]
+
+kds: [
+   2.5, 2.5, 2.5, 5, 0.2, 0.1,
+   2.5, 2.5, 2.5, 5, 0.2, 0.1,
+   5.0, 5.0, 5.0,
+   2.0, 1.0, 0.4, 1.0, 0.2, 0.2, 0.2,
+    2.0, 1.0, 0.4, 1.0, 0.2, 0.2, 0.2
+]
+
+# 29dof
+default_angles: [-0.2, 0.0, 0.0, 0.42, -0.23, 0.0,    # Left leg
+                 -0.2, 0.0, 0.0, 0.42, -0.23, 0.0,   # Right leg           
+                 0.0, 0.0, 0.0,                     # Waist
+                 0.35, 0.16, 0.0, 0.87,                # Left arm
+                 0.0, 0.0, 0.0,                     # Left wrist
+                 0.35, -0.16, 0.0, 0.87,                # Right arm
+                 0.0, 0.0, 0.0]                     # Right wrist
+
+# TODO: make sure it that same
+default_angles_23: [-0.2, 0.0, 0.0, 0.42, -0.23, 0.0,    # Left leg
+                   -0.2, 0.0, 0.0, 0.42, -0.23, 0.0,     # Right leg
+                   0.0,                                  # Waist
+                   0.35, 0.16, 0.0, 0.87, 0.0,           # Left arm
+                   0.35, -0.16, 0.0, 0.87, 0.0]          # Right arm
+
+# For backwards compatibility with fixed joints section
+# If you need to use fixed joints, update this as needed
+# fixed_joint2motor_idx: [13, 14, 19, 20, 21, 26, 27, 28]
+
+fixed_joint2motor_idx: [13, 14, 20, 21, 27, 28]
+fixed_kps: [4, 4, 4, 4, 4, 4]
+fixed_kds: [1, 1, 1, 1, 1, 1]
+fixed_target: [0, 0, 0, 0, 0, 0]
+
+# fixed_joint2motor_idx: []
+# fixed_kps: []
+# fixed_kds: []
+# fixed_target: []
+
+####################################################
+
+# blind polices
+# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20251219/203353-STUDENT_W_ACTION_SIM--isaacsim-fall_recovery-g1_23dof/model_last.pt" # blind (really good on flat ground)
+# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/to_test/131019-STUDENT_AVOID_STABLE--isaacsim-fall_recovery-g1_23dof/model_last.pt" # blind
+
+# visual polices
+# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260111/053612-STUDENT_CNN_5T_64--isaacsim-fall_recovery-g1_23dof/model_last.pt" # only to latent
+# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260112/132712-STUDENT_CNN_5T_64_Both--isaacsim-fall_recovery-g1_23dof/model_last.pt" #  latent on actor head
+# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260112/210728-STUDENT_CNN_5T_64_Both_CONTNIUE--isaacsim-fall_recovery-g1_23dof/model_last.pt" #^ same finetuned (TODO: WHAT WE USED)
+# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260113/141816-STUDENT_CNN_5T_64--isaacsim-fall_recovery-g1_23dof/model_last.pt" 
+# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260119/151054-STUDENT_645T--isaacsim-fall_recovery-g1_23dof/model_last.pt"  # 32 new
+
+# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260117/120905-STUDENT_CNN_5T_64_FROM_FULL--isaacgym-fall_recovery-g1_23dof/model_last.pt"  # isaacgym
+policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260124/160403-STUDENT_TERM_ON_SUCCESS--isaacsim-fall_recovery-g1_23dof/model_last.pt"  # sim new
+
+
+# 
+policy_format: "torch"   # or "jit" or  " onnx"
+
+ang_vel_scale: 0.25 # obs scale
+dof_pos_scale: 1.0  # obs scale
+dof_vel_scale: 0.05 # obs scale
+action_scale: 0.25 # action not obs
+
+obs_dim: {
+    base_ang_vel: 3,
+    projected_gravity: 3,
+    dof_pos: 23,
+    dof_vel: 23,
+    actions: 23,
+}
+
+# history_actor_long: {
+#       base_ang_vel: 10,
+#       projected_gravity: 10,
+#       dof_pos: 10,
+#       dof_vel: 10,
+#       actions: 10,
+# }
+
+# Phase increment matching MuJoCo script
+# ref_motion_phase: 0.00314
+max_cmd: [0.2, 0.2, 0.8]
+# Command scaling matching MuJoCo config
+cmd_scale: [2.0, 2.0, 0.25]
+num_actions: 23
+num_obs: 75            
+
+# Command initialization from MuJoCo config
+cmd_init: [0, 0, 0]
+
+
+clip_actions: 100.
+clip_obs: 100.
+# ------------------------------------------------------------
+
+# Combined total: 76 + 304 = 380 dims
+
+# Joint Structure Summary:
+
+#
+# Active Joints (23):
+# 1. Left Leg (6 joints):
+#    - left_hip_pitch_joint (idx: 0)
+#    - left_hip_roll_joint (idx: 1)
+#    - left_hip_yaw_joint (idx: 2)
+#    - left_knee_joint (idx: 3)
+#    - left_ankle_pitch_joint (idx: 4)
+#    - left_ankle_roll_joint (idx: 5)
+#
+# 2. Right Leg (6 joints):
+#    - right_hip_pitch_joint (idx: 6)
+#    - right_hip_roll_joint (idx: 7)
+#    - right_hip_yaw_joint (idx: 8)
+#    - right_knee_joint (idx: 9)
+#    - right_ankle_pitch_joint (idx: 10)
+#    - right_ankle_roll_joint (idx: 11)
+#
+# 3. Waist (3 joints):
+#    - waist_yaw_joint (idx: 12)
+#
+# 4. Left Arm (4 active + 3 fixed joints):
+#    Active:
+#    - left_shoulder_pitch_joint (idx: 15)
+#    - left_shoulder_roll_joint (idx: 16)
+#    - left_shoulder_yaw_joint (idx: 17)
+#    - left_elbow_joint (idx: 18)
+#    Fixed:
+#    - left_wrist_roll_joint
+#
+# 5. Right Arm (4 active + 3 fixed joints):
+#    Active:
+#    - right_shoulder_pitch_joint (idx: 19)
+#    - right_shoulder_roll_joint (idx: 20)
+#    - right_shoulder_yaw_joint (idx: 21)
+#    - right_elbow_joint (idx: 22)
+#    Fixed:
+#    - right_wrist_roll_joint
+#
+# Note: The fixed joints (wrist joints) are present in the physical structure 
+# but are not actuated. They are handled through the fixed_joint2motor_idx,
+# fixed_kps, fixed_kds, and fixed_target parameters.
+
+
+reference_motion: "1_back1"
+reference_keyframes: 25
