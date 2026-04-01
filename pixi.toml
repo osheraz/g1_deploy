@@ -1,0 +1,15 @@
+[workspace]
+name = "e_skin_remote"
+version = "0.1.0"
+authors = ["osher <osher@umich.edu>"]
+channels = ["robostack-humble", "conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.11.*"
+uv = "*"
+ros-humble-desktop = "*"
+
+[tasks]
+bootstrap = "bash scripts/bootstrap.sh"
+setup = "bash scripts/bootstrap.sh"

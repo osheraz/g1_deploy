@@ -152,20 +152,6 @@ fixed_target: [0, 0, 0, 0, 0, 0]
 # fixed_kds: []
 # fixed_target: []
 
-####################################################
-
-# blind polices
-# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20251219/203353-STUDENT_W_ACTION_SIM--isaacsim-fall_recovery-g1_23dof/model_last.pt" # blind (really good on flat ground)
-# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/to_test/131019-STUDENT_AVOID_STABLE--isaacsim-fall_recovery-g1_23dof/model_last.pt" # blind
-
-# visual polices
-# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260111/053612-STUDENT_CNN_5T_64--isaacsim-fall_recovery-g1_23dof/model_last.pt" # only to latent
-# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260112/132712-STUDENT_CNN_5T_64_Both--isaacsim-fall_recovery-g1_23dof/model_last.pt" #  latent on actor head
-# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260112/210728-STUDENT_CNN_5T_64_Both_CONTNIUE--isaacsim-fall_recovery-g1_23dof/model_last.pt" #^ same finetuned (TODO: WHAT WE USED)
-# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260113/141816-STUDENT_CNN_5T_64--isaacsim-fall_recovery-g1_23dof/model_last.pt" 
-# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260119/151054-STUDENT_645T--isaacsim-fall_recovery-g1_23dof/model_last.pt"  # 32 new
-
-# policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260117/120905-STUDENT_CNN_5T_64_FROM_FULL--isaacgym-fall_recovery-g1_23dof/model_last.pt"  # isaacgym
 policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260124/160403-STUDENT_TERM_ON_SUCCESS--isaacsim-fall_recovery-g1_23dof/model_last.pt"  # sim new
 
 

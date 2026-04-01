@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "e_skin_remote"
+version = "0.1.0"
+description = "Remote G1 deploy runtime for the e-skin project"
+requires-python = ">=3.11"
+dependencies = [
+    "imageio>=2.37.0",
+    "numpy>=2.4.3",
+    "omegaconf>=2.3.0",
+    "onnxruntime>=1.22.1",
+    "opencv-python>=4.12.0.88",
+    "pillow>=11.3.0",
+    "pyyaml>=6.0.2",
+    "scipy>=1.16.2",
+    "setuptools",
+    "termcolor>=3.1.0",
+    "viser>=1.0.15",
+]
+
+[tool.uv]
+managed = true
+
+[tool.setuptools]
+py-modules = ["config", "deploy_g1"]
