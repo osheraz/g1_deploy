@@ -40,15 +40,15 @@ python3 deploy_g1.py --config g1_23dof.yaml --log TEST.npz
 - tactile: ROS 2 topics from the robot-side workspace
 - depth: ZMQ stream from the robot-side depth server
 
-Set [`configs/g1_23dof.yaml`](/home/osher/e_skin/remote/configs/g1_23dof.yaml) so `depth_server_ip` points to the robot PC.
+Set [`configs/g1_23dof.yaml`](configs/g1_23dof.yaml) so `depth_server_ip` points to the robot PC.
 
 ## Files
 
-- [`deploy_g1.py`](/home/osher/e_skin/remote/deploy_g1.py)
-- [`config.py`](/home/osher/e_skin/remote/config.py)
-- [`configs/g1_23dof.yaml`](/home/osher/e_skin/remote/configs/g1_23dof.yaml)
-- [`common/tactile_client.py`](/home/osher/e_skin/remote/common/tactile_client.py)
-- [`common/depth_client.py`](/home/osher/e_skin/remote/common/depth_client.py)
-- [`scripts/bootstrap.sh`](/home/osher/e_skin/remote/scripts/bootstrap.sh)
-- [`scripts/replay_rollout.py`](/home/osher/e_skin/remote/scripts/replay_rollout.py)
-- [`scripts/make_video.py`](/home/osher/e_skin/remote/scripts/make_video.py)
+- [`deploy_g1.py`](deploy_g1.py)
+- [`config.py`](config.py)
+- [`configs/g1_23dof.yaml`](configs/g1_23dof.yaml)
+- [`common/tactile_client.py`](common/tactile_client.py)
+- [`common/depth_client.py`](common/depth_client.py)
+- [`scripts/bootstrap.sh`](scripts/bootstrap.sh)
+- [`scripts/replay_rollout.py`](scripts/replay_rollout.py)
+- [`scripts/make_video.py`](scripts/make_video.py)
