@@ -6,7 +6,6 @@
 
 use_depth_obs: true
 use_tactile: false
-tactile_max_age_s: 0.05
 tactile_sensor_order: ["LF", "RF", "WB"]
 
 # from ego_camera.clipping_range in sim

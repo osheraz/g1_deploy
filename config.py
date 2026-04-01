@@ -85,7 +85,6 @@ class Config:
 
             # Tactile ROS parameters
             self.use_tactile = config.get("use_tactile", False)
-            self.tactile_max_age_s = config.get("tactile_max_age_s", 0.05)
             self.tactile_sensor_order = config.get(
                 "tactile_sensor_order",
                 ["LF", "RF", "WB", "LH", "RH"],
@@ -129,7 +128,4 @@ class Config:
                 )
             print(f"Use tactile ROS: {self.use_tactile}")
             if self.use_tactile:
-                print(
-                    f"Tactile freshness window: {self.tactile_max_age_s:.3f}s "
-                    f"for sensors={self.tactile_sensor_order}"
-                )
+                print(f"Tactile sensors: {self.tactile_sensor_order}")

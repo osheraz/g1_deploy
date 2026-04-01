@@ -34,32 +34,33 @@ Utility scripts:
 
 ## Environment
 
-The repo already uses Pixi + UV at the workspace level, and that is the preferred path
-here too.
+`remote/` should be able to live on its own.
+
+It does not need the local `ros_ws/` folder beside it. It does need:
+
+1. ROS 2 installed on the remote machine
+2. a Python environment for the remote runtime
+3. the Unitree SDK installed into that environment
 
 Recommended approach:
 
-1. Use Pixi for ROS 2 and system-level robotics dependencies.
-2. Use UV for Python packages and editable installs.
-3. Install the Unitree SDK into the same virtual environment with `uv pip`.
+1. Install ROS 2 Humble on the remote machine using your preferred method
+2. Use UV for the Python environment and package management
+3. Install the Unitree SDK into that same environment with `uv pip`
 
 ## Install
 
-### 1. Create the Workspace Environment
+### 1. Create a Python Environment
 
-From `ros_ws/`:
+From inside `remote/`:
 
 ```bash
-cd ros_ws
-pixi run setup
-source .envrc
+cd remote
+uv venv
+source .venv/bin/activate
 ```
 
-That gives you:
-
-- ROS 2 Humble from Pixi
-- a workspace `.venv`
-- Python packages managed by UV
+ROS 2 itself should already be installed separately on the remote machine.
 
 ### 2. Install Remote Python Dependencies
 
@@ -67,16 +68,31 @@ Install the extra Python packages used by the deploy/runtime side into the same 
 environment:
 
 ```bash
+cd remote
 uv add pyyaml scipy onnxruntime omegaconf termcolor pillow imageio viser opencv-python
 ```
 
 If you want the remote package installed in editable mode:
 
 ```bash
-uv pip install -e ../remote
+uv pip install -e .
 ```
 
-### 3. Install Unitree SDK
+### 3. Install ROS 2 Python Support
+
+Before running deploy, the remote machine also needs `rclpy` available, since tactile
+input is received through ROS subscriptions.
+
+If ROS 2 Humble is installed system-wide, a common setup is:
+
+```bash
+source /opt/ros/humble/setup.bash
+```
+
+If you use a separate ROS install method on the remote machine, source that environment
+instead.
+
+### 4. Install Unitree SDK
 
 Clone the SDK wherever you keep external repos, then install it into the active UV env:
 
@@ -86,7 +102,7 @@ cd unitree_sdk2_python
 uv pip install -e .
 ```
 
-### 4. Install Torch If Needed
+### 5. Install Torch If Needed
 
 This repo does not pin a Torch wheel in `pyproject.toml`, because the correct wheel
 depends on your CUDA/runtime setup. Install the wheel that matches your machine.
@@ -130,7 +146,7 @@ The tactile driver publishes:
 
 On the remote PC:
 
-- source the same ROS environment before running deploy
+- source a ROS 2 environment that provides `rclpy`
 - make sure both machines can see each other in ROS 2
 - use the same `ROS_DOMAIN_ID`
 - make sure DDS discovery/networking is allowed between the two machines
@@ -146,7 +162,6 @@ Important fields:
 - `use_depth_obs`
 - `use_tactile`
 - `tactile_sensor_order`
-- `tactile_max_age_s`
 - `policy_path`
 - `lowcmd_topic`
 - `lowstate_topic`
@@ -156,7 +171,6 @@ To enable tactile logging:
 ```yaml
 use_tactile: true
 tactile_sensor_order: ["LF", "RF", "WB"]
-tactile_max_age_s: 0.05
 ```
 
 ## Run
@@ -164,7 +178,8 @@ tactile_max_age_s: 0.05
 From the repo root on the remote PC:
 
 ```bash
-source ros_ws/.envrc
+source /opt/ros/humble/setup.bash
+source remote/.venv/bin/activate
 python3 remote/deploy_g1.py --config g1_23dof.yaml --log TEST.npz
 ```
 
@@ -194,5 +209,7 @@ python3 remote/scripts/make_video.py
   tree, especially for `policy_path` and URDF assets.
 - [`config.py`](/home/osher/e_skin/remote/config.py) still points at an external config
   root.
+- `remote/` does not currently provide a fully self-contained ROS install recipe; it
+  assumes ROS 2 is installed on the remote machine already.
 - The `--net` CLI argument is present in `deploy_g1.py` but is not currently wired into
   `ChannelFactoryInitialize`.
