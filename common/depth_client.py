@@ -57,17 +57,17 @@ class SimpleDepthClient(threading.Thread):
 
         try:
             while self.running:
-                # msg = self.socket.recv()
-                color_msg, depth_msg = self.socket.recv_multipart()
+                msg = self.socket.recv()
+                # color_msg, depth_msg = self.socket.recv_multipart()
 
-                # depth = np.frombuffer(msg, dtype=np.uint8)
+                depth = np.frombuffer(msg, dtype=np.uint8)
 
-                # depth = cv2.imdecode(depth, cv2.IMREAD_UNCHANGED)
-                color = np.frombuffer(color_msg, dtype=np.uint8)
-                color = cv2.imdecode(color, cv2.IMREAD_COLOR)
-
-                depth = np.frombuffer(depth_msg, dtype=np.uint8)
                 depth = cv2.imdecode(depth, cv2.IMREAD_UNCHANGED)
+                # color = np.frombuffer(color_msg, dtype=np.uint8)
+                # color = cv2.imdecode(color, cv2.IMREAD_COLOR)
+
+                # depth = np.frombuffer(depth_msg, dtype=np.uint8)
+                # depth = cv2.imdecode(depth, cv2.IMREAD_UNCHANGED)
 
                 if depth is None:
                     continue

@@ -41,6 +41,7 @@ class DeployViser:
         depth_min: float,
         depth_max: float,
         depth_scale: float,
+        tactile_sensors: Optional[list[str]] = None,
     ) -> None:
         self.server = viser.ViserServer()
         self.joint_names_by_motor_index = list(JOINT_NAMES_BY_MOTOR_INDEX)
@@ -48,6 +49,7 @@ class DeployViser:
         self.depth_min = float(depth_min)
         self.depth_max = float(depth_max)
         self.depth_scale = float(depth_scale)
+        self.tactile_sensors = set(tactile_sensors or [])
 
         self.base_frame = self.server.scene.add_frame(
             "/base",
@@ -104,6 +106,53 @@ class DeployViser:
         with rgb_folder:
             dummy = np.zeros((120, 160, 3), dtype=np.uint8)
             self.rgb_image_handle = self.server.gui.add_image(dummy, label="RGB")
+
+        tactile_folder = self.server.gui.add_folder("Tactile")
+        with tactile_folder:
+            self.tactile_overall_handle = self.server.gui.add_text(
+                "Status", initial_value="disabled", disabled=True
+            )
+            self.tactile_lf_handle = None
+            self.tactile_rf_handle = None
+            self.tactile_wb_handle = None
+            self.tactile_lf_image = None
+            self.tactile_rf_image = None
+            self.tactile_wb_front_image = None
+            self.tactile_wb_back_image = None
+            self.tactile_wb_left_arm_image = None
+            self.tactile_wb_right_arm_image = None
+            dummy_foot = np.zeros((96, 160, 3), dtype=np.uint8)
+            dummy_arm = np.zeros((96, 96, 3), dtype=np.uint8)
+            if "LF" in self.tactile_sensors:
+                self.tactile_lf_handle = self.server.gui.add_text(
+                    "LF", initial_value="-", disabled=True
+                )
+                self.tactile_lf_image = self.server.gui.add_image(
+                    dummy_foot, label="LF map"
+                )
+            if "RF" in self.tactile_sensors:
+                self.tactile_rf_handle = self.server.gui.add_text(
+                    "RF", initial_value="-", disabled=True
+                )
+                self.tactile_rf_image = self.server.gui.add_image(
+                    dummy_foot, label="RF map"
+                )
+            if "WB" in self.tactile_sensors:
+                self.tactile_wb_handle = self.server.gui.add_text(
+                    "WB", initial_value="-", disabled=True
+                )
+                self.tactile_wb_front_image = self.server.gui.add_image(
+                    dummy_foot, label="WB front"
+                )
+                self.tactile_wb_back_image = self.server.gui.add_image(
+                    dummy_foot, label="WB back"
+                )
+                self.tactile_wb_left_arm_image = self.server.gui.add_image(
+                    dummy_arm, label="WB left arm"
+                )
+                self.tactile_wb_right_arm_image = self.server.gui.add_image(
+                    dummy_arm, label="WB right arm"
+                )
 
         vis_folder = self.server.gui.add_folder("Visibility")
         with vis_folder:
@@ -185,3 +234,26 @@ class DeployViser:
         g = (t * 255.0).astype(np.uint8)
         img = np.stack([g, g, g], axis=-1)
         self.depth_image_handle.image = img
+
+    def update_tactile(self, overall: str, sensor_status: dict[str, str]) -> None:
+        self.tactile_overall_handle.value = overall
+        if self.tactile_lf_handle is not None:
+            self.tactile_lf_handle.value = sensor_status.get("LF", "-")
+        if self.tactile_rf_handle is not None:
+            self.tactile_rf_handle.value = sensor_status.get("RF", "-")
+        if self.tactile_wb_handle is not None:
+            self.tactile_wb_handle.value = sensor_status.get("WB", "-")
+
+    def update_tactile_images(self, panels: dict[str, np.ndarray]) -> None:
+        if self.tactile_lf_image is not None and "LF" in panels:
+            self.tactile_lf_image.image = panels["LF"]
+        if self.tactile_rf_image is not None and "RF" in panels:
+            self.tactile_rf_image.image = panels["RF"]
+        if self.tactile_wb_front_image is not None and "WB_front" in panels:
+            self.tactile_wb_front_image.image = panels["WB_front"]
+        if self.tactile_wb_back_image is not None and "WB_back" in panels:
+            self.tactile_wb_back_image.image = panels["WB_back"]
+        if self.tactile_wb_left_arm_image is not None and "WB_left_arm" in panels:
+            self.tactile_wb_left_arm_image.image = panels["WB_left_arm"]
+        if self.tactile_wb_right_arm_image is not None and "WB_right_arm" in panels:
+            self.tactile_wb_right_arm_image.image = panels["WB_right_arm"]

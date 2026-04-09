@@ -5,8 +5,8 @@
 # TODO: all of this from the trained actor cfg
 
 use_depth_obs: true
-use_tactile: false
-tactile_sensor_order: ["LF", "RF", "WB"]
+use_tactile: true
+tactile_sensor_order: ["LF", "RF"]
 
 # from ego_camera.clipping_range in sim
 min_d: 0.1
