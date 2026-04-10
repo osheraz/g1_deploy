@@ -52,15 +52,11 @@ WB_BACK_MAP = [
 WB_LEFT_ARM_MAP = [
     79, 95, 111, 127,
     80, 96, 112, 128,
-    81, 97, 113, 129,
-    82, 98, 114, 130,
 ]
 
 WB_RIGHT_ARM_MAP = [
-    177, 161, 145, 129,
-    178, 162, 146, 130,
-    179, 163, 147, 131,
-    180, 164, 148, 132,
+    177, 162, 146, 130,
+    178, 161, 145, 129,
 ]
 
 
@@ -99,8 +95,18 @@ def _colorize(arr: np.ndarray, scale: int = 16) -> np.ndarray:
     return color
 
 
-def render_sensor_panels(sensor: str, raw_values: list[int] | bytes | bytearray) -> dict[str, np.ndarray]:
+def render_sensor_panels(
+    sensor: str,
+    raw_values: list[int] | bytes | bytearray,
+    baseline_values: list[int] | bytes | bytearray | None = None,
+    deadzone: int = 12,
+) -> dict[str, np.ndarray]:
     raw = _raw(raw_values)
+    if baseline_values is not None:
+        baseline = _raw(baseline_values)
+        raw = np.clip(
+            raw.astype(np.int16) - baseline.astype(np.int16) - int(deadzone), 0, 255
+        ).astype(np.uint8)
     if sensor == "LF":
         flat = _map(raw, LEFT_FOOT_MAP)
         taxels = np.flipud(flat.reshape(10, 6).T)
@@ -111,9 +117,9 @@ def render_sensor_panels(sensor: str, raw_values: list[int] | bytes | bytearray)
         return {"RF": _colorize(taxels)}
     if sensor == "WB":
         return {
-            "WB_front": _colorize(_map(raw, WB_FRONT_CHEST_MAP).reshape(6, 8)),
-            "WB_back": _colorize(_map(raw, WB_BACK_MAP).reshape(5, 8)),
-            "WB_left_arm": _colorize(_map(raw, WB_LEFT_ARM_MAP).reshape(4, 4), scale=24),
-            "WB_right_arm": _colorize(_map(raw, WB_RIGHT_ARM_MAP).reshape(4, 4), scale=24),
+            "WB_front": _colorize(_map(raw, WB_FRONT_CHEST_MAP).reshape(6, 8).T),
+            "WB_back": _colorize(_map(raw, WB_BACK_MAP).reshape(5, 8).T),
+            "WB_left_arm": _colorize(_map(raw, WB_LEFT_ARM_MAP).reshape(2, 4), scale=24),
+            "WB_right_arm": _colorize(_map(raw, WB_RIGHT_ARM_MAP).reshape(2, 4), scale=24),
         }
     return {}

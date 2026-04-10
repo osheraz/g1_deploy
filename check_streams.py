@@ -191,6 +191,15 @@ class TactileBridgeMonitor:
             },
             "timestamp": 0.0,
         }
+        self.calibration_window = 30
+        self.calibration_counts = {sensor: 0 for sensor in sensor_names}
+        self.calibration_sums = {
+            sensor: [0.0] * 256 for sensor in sensor_names
+        }
+        self.baselines: dict[str, list[int] | None] = {
+            sensor: None for sensor in sensor_names
+        }
+        self.deadzone = 12
 
     def start(self) -> None:
         env = os.environ.copy()
@@ -229,7 +238,24 @@ class TactileBridgeMonitor:
                 continue
             self.last_snapshot = snapshot
             self.frame_count = snapshot.get("frame_count", 0)
+            self._update_calibration(snapshot)
         self.running = False
+
+    def _update_calibration(self, snapshot: dict) -> None:
+        for sensor in self.sensor_names:
+            if self.baselines[sensor] is not None:
+                continue
+            raw_values = snapshot.get("samples", {}).get(sensor, {}).get("raw_values", [])
+            if len(raw_values) < 256:
+                continue
+            for idx, value in enumerate(raw_values[:256]):
+                self.calibration_sums[sensor][idx] += float(value)
+            self.calibration_counts[sensor] += 1
+            if self.calibration_counts[sensor] >= self.calibration_window:
+                count = float(self.calibration_counts[sensor])
+                self.baselines[sensor] = [
+                    int(round(total / count)) for total in self.calibration_sums[sensor]
+                ]
 
     def stop(self) -> None:
         if self.proc is not None and self.proc.poll() is None:
@@ -261,7 +287,14 @@ class TactileBridgeMonitor:
         for sensor in self.sensor_names:
             raw_values = samples.get(sensor, {}).get("raw_values", [])
             if raw_values:
-                panels.update(render_sensor_panels(sensor, raw_values))
+                panels.update(
+                    render_sensor_panels(
+                        sensor,
+                        raw_values,
+                        baseline_values=self.baselines.get(sensor),
+                        deadzone=self.deadzone,
+                    )
+                )
         return panels
 
 
