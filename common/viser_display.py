@@ -119,10 +119,13 @@ class DeployViser:
             self.tactile_rf_image = None
             self.tactile_wb_front_image = None
             self.tactile_wb_back_image = None
+            self.tactile_wb_left_shoulder_image = None
+            self.tactile_wb_right_shoulder_image = None
             self.tactile_wb_left_arm_image = None
             self.tactile_wb_right_arm_image = None
             dummy_foot = np.zeros((96, 160, 3), dtype=np.uint8)
             dummy_arm = np.zeros((96, 96, 3), dtype=np.uint8)
+            dummy_shoulder = np.zeros((32, 96, 3), dtype=np.uint8)
             if "LF" in self.tactile_sensors:
                 self.tactile_lf_handle = self.server.gui.add_text(
                     "LF", initial_value="-", disabled=True
@@ -146,6 +149,12 @@ class DeployViser:
                 )
                 self.tactile_wb_back_image = self.server.gui.add_image(
                     dummy_foot, label="WB back"
+                )
+                self.tactile_wb_left_shoulder_image = self.server.gui.add_image(
+                    dummy_shoulder, label="WB left shoulder"
+                )
+                self.tactile_wb_right_shoulder_image = self.server.gui.add_image(
+                    dummy_shoulder, label="WB right shoulder"
                 )
                 self.tactile_wb_left_arm_image = self.server.gui.add_image(
                     dummy_arm, label="WB left arm"
@@ -253,6 +262,10 @@ class DeployViser:
             self.tactile_wb_front_image.image = panels["WB_front"]
         if self.tactile_wb_back_image is not None and "WB_back" in panels:
             self.tactile_wb_back_image.image = panels["WB_back"]
+        if self.tactile_wb_left_shoulder_image is not None and "WB_left_shoulder" in panels:
+            self.tactile_wb_left_shoulder_image.image = panels["WB_left_shoulder"]
+        if self.tactile_wb_right_shoulder_image is not None and "WB_right_shoulder" in panels:
+            self.tactile_wb_right_shoulder_image.image = panels["WB_right_shoulder"]
         if self.tactile_wb_left_arm_image is not None and "WB_left_arm" in panels:
             self.tactile_wb_left_arm_image.image = panels["WB_left_arm"]
         if self.tactile_wb_right_arm_image is not None and "WB_right_arm" in panels:

@@ -59,6 +59,9 @@ WB_RIGHT_ARM_MAP = [
     178, 161, 145, 129,
 ]
 
+WB_LEFT_SHOULDER_MAP = [249, 233, 217, 201]
+WB_RIGHT_SHOULDER_MAP = [9, 25, 41, 57]
+
 
 def _raw(raw_values: list[int] | bytes | bytearray) -> np.ndarray:
     if isinstance(raw_values, (bytes, bytearray)):
@@ -84,6 +87,7 @@ def _map(raw: np.ndarray, mapping: list[int]) -> np.ndarray:
 
 def _colorize(arr: np.ndarray, scale: int = 16) -> np.ndarray:
     img = np.asarray(arr, dtype=np.uint8)
+    img = np.clip(img.astype(np.float32) * 3.0, 0, 255).astype(np.uint8)
     color = cv2.applyColorMap(img, cv2.COLORMAP_INFERNO)
     color = cv2.cvtColor(color, cv2.COLOR_BGR2RGB)
     if scale > 1:
@@ -117,9 +121,11 @@ def render_sensor_panels(
         return {"RF": _colorize(taxels)}
     if sensor == "WB":
         return {
-            "WB_front": _colorize(_map(raw, WB_FRONT_CHEST_MAP).reshape(6, 8).T),
-            "WB_back": _colorize(_map(raw, WB_BACK_MAP).reshape(5, 8).T),
-            "WB_left_arm": _colorize(_map(raw, WB_LEFT_ARM_MAP).reshape(2, 4), scale=24),
-            "WB_right_arm": _colorize(_map(raw, WB_RIGHT_ARM_MAP).reshape(2, 4), scale=24),
+            "WB_front": _colorize(_map(raw, WB_FRONT_CHEST_MAP).reshape(6, 8)),
+            "WB_back": _colorize(_map(raw, WB_BACK_MAP).reshape(5, 8)),
+            "WB_left_shoulder": _colorize(_map(raw, WB_RIGHT_SHOULDER_MAP).reshape(1, 4), scale=24),
+            "WB_right_shoulder": _colorize(_map(raw, WB_LEFT_SHOULDER_MAP).reshape(1, 4), scale=24),
+            "WB_left_arm": _colorize(np.rot90(_map(raw, WB_LEFT_ARM_MAP).reshape(2, 4), k=-1), scale=24),
+            "WB_right_arm": _colorize(np.rot90(_map(raw, WB_RIGHT_ARM_MAP).reshape(2, 4), k=-1), scale=24),
         }
     return {}
