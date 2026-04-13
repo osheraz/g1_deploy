@@ -4,7 +4,8 @@ Remote-side G1 deploy runtime.
 
 Short version:
 
-- [`../docs/quickstart.md`](../docs/quickstart.md)
+- Shared quickstart in `e_skin`:
+  [`osheraz/e_skin/docs/quickstart.md`](https://github.com/osheraz/e_skin/blob/master/docs/quickstart.md)
 
 Copy this folder to the remote machine.
 
