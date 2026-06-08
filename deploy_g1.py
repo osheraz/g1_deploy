@@ -13,7 +13,6 @@ from common.command_helper import create_damping_cmd
 from common.remote_controller import KeyMap
 from common.timer import TicToc
 from common.real_logger import RealLogger
-from common.tactile_client import TactileClient
 from config import Config
 
 from robot.robot_interface import RobotInterface
@@ -90,9 +89,11 @@ def init_loco_client():
     return loco_client
 
 
-def init_tactile_client(config: Config) -> Optional[TactileClient]:
+def init_tactile_client(config: Config) -> Optional["TactileClient"]:
     if not config.use_tactile:
         return None
+
+    from common.tactile_client import TactileClient  # lazy: pulls in rclpy/ROS
 
     tactile_client = TactileClient(sensor_names=config.tactile_sensor_order)
     tactile_client.start()
