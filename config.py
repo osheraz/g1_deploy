@@ -8,6 +8,11 @@ from omegaconf import OmegaConf
 REMOTE_ROOT = Path(__file__).resolve().parent
 CONFIGS_DIR = REMOTE_ROOT / "configs"
 
+# Home-relative so it resolves for any user; override with `urdf_path:` in the config yaml.
+DEFAULT_URDF_PATH = (
+    "~/HumanoidVerse2/humanoidverse/data/robots/g1/g1_23dof_rev_1_0.urdf"
+)
+
 OmegaConf.register_new_resolver("eval", lambda x: eval(x))
 
 
@@ -52,6 +57,9 @@ class Config:
         self.lowstate_topic = config["lowstate_topic"]
 
         self.policy_path = _resolve_path(config["policy_path"], config_dir=config_dir)
+        self.urdf_path = _resolve_path(
+            config.get("urdf_path", DEFAULT_URDF_PATH), config_dir=config_dir
+        )
 
         self.action_joint2motor_idx = config["action_joint2motor_idx"]
         self.kps = np.array(config["kps"])

@@ -6,7 +6,7 @@
 
 use_depth_obs: true
 use_tactile: true
-tactile_sensor_order: ["WB"] # ["LF", "RF"]
+tactile_sensor_order: ["LF", "RF", "WB", "LH", "RH"]
 
 # from ego_camera.clipping_range in sim
 min_d: 0.1
@@ -152,10 +152,14 @@ fixed_target: [0, 0, 0, 0, 0, 0]
 # fixed_kds: []
 # fixed_target: []
 
-policy_path: "/home/osher/HumanoidVerse2/logs/FallRec/20260124/160403-STUDENT_TERM_ON_SUCCESS--isaacsim-fall_recovery-g1_23dof/model_last.pt"  # sim new
+policy_path: "~/HumanoidVerse2/logs/FallRec/20260124/160403-STUDENT_TERM_ON_SUCCESS--isaacsim-fall_recovery-g1_23dof/model_last.pt"  # sim new
+
+# Robot URDF for Viser. Home-relative so it works for any user.
+# Defaults to DEFAULT_URDF_PATH in config.py if omitted.
+urdf_path: "~/HumanoidVerse2/humanoidverse/data/robots/g1/g1_23dof_rev_1_0.urdf"
 
 
-# 
+#
 policy_format: "torch"   # or "jit" or  " onnx"
 
 ang_vel_scale: 0.25 # obs scale

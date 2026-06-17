@@ -13,6 +13,7 @@ if str(DEPLOY_ROOT) not in sys.path:
     sys.path.insert(0, str(DEPLOY_ROOT))
 
 from common.viser_display import DeployViser
+from config import DEFAULT_URDF_PATH
 
 
 def main():
@@ -21,6 +22,7 @@ def main():
         "--log", type=str, default="./balance_board/TEST_1770074557.npz"
     )
     ap.add_argument("--fps", type=float, default=50.0)
+    ap.add_argument("--urdf", type=str, default=DEFAULT_URDF_PATH)
     args = ap.parse_args()
 
     log_path = (DEPLOY_ROOT / "logs/real_rollouts" / args.log).resolve()
@@ -37,10 +39,7 @@ def main():
 
     n_frames = int(qj.shape[0])
 
-    urdf_path = Path(
-        "/home/osher/HumanoidVerse2/humanoidverse/data/robots/g1/"
-        "g1_23dof_rev_1_0.urdf"
-    )
+    urdf_path = Path(args.urdf).expanduser()
 
     dv = DeployViser(
         urdf_path=urdf_path,

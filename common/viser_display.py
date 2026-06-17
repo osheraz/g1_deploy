@@ -115,8 +115,12 @@ class DeployViser:
             self.tactile_lf_handle = None
             self.tactile_rf_handle = None
             self.tactile_wb_handle = None
+            self.tactile_lh_handle = None
+            self.tactile_rh_handle = None
             self.tactile_lf_image = None
             self.tactile_rf_image = None
+            self.tactile_lh_image = None
+            self.tactile_rh_image = None
             self.tactile_wb_front_image = None
             self.tactile_wb_back_image = None
             self.tactile_wb_left_shoulder_image = None
@@ -124,6 +128,7 @@ class DeployViser:
             self.tactile_wb_left_arm_image = None
             self.tactile_wb_right_arm_image = None
             dummy_foot = np.zeros((96, 160, 3), dtype=np.uint8)
+            dummy_hand = np.zeros((156, 180, 3), dtype=np.uint8)
             dummy_arm = np.zeros((96, 96, 3), dtype=np.uint8)
             dummy_shoulder = np.zeros((32, 96, 3), dtype=np.uint8)
             if "LF" in self.tactile_sensors:
@@ -139,6 +144,20 @@ class DeployViser:
                 )
                 self.tactile_rf_image = self.server.gui.add_image(
                     dummy_foot, label="RF map"
+                )
+            if "LH" in self.tactile_sensors:
+                self.tactile_lh_handle = self.server.gui.add_text(
+                    "LH", initial_value="-", disabled=True
+                )
+                self.tactile_lh_image = self.server.gui.add_image(
+                    dummy_hand, label="LH glove"
+                )
+            if "RH" in self.tactile_sensors:
+                self.tactile_rh_handle = self.server.gui.add_text(
+                    "RH", initial_value="-", disabled=True
+                )
+                self.tactile_rh_image = self.server.gui.add_image(
+                    dummy_hand, label="RH glove"
                 )
             if "WB" in self.tactile_sensors:
                 self.tactile_wb_handle = self.server.gui.add_text(
@@ -252,12 +271,20 @@ class DeployViser:
             self.tactile_rf_handle.value = sensor_status.get("RF", "-")
         if self.tactile_wb_handle is not None:
             self.tactile_wb_handle.value = sensor_status.get("WB", "-")
+        if self.tactile_lh_handle is not None:
+            self.tactile_lh_handle.value = sensor_status.get("LH", "-")
+        if self.tactile_rh_handle is not None:
+            self.tactile_rh_handle.value = sensor_status.get("RH", "-")
 
     def update_tactile_images(self, panels: dict[str, np.ndarray]) -> None:
         if self.tactile_lf_image is not None and "LF" in panels:
             self.tactile_lf_image.image = panels["LF"]
         if self.tactile_rf_image is not None and "RF" in panels:
             self.tactile_rf_image.image = panels["RF"]
+        if self.tactile_lh_image is not None and "LH" in panels:
+            self.tactile_lh_image.image = panels["LH"]
+        if self.tactile_rh_image is not None and "RH" in panels:
+            self.tactile_rh_image.image = panels["RH"]
         if self.tactile_wb_front_image is not None and "WB_front" in panels:
             self.tactile_wb_front_image.image = panels["WB_front"]
         if self.tactile_wb_back_image is not None and "WB_back" in panels:

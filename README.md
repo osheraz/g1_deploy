@@ -64,6 +64,9 @@ Set [`configs/g1_23dof.yaml`](configs/g1_23dof.yaml) so `depth_server_ip` points
 - `check_streams.py` is a read-only checker. It never sends robot commands.
 - The robot state comes from Unitree DDS (`rt/lowstate`).
 - Tactile comes from ROS 2 topics published by `ros_ws/`.
+- Glove tactile topics are `/jq_tactile/left_hand/LH/...` and
+  `/jq_tactile/right_hand/RH/...`; the robot-side launch expects
+  `/dev/jq_hand_left` and `/dev/jq_hand_right` to exist.
 - Depth comes from the robot-side ZMQ server.
 - The checker isolates the tactile ROS subscriber so one command can show robot state and tactile together in Viser.
 - `deploy_g1.py` uses the same three inputs, but it also runs the policy and sends actions to the robot.

@@ -20,7 +20,7 @@ from common.depth_client import SimpleDepthClient
 from common.remote_controller import KeyMap, RemoteController
 from common.tactile_render import render_sensor_panels
 from common.viser_display import DeployViser
-from config import CONFIGS_DIR
+from config import CONFIGS_DIR, DEFAULT_URDF_PATH
 
 
 @dataclass
@@ -40,6 +40,7 @@ class StreamConfig:
     min_d: float = 0.1
     max_d: float = 2.0
     depth_scale: float = 0.001
+    urdf_path: str = DEFAULT_URDF_PATH
 
 
 def load_stream_config(file_path: str | Path) -> StreamConfig:
@@ -68,6 +69,7 @@ def load_stream_config(file_path: str | Path) -> StreamConfig:
         min_d=data.get("min_d", 0.1),
         max_d=data.get("max_d", 2.0),
         depth_scale=data.get("depth_scale", 0.001),
+        urdf_path=data.get("urdf_path", DEFAULT_URDF_PATH),
     )
 
 
@@ -339,14 +341,13 @@ def main():
     parser.add_argument(
         "--urdf",
         type=str,
-        default=(
-            "/home/osher/HumanoidVerse2/humanoidverse/data/robots/g1/"
-            "g1_23dof_rev_1_0.urdf"
-        ),
+        default=None,
+        help="Override URDF path; defaults to urdf_path from the config yaml.",
     )
     args = parser.parse_args()
 
     config = load_stream_config(args.config)
+    urdf_path = Path(args.urdf or config.urdf_path).expanduser()
 
     depth_client = None
     if config.use_depth_obs:
@@ -370,7 +371,7 @@ def main():
     viser_display = None
     if config.viser_display:
         viser_display = DeployViser(
-            urdf_path=Path(args.urdf),
+            urdf_path=urdf_path,
             with_depth=config.use_depth_obs,
             depth_min=config.min_d,
             depth_max=config.max_d,
@@ -389,7 +390,7 @@ def main():
     if config.use_tactile:
         print(f"Tactile sensors: {config.tactile_sensor_order}")
     if viser_display is not None:
-        print(f"Viser: ON urdf={args.urdf}")
+        print(f"Viser: ON urdf={urdf_path}")
     print("This script never publishes robot commands. Press Ctrl+C to stop.")
 
     last_depth_count = 0

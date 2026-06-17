@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from pathlib import Path
 import argparse
 import time
@@ -13,7 +13,11 @@ from common.command_helper import create_damping_cmd
 from common.remote_controller import KeyMap
 from common.timer import TicToc
 from common.real_logger import RealLogger
+from common.tactile_render import render_sensor_panels
 from config import Config
+
+if TYPE_CHECKING:
+    from common.tactile_client import TactileClient
 
 from robot.robot_interface import RobotInterface
 from policy.policy_runner import PolicyRunner
@@ -28,6 +32,7 @@ class ViserUpdateThread(threading.Thread):
         viser_display,
         robot: RobotInterface,
         depth_client: Optional[SimpleDepthClient],
+        tactile_client: Optional[TactileClient],
         hz: float = 30.0,
         ext_cam=None,
     ):
@@ -35,6 +40,7 @@ class ViserUpdateThread(threading.Thread):
         self.viser_display = viser_display
         self.robot = robot
         self.depth_client = depth_client
+        self.tactile_client = tactile_client
         self.ext_cam = ext_cam
 
         self.hz = hz
@@ -57,6 +63,27 @@ class ViserUpdateThread(threading.Thread):
                 depth_raw=depth_raw,
                 rgb_bgr=rgb_bgr,
             )
+            if self.tactile_client is not None:
+                snapshot = self.tactile_client.snapshot()
+                sensor_status = {}
+                panels = {}
+                overall_on = False
+                for sensor_name, sample in snapshot.items():
+                    raw = sample.get("raw_sensor_bytes", b"")
+                    gyro = sample.get("raw_gyro_bytes", b"")
+                    on = bool(raw or gyro)
+                    overall_on = overall_on or on
+                    status = "ON" if on else "OFF"
+                    sensor_status[sensor_name] = (
+                        f"{status}(raw={len(raw)},gyro={len(gyro)})"
+                    )
+                    if raw:
+                        panels.update(render_sensor_panels(sensor_name, raw))
+                self.viser_display.update_tactile(
+                    "ON" if overall_on else "OFF",
+                    sensor_status,
+                )
+                self.viser_display.update_tactile_images(panels)
             time.sleep(dt)
 
 
@@ -285,16 +312,13 @@ def main():
     if config.viser_display:
         from common.viser_display import DeployViser
 
-        urdf_path = Path(
-            "/home/osher/HumanoidVerse2/humanoidverse/data/robots/g1/"
-            "g1_23dof_rev_1_0.urdf"
-        )
         viser_display = DeployViser(
-            urdf_path=urdf_path,
+            urdf_path=Path(config.urdf_path),
             with_depth=config.use_depth_obs,
             depth_min=config.min_d,
             depth_max=config.max_d,
             depth_scale=config.depth_scale,
+            tactile_sensors=config.tactile_sensor_order if config.use_tactile else [],
         )
 
     ChannelFactoryInitialize(0)
@@ -339,6 +363,7 @@ def main():
             viser_display=viser_display,
             robot=robot,
             depth_client=depth_client,
+            tactile_client=tactile_client,
             ext_cam=ext_cam,
             hz=50.0,
         )
