@@ -27,6 +27,19 @@ class PolicyRunner:
         self.onnx_input_names = []
 
         self.action = np.zeros(config.num_actions, dtype=np.float32)
+        self.action_ema = config.action_ema  # 1.0 off, lower = smoother
+
+        # reference-tracking: replay a retargeted clip -> future_ref_motion_proto obs
+        self.reference = None
+        if config.reference_clip:
+            from policy.reference_provider import ReferenceProvider
+
+            self.reference = ReferenceProvider(
+                config.reference_clip,
+                config.default_angles_23,
+                config.future_steps,
+                loop_mode=config.loop_mode,
+            )
 
         self.history_config_long = config.history_actor_long_config
         self.history_handler = HistoryHandler(
@@ -188,6 +201,7 @@ class PolicyRunner:
         dof_pos: np.ndarray,
         dof_vel: np.ndarray,
         depth_raw: Optional[np.ndarray] = None,
+        base_quat_wxyz: Optional[np.ndarray] = None,
     ) -> np.ndarray:
 
         if self.policy_type is None:
@@ -200,6 +214,11 @@ class PolicyRunner:
             "dof_vel": dof_vel,
             "actions": self.action,
         }
+
+        if self.reference is not None:
+            values["future_ref_motion_proto"] = self.reference.future_proto(
+                base_quat_wxyz
+            )
 
         keys = sorted(values.keys())
         actor_obs = np.concatenate([values[k] for k in keys], axis=-1).astype(
@@ -301,7 +320,11 @@ class PolicyRunner:
         #     self.action = (e) * act.astype(np.float32)
         #     # self.action = (1- e) * self.action + (e) * act.astype(np.float32)
         # else:
-        self.action = act.astype(np.float32)
+        act = act.astype(np.float32)
+        self.action = self.action_ema * act + (1.0 - self.action_ema) * self.action
+
+        if self.reference is not None:
+            self.reference.step()
 
         self.act_count += 1
 

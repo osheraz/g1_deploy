@@ -181,6 +181,7 @@ class HighLevelController:
             dof_pos=dof_pos,
             dof_vel=dof_vel,
             depth_raw=depth_raw,
+            base_quat_wxyz=imu_quat,
         )
 
         

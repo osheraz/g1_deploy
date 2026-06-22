@@ -88,10 +88,27 @@ class Config:
         self.train_cfg = OmegaConf.load(self.train_cfg_path)
 
         self.actor_obs_keys = list(self.train_cfg.obs.obs_dict.actor_obs)
+        obs_aux = self.train_cfg.obs.get("obs_auxiliary", {})
         self.history_actor_long_config = dict(
-            self.train_cfg.obs.obs_auxiliary.history_actor_long
+            obs_aux.get("history_actor_long", {})
         )
-        self.student_actor_cfg = self.train_cfg.algo.config.student.module_dict.actor
+        self.student_actor_cfg = OmegaConf.select(
+            self.train_cfg, "algo.config.student.module_dict.actor"
+        )
+
+        # reference-tracking: replay clip (.npz on control-dt grid) -> proto obs
+        self.reference_clip = config.get("reference_clip", None)
+        self.future_steps = list(
+            config.get(
+                "future_steps",
+                OmegaConf.select(
+                    self.train_cfg, "env.config.reference_motion.future_steps"
+                )
+                or [1, 2, 4, 8],
+            )
+        )
+        self.loop_mode = config.get("loop_mode", "clamp")
+        self.action_ema = config.get("action_ema", 1.0)  # deploy action smoothing
 
         self.reference_motion = config["reference_motion"]
         self.reference_keyframes = config["reference_keyframes"]
@@ -111,8 +128,12 @@ class Config:
         self.max_d = config.get("max_d", 2.0)
         self.depth_scale = config.get("depth_scale", 0.001)
 
-        self.depth_img_width = self.train_cfg.env.config.ego_camera.width
-        self.depth_img_height = self.train_cfg.env.config.ego_camera.height
+        if self.use_depth_obs:
+            self.depth_img_width = self.train_cfg.env.config.ego_camera.width
+            self.depth_img_height = self.train_cfg.env.config.ego_camera.height
+        else:
+            self.depth_img_width = config.get("depth_img_width", 0)
+            self.depth_img_height = config.get("depth_img_height", 0)
 
         self.depth_obs_dim = int(self.depth_img_width * self.depth_img_height)
         self.depth_server_ip = config.get("depth_server_ip", "192.168.123.164")
