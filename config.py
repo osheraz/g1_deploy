@@ -110,6 +110,19 @@ class Config:
         self.loop_mode = config.get("loop_mode", "clamp")
         self.action_ema = config.get("action_ema", 1.0)  # deploy action smoothing
 
+        # live PICO 3-point teleop (sparse keypoint goal) instead of a clip
+        self.pico_teleop = config.get("pico_teleop", False)
+        self.pico_tracked_order = list(
+            config.get("pico_tracked_order", ["head", "left_wrist", "right_wrist"])
+        )
+        self.pico_emit = list(
+            config.get(
+                "pico_emit",
+                ["motion_anchor_pos_b", "motion_anchor_ori_b",
+                 "ref_body_pos_b", "ref_body_ori_b"],
+            )
+        )
+
         self.reference_motion = config["reference_motion"]
         self.reference_keyframes = config["reference_keyframes"]
 

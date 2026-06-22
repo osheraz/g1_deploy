@@ -41,6 +41,22 @@ class PolicyRunner:
                 loop_mode=config.loop_mode,
             )
 
+        # live PICO 3-point teleop -> sparse keypoint-goal obs (no clip)
+        self.pico_reader = None
+        self.pico_provider = None
+        self._pico_frame = None
+        if config.pico_teleop:
+            from policy.pico_reader import PicoReader
+            from policy.pico_reference_provider import PicoReferenceProvider
+
+            self.pico_reader = PicoReader()
+            self.pico_reader.start()
+            self.pico_provider = PicoReferenceProvider(
+                tracked_order=config.pico_tracked_order, emit=config.pico_emit
+            )
+            z, q = np.zeros(3, np.float32), np.array([1, 0, 0, 0], np.float32)
+            self._pico_frame = {n: (z.copy(), q.copy()) for n in config.pico_tracked_order}
+
         self.history_config_long = config.history_actor_long_config
         self.history_handler = HistoryHandler(
             history_config=self.history_config_long,
@@ -218,6 +234,26 @@ class PolicyRunner:
         if self.reference is not None:
             values["future_ref_motion_proto"] = self.reference.future_proto(
                 base_quat_wxyz
+            )
+
+        if self.pico_provider is not None:
+            frame = self.pico_reader.latest()
+            if frame is not None:
+                self._pico_frame = frame
+            rq = base_quat_wxyz if base_quat_wxyz is not None else np.array(
+                [1, 0, 0, 0], np.float32
+            )
+            # goal anchored to the current pelvis; PICO poses must be in the pelvis
+            # frame (world->pelvis calibration is the bench-test step).
+            zero = np.zeros(3, np.float32)
+            values.update(
+                self.pico_provider.blocks(
+                    self._pico_frame,
+                    ref_anchor_pos=zero,
+                    ref_anchor_quat_wxyz=np.array([1, 0, 0, 0], np.float32),
+                    robot_anchor_pos=zero,
+                    robot_anchor_quat_wxyz=rq,
+                )
             )
 
         keys = sorted(values.keys())
