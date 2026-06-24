@@ -39,12 +39,16 @@ class PicoReferenceProvider:
         pass
 
     def blocks(self, pico_frame, ref_anchor_pos, ref_anchor_quat_wxyz,
-              robot_anchor_pos, robot_anchor_quat_wxyz):
+              robot_anchor_pos, robot_anchor_quat_wxyz,
+              ref_anchor_vel=None, ref_anchor_angvel=None):
         rq = _wxyz_to_xyzw(np.asarray(robot_anchor_quat_wxyz, np.float32))
         anchor_inv = _quat_conj_xyzw(rq)
         rp = np.asarray(robot_anchor_pos, np.float32)
         ra_p = np.asarray(ref_anchor_pos, np.float32)
         ra_q = _wxyz_to_xyzw(np.asarray(ref_anchor_quat_wxyz, np.float32))
+        z3 = np.zeros(3, np.float32)
+        rv = z3 if ref_anchor_vel is None else np.asarray(ref_anchor_vel, np.float32)
+        rw = z3 if ref_anchor_angvel is None else np.asarray(ref_anchor_angvel, np.float32)
 
         out = {}
         if "motion_anchor_pos_b" in self.emit:
@@ -52,6 +56,10 @@ class PicoReferenceProvider:
         if "motion_anchor_ori_b" in self.emit:
             out["motion_anchor_ori_b"] = _quat_to_rot6d_xyzw(
                 _quat_mul_xyzw(anchor_inv, ra_q))
+        if "motion_anchor_vel_b" in self.emit:
+            out["motion_anchor_vel_b"] = _quat_apply_xyzw(anchor_inv, rv)
+        if "motion_anchor_ang_vel_b" in self.emit:
+            out["motion_anchor_ang_vel_b"] = _quat_apply_xyzw(anchor_inv, rw)
 
         pos_blocks, ori_blocks = [], []
         for name in self.tracked_order:

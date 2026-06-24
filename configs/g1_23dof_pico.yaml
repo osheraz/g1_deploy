@@ -1,8 +1,7 @@
 ###############################################################
 # Live PICO 3-point teleop deploy (sparse keypoint-goal tracker).
-# actor_obs (111) built in policy_runner by sorted(keys):
-#   [actions, base_ang_vel, dof_pos, dof_vel, motion_anchor_ori_b,
-#    motion_anchor_pos_b, projected_gravity, ref_body_ori_b, ref_body_pos_b].
+# actor_obs (117) built in policy_runner by sorted(keys); includes anchor vel/angvel
+# command (zeros = hold position at deploy; teleop locomotion sets them).
 # Goal blocks come from PicoReferenceProvider (3 VR poses), built RAW (scale 1.0).
 # Needs a policy trained on +exp=reference_tracking_3point. See PICO_TELEOP.md.
 ###############################################################
@@ -22,7 +21,7 @@ lowstate_topic: "rt/lowstate"
 # --- live PICO teleop (no clip) ---
 pico_teleop: true
 pico_tracked_order: [head, left_wrist, right_wrist]
-pico_emit: [motion_anchor_pos_b, motion_anchor_ori_b, ref_body_pos_b, ref_body_ori_b]
+pico_emit: [motion_anchor_pos_b, motion_anchor_ori_b, motion_anchor_vel_b, motion_anchor_ang_vel_b, ref_body_pos_b, ref_body_ori_b]
 
 action_joint2motor_idx: [
     0, 1, 2, 3, 4, 5,
@@ -90,12 +89,14 @@ obs_dim: {
     actions: 23,
     motion_anchor_pos_b: 3,
     motion_anchor_ori_b: 6,
+    motion_anchor_vel_b: 3,
+    motion_anchor_ang_vel_b: 3,
     ref_body_pos_b: 9,
     ref_body_ori_b: 18,
 }
 
 num_actions: 23
-num_obs: 111
+num_obs: 117
 
 clip_actions: 100.
 clip_obs: 100.
