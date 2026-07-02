@@ -2,6 +2,20 @@
 
 SSID: `osher` | Password: `12345678` | Host IP: `10.42.0.1` | Dongle: `wlx5ce931823ffc` | Profile: `Hotspot-1`
 
+## Prerequisites (fresh machine only)
+
+Dongle is a TP-Link Archer T2U Nano (RTL8811AU) — needs an out-of-tree driver:
+
+```bash
+git clone https://github.com/aircrack-ng/rtl8812au ~/rtl8812au   # already cloned on this machine
+cd ~/rtl8812au
+sudo make dkms_install        # builds via DKMS, survives kernel updates
+lsmod | grep 88XXau           # verify loaded (replug dongle if not)
+```
+
+Note: interface name `wlx...` is derived from the dongle's MAC — a different dongle gets a
+different name (`ip -br link` to find it).
+
 ## Setup (one time)
 
 ```bash
