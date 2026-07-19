@@ -30,16 +30,7 @@ def _quat_to_rot6d_xyzw(q):
 
 
 class ReferenceProvider:
-    """Replays a retargeted reference clip and builds `future_ref_motion_proto`,
-    matching humanoidverse2 reference_tracking_obs._get_obs_future_ref_motion_proto
-    with align_to_robot_anchor=False, sample_random_yaw=False (the trained config).
-
-    Clip is exported on the control-dt grid so future_steps (integers) index frames
-    directly -> no interpolation needed (exact match to the sim's get_state grid).
-    npz keys: dof_pos (T,D), dof_vel (T,D), torso_quat_xyzw (T,4), control_dt ().
-    Per step k the 52-d block is [rot6d(6), dof_vel(D), dof_pos-default(D)] and the
-    full vector concatenates the blocks in future_steps order.
-    """
+    """Replays a retargeted reference clip and builds `future_ref_motion_proto`."""
 
     def __init__(self, clip_path, default_dof_pos, future_steps, loop_mode="clamp"):
         d = np.load(clip_path)
