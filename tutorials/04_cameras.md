@@ -23,6 +23,10 @@ Both live in `~/osher/image_server/` on the robot.
 | `img_server_osher.py` | 5555 | depth only, single-part |
 | `img_server_rgbd.py` | 5556 | color + depth, 2-part `[color_jpg, depth_png]` |
 
+Verify that `ImageServer` in `img_server_rgbd.py` defaults to port `5556`. Older robot-side
+copies used `5555`, which conflicts with the depth-only server and does not match this client
+configuration.
+
 `img_server_osher.py` is what the deploy runtime consumes ([3. Config](03_config.md#depth-as-policy-input)).
 `img_server_rgbd.py` is for looking at both streams.
 
