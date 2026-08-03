@@ -49,6 +49,7 @@ class SimpleDepthClient(threading.Thread):
         self.socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
         self.latest_depth = None
+        self.latest_color = None
         self.running = True
         self.frame_count = 0
 
@@ -57,17 +58,18 @@ class SimpleDepthClient(threading.Thread):
 
         try:
             while self.running:
-                msg = self.socket.recv()
-                # color_msg, depth_msg = self.socket.recv_multipart()
+                parts = self.socket.recv_multipart()
+                if len(parts) == 2:
+                    color_msg, depth_msg = parts
+                    self.latest_color = cv2.imdecode(
+                        np.frombuffer(color_msg, dtype=np.uint8), cv2.IMREAD_COLOR
+                    )
+                else:
+                    depth_msg = parts[0]
 
-                depth = np.frombuffer(msg, dtype=np.uint8)
-
-                depth = cv2.imdecode(depth, cv2.IMREAD_UNCHANGED)
-                # color = np.frombuffer(color_msg, dtype=np.uint8)
-                # color = cv2.imdecode(color, cv2.IMREAD_COLOR)
-
-                # depth = np.frombuffer(depth_msg, dtype=np.uint8)
-                # depth = cv2.imdecode(depth, cv2.IMREAD_UNCHANGED)
+                depth = cv2.imdecode(
+                    np.frombuffer(depth_msg, dtype=np.uint8), cv2.IMREAD_UNCHANGED
+                )
 
                 if depth is None:
                     continue
@@ -93,10 +95,8 @@ class SimpleDepthClient(threading.Thread):
 
                     vis = ((d - 0.1) / (2.0 - 0.1) * 255).astype(np.uint8)
                     cv2.imshow("Depth", vis)
-                    # cv2.imshow('Color', color)
-                    # o = depth_to_obs_vector_match_sim(depth, 64, 64, 0.1, 2.0)
-                    # ov = (o.reshape(64, 64) * 255).astype(np.uint8)
-                    # cv2.imshow("ObsVec", ov)
+                    if self.latest_color is not None:
+                        cv2.imshow("Color", self.latest_color)
 
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         self.running = False

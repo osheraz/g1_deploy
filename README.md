@@ -1,83 +1,48 @@
-# Remote
+# g1_deploy
 
-Remote-side G1 deploy runtime.
+Remote-side G1 deploy runtime. Runs a trained policy on your machine and drives the robot
+over Unitree DDS.
 
-Short version:
+## Start here
 
-- Shared quickstart in `e_skin`:
-  [`osheraz/e_skin/docs/quickstart.md`](https://github.com/osheraz/e_skin/blob/master/docs/quickstart.md)
+**[tutorials/GETTING_STARTED.md](tutorials/GETTING_STARTED.md)** — ethernet to the robot,
+environment, camera, stream checks, first run.
 
-Copy this folder to the remote machine.
+## Tutorials
 
-## Setup
-
-```bash
-cd remote
-pixi run bootstrap
-source .envrc
-uv pip install -e .
-```
-
-Install Unitree SDK into the same environment:
-
-```bash
-export REMOTE_PIXI_PREFIX="$PWD/.pixi/envs/default"
-git clone https://github.com/unitreerobotics/unitree_sdk2_python.git
-cd unitree_sdk2_python
-export CYCLONEDDS_HOME="$REMOTE_PIXI_PREFIX"
-export CMAKE_PREFIX_PATH="$REMOTE_PIXI_PREFIX${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
-uv pip install -e .
-```
-
-Example Torch install:
-
-```bash
-uv pip install pyzmq
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-```
+- [Getting started](tutorials/GETTING_STARTED.md) — index
+- [1. Network](tutorials/01_network.md) — ethernet to the robot
+- [2. Install](tutorials/02_install.md) — uv, torch, Unitree SDK
+- [3. Config](tutorials/03_config.md) — configs and what to change
+- [4. Cameras](tutorials/04_cameras.md) — viewing RGB and depth
+- [5. Run](tutorials/05_run.md) — stream check, then the policy
+- [6. Tactile](tutorials/06_tactile.md) — e-skin over ROS 2
+- [PICO teleop](tutorials/PICO_TELEOP.md) — VR teleop
+- [WiFi hotspot](tutorials/wifi_hotspot.md) — robot with no wired internet
 
 ## Run
 
-```bash
-cd remote
-source .envrc
-python3 deploy_g1.py --config g1_23dof.yaml --log TEST.npz
-```
-
-Safe stream check without sending robot actions:
+Read-only stream check — never sends robot commands:
 
 ```bash
-cd remote
-source .envrc
-python3 check_streams.py --config g1_23dof.yaml
+python check_streams.py --config g1_23dof.yaml
 ```
 
-## Inputs
+Policy — **moves the robot on launch**:
 
-- tactile: ROS 2 topics from the robot-side workspace
-- depth: ZMQ stream from the robot-side depth server
+```bash
+python deploy_g1.py --net enp132s0 --config g1_23dof.yaml --log TEST.npz
+```
 
-Set [`configs/g1_23dof.yaml`](configs/g1_23dof.yaml) so `depth_server_ip` points to the robot PC.
+## Layout
 
-## Notes
-
-- `check_streams.py` is a read-only checker. It never sends robot commands.
-- The robot state comes from Unitree DDS (`rt/lowstate`).
-- Tactile comes from ROS 2 topics published by `ros_ws/`.
-- Glove tactile topics are `/jq_tactile/left_hand/LH/...` and
-  `/jq_tactile/right_hand/RH/...`; the robot-side launch expects
-  `/dev/jq_hand_left` and `/dev/jq_hand_right` to exist.
-- Depth comes from the robot-side ZMQ server.
-- The checker isolates the tactile ROS subscriber so one command can show robot state and tactile together in Viser.
-- `deploy_g1.py` uses the same three inputs, but it also runs the policy and sends actions to the robot.
-
-## Files
-
-- [`deploy_g1.py`](deploy_g1.py)
-- [`config.py`](config.py)
-- [`configs/g1_23dof.yaml`](configs/g1_23dof.yaml)
-- [`common/tactile_client.py`](common/tactile_client.py)
-- [`common/depth_client.py`](common/depth_client.py)
-- [`scripts/bootstrap.sh`](scripts/bootstrap.sh)
-- [`tools/replay_rollout.py`](tools/replay_rollout.py)
-- [`tools/make_video.py`](tools/make_video.py)
+| Path | What |
+| --- | --- |
+| [deploy_g1.py](deploy_g1.py) | policy runtime |
+| [check_streams.py](check_streams.py) | read-only stream checker |
+| [config.py](config.py) | config loader |
+| [configs/](configs/) | per-robot / per-policy configs |
+| [policy/](policy/) | policy runner, reference providers, ONNX |
+| [robot/](robot/) | DDS interface |
+| [common/](common/) | camera, depth, tactile, viser, logging |
+| [tools/](tools/) | replay, video, MuJoCo sim2sim |

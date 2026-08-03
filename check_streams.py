@@ -167,7 +167,7 @@ class ViserUpdateThread(threading.Thread):
                     low_state=msg,
                     qj=qj,
                     depth_raw=self.depth_client.latest_depth if self.depth_client else None,
-                    rgb_bgr=None,
+                    rgb_bgr=self.depth_client.latest_color if self.depth_client else None,
                 )
             if self.tactile_client is not None:
                 overall, sensor_status = self.tactile_client.sensor_status_text()
