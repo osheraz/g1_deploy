@@ -23,7 +23,7 @@ from robot.robot_interface import RobotInterface
 from policy.policy_runner import PolicyRunner
 
 TACTILE_RAW_LEN = 256
-TACTILE_GYRO_LEN = 16
+TACTILE_IMU_LEN = 16
 
 
 class ViserUpdateThread(threading.Thread):
@@ -70,12 +70,12 @@ class ViserUpdateThread(threading.Thread):
                 overall_on = False
                 for sensor_name, sample in snapshot.items():
                     raw = sample.get("raw_sensor_bytes", b"")
-                    gyro = sample.get("raw_gyro_bytes", b"")
-                    on = bool(raw or gyro)
+                    imu = sample.get("raw_imu_bytes", b"")
+                    on = bool(raw or imu)
                     overall_on = overall_on or on
                     status = "ON" if on else "OFF"
                     sensor_status[sensor_name] = (
-                        f"{status}(raw={len(raw)},gyro={len(gyro)})"
+                        f"{status}(raw={len(raw)},imu={len(imu)})"
                     )
                     if raw:
                         panels.update(render_sensor_panels(sensor_name, raw))
@@ -120,11 +120,19 @@ def init_tactile_client(config: Config) -> Optional["TactileClient"]:
     if not config.use_tactile:
         return None
 
-    from common.tactile_client import TactileClient  # lazy: pulls in rclpy/ROS
+    from common.tactile_client import TactileClient
 
-    tactile_client = TactileClient(sensor_names=config.tactile_sensor_order)
+    tactile_client = TactileClient(
+        sensor_names=config.tactile_sensor_order,
+        server_address=config.tactile_server_ip,
+        port=config.tactile_server_port,
+    )
     tactile_client.start()
-    print(f"Tactile ROS client started for sensors={config.tactile_sensor_order}.")
+    print(
+        f"Tactile client started: "
+        f"tcp://{config.tactile_server_ip}:{config.tactile_server_port} "
+        f"sensors={config.tactile_sensor_order}"
+    )
     return tactile_client
 
 
@@ -273,15 +281,15 @@ class HighLevelController:
         for sensor_name, tactile in tactile_snapshot.items():
             tag = sensor_name.lower()
             raw_u8 = np.zeros(TACTILE_RAW_LEN, dtype=np.uint8)
-            gyro_u8 = np.zeros(TACTILE_GYRO_LEN, dtype=np.uint8)
+            imu_u8 = np.zeros(TACTILE_IMU_LEN, dtype=np.uint8)
 
             raw_src = np.frombuffer(tactile["raw_sensor_bytes"], dtype=np.uint8)
-            gyro_src = np.frombuffer(tactile["raw_gyro_bytes"], dtype=np.uint8)
+            imu_src = np.frombuffer(tactile["raw_imu_bytes"], dtype=np.uint8)
             raw_u8[: min(TACTILE_RAW_LEN, raw_src.size)] = raw_src[:TACTILE_RAW_LEN]
-            gyro_u8[: min(TACTILE_GYRO_LEN, gyro_src.size)] = gyro_src[:TACTILE_GYRO_LEN]
+            imu_u8[: min(TACTILE_IMU_LEN, imu_src.size)] = imu_src[:TACTILE_IMU_LEN]
 
             sample[f"tactile_{tag}_raw_u8"] = raw_u8
-            sample[f"tactile_{tag}_gyro_u8"] = gyro_u8
+            sample[f"tactile_{tag}_imu_u8"] = imu_u8
 
         if self.ext_cam is not None:
             frame = self.ext_cam.latest_bgr
@@ -433,7 +441,7 @@ def main():
                 list(config.tactile_sensor_order) if config.use_tactile else []
             ),
             "tactile_raw_len": TACTILE_RAW_LEN,
-            "tactile_gyro_len": TACTILE_GYRO_LEN,
+            "tactile_imu_len": TACTILE_IMU_LEN,
             "depth_enabled": bool(config.use_depth_obs),
             "depth_shape": [int(config.depth_img_height), int(config.depth_img_width)],
             "depth_min_m": float(config.min_d),

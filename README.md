@@ -16,7 +16,7 @@ environment, camera, stream checks, first run.
 - [3. Config](tutorials/03_config.md) — configs and what to change
 - [4. Cameras](tutorials/04_cameras.md) — viewing RGB and depth
 - [5. Run](tutorials/05_run.md) — stream check, then the policy
-- [6. Tactile](tutorials/06_tactile.md) — e-skin over ROS 2
+- [6. Tactile](tutorials/06_tactile.md) — e-skin over ZMQ
 - [PICO teleop](tutorials/PICO_TELEOP.md) — VR teleop
 - [WiFi hotspot](tutorials/wifi_hotspot.md) — robot with no wired internet
 

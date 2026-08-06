@@ -137,6 +137,11 @@ class Config:
             ["LF", "RF", "WB", "LH", "RH"],
         )
 
+        self.tactile_server_ip = config.get(
+            "tactile_server_ip", config.get("depth_server_ip", "192.168.123.164")
+        )
+        self.tactile_server_port = config.get("tactile_server_port", 5557)
+
         self.min_d = config.get("min_d", 0.1)
         self.max_d = config.get("max_d", 2.0)
         self.depth_scale = config.get("depth_scale", 0.001)
@@ -160,6 +165,9 @@ class Config:
         if self.use_depth_obs:
             print(f"Depth: {self.depth_img_width}x{self.depth_img_height}")
             print(f"Depth server: {self.depth_server_ip}:{self.depth_server_port}")
-        print(f"Use tactile ROS: {self.use_tactile}")
+        print(f"Use tactile: {self.use_tactile}")
         if self.use_tactile:
             print(f"Tactile sensors: {self.tactile_sensor_order}")
+            print(
+                f"Tactile server: {self.tactile_server_ip}:{self.tactile_server_port}"
+            )

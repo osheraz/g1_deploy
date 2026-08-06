@@ -14,7 +14,7 @@ Optional:
 
 | | |
 | --- | --- |
-| [Tactile](06_tactile.md) | e-skin over ROS 2 |
+| [Tactile](06_tactile.md) | e-skin over ZMQ |
 | [PICO teleop](PICO_TELEOP.md) | VR teleop from a PICO headset |
 | [WiFi hotspot](wifi_hotspot.md) | robot with no wired internet |
 
@@ -28,4 +28,4 @@ Nothing sends robot commands until [5. Run](05_run.md). `check_streams.py` is re
 | robot state / motor commands | G1 onboard | DDS `rt/lowstate`, `rt/lowcmd` |
 | RealSense depth | G1 onboard PC `192.168.123.164` | ZMQ port 5555 |
 | RealSense RGB + depth | G1 onboard PC `192.168.123.164` | ZMQ port 5556 |
-| tactile | G1 onboard `ros_ws/` | ROS 2 topics |
+| tactile | G1 onboard, system python | ZMQ port 5557 |

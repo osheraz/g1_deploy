@@ -2,132 +2,133 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Optional
 
-import rclpy
-from rclpy.executors import SingleThreadedExecutor
-from rclpy.node import Node
-from std_msgs.msg import UInt8MultiArray
+import zmq
 
 
-SENSOR_TOPIC_CONFIG = {
-    "LF": {
-        "role": "left_foot",
-    },
-    "RF": {
-        "role": "right_foot",
-    },
-    "LH": {
-        "role": "left_hand",
-    },
-    "RH": {
-        "role": "right_hand",
-    },
-    "WB": {
-        "role": "upper_body",
-    },
-}
+DEFAULT_PORT = 5557
+
+# Sensor ids the server may publish; see jq_tactile_driver/reader.py.
+KNOWN_SENSORS = ("LF", "RF", "WB", "LH", "RH")
 
 
 @dataclass
 class TactileSample:
     sensor: str
     raw_sensor_bytes: bytes = b""
-    raw_gyro_bytes: bytes = b""
+    raw_imu_bytes: bytes = b""
 
 
-class TactileClient:
+class TactileClient(threading.Thread):
+    """ZMQ SUB for tactile frames published by ``jq_tactile_driver.server``.
+
+    Mirrors ``SimpleDepthClient``: a daemon thread holding the latest frame per
+    sensor. No ROS.
+    """
+
     def __init__(
         self,
         sensor_names: list[str],
-        node_name: str = "deploy_tactile_client",
+        server_address: str = "192.168.123.164",
+        port: int = DEFAULT_PORT,
     ):
-        self.sensor_names = [name for name in sensor_names if name in SENSOR_TOPIC_CONFIG]
-        self._owns_rclpy = False
-        if not rclpy.ok():
-            rclpy.init()
-            self._owns_rclpy = True
+        super().__init__(daemon=True)
+        self.sensor_names = [n for n in sensor_names if n in KNOWN_SENSORS]
+        self.server_address = server_address
+        self.port = port
 
-        self.node = Node(node_name)
-        self.executor = SingleThreadedExecutor()
-        self.executor.add_node(self.node)
+        self.context = zmq.Context()
+        self.socket = self.context.socket(zmq.SUB)
+        self.socket.connect(f"tcp://{server_address}:{port}")
+        # Subscribe per sensor: the first frame part is the sensor name, so the
+        # prefix filter drops sensors this deploy does not care about.
+        for sensor in self.sensor_names:
+            self.socket.setsockopt(zmq.SUBSCRIBE, sensor.encode("ascii"))
+        self.socket.setsockopt(zmq.RCVTIMEO, 500)
 
         self._lock = threading.Lock()
         self.running = True
         self.frame_count = 0
         self.samples: Dict[str, TactileSample] = {
-            sensor: TactileSample(sensor=sensor)
-            for sensor in self.sensor_names
+            sensor: TactileSample(sensor=sensor) for sensor in self.sensor_names
         }
 
-        for sensor in self.sensor_names:
-            role = SENSOR_TOPIC_CONFIG[sensor]["role"]
-            prefix = f"/jq_tactile/{role}/{sensor}"
+    def run(self) -> None:
+        while self.running:
+            try:
+                parts = self.socket.recv_multipart()
+            except zmq.Again:
+                continue
+            except zmq.ZMQError:
+                break
 
-            self.node.create_subscription(
-                UInt8MultiArray,
-                f"{prefix}/raw_sensor_bytes",
-                self._make_raw_cb(sensor),
-                10,
-            )
-            self.node.create_subscription(
-                UInt8MultiArray,
-                f"{prefix}/raw_gyro_bytes",
-                self._make_gyro_cb(sensor),
-                10,
-            )
+            if len(parts) != 3:
+                continue
+            name, raw, imu = parts
+            sensor = name.decode("ascii", "ignore")
+            if sensor not in self.samples:
+                continue
 
-        self.thread = threading.Thread(target=self._spin, daemon=True)
-
-    def start(self) -> None:
-        self.thread.start()
-
-    def _spin(self) -> None:
-        while self.running and rclpy.ok():
-            self.executor.spin_once(timeout_sec=0.1)
-
-    def _make_raw_cb(self, sensor: str):
-        def cb(msg: UInt8MultiArray) -> None:
             with self._lock:
                 sample = self.samples[sensor]
-                sample.raw_sensor_bytes = bytes(msg.data)
+                sample.raw_sensor_bytes = raw
+                sample.raw_imu_bytes = imu
                 self.frame_count += 1
-
-        return cb
-
-    def _make_gyro_cb(self, sensor: str):
-        def cb(msg: UInt8MultiArray) -> None:
-            with self._lock:
-                self.samples[sensor].raw_gyro_bytes = bytes(msg.data)
-
-        return cb
 
     def stop(self) -> None:
         self.running = False
-        self.thread.join(timeout=2.0)
-        self.executor.shutdown()
-        self.node.destroy_node()
-        if self._owns_rclpy and rclpy.ok():
-            rclpy.shutdown()
+        self.join(timeout=2.0)
+        self.socket.close()
+        self.context.term()
 
     def snapshot(self) -> Dict[str, dict]:
-        snapshot: Dict[str, dict] = {}
-
         with self._lock:
-            samples = {
-                sensor: TactileSample(
-                    sensor=sample.sensor,
-                    raw_sensor_bytes=sample.raw_sensor_bytes,
-                    raw_gyro_bytes=sample.raw_gyro_bytes,
-                )
-                for sensor, sample in self.samples.items()
+            return {
+                sensor: {
+                    "raw_sensor_bytes": s.raw_sensor_bytes,
+                    "raw_imu_bytes": s.raw_imu_bytes,
+                }
+                for sensor, s in self.samples.items()
             }
 
-        for sensor in self.sensor_names:
-            sample = samples[sensor]
-            snapshot[sensor] = {
-                "raw_sensor_bytes": sample.raw_sensor_bytes,
-                "raw_gyro_bytes": sample.raw_gyro_bytes,
-            }
 
-        return snapshot
+def main():
+    import argparse
+    import time
+
+    ap = argparse.ArgumentParser(description="Print tactile stream rates.")
+    ap.add_argument("--server", default="192.168.123.164")
+    ap.add_argument("--port", type=int, default=DEFAULT_PORT)
+    ap.add_argument("--sensor", action="append", dest="sensors",
+                    default=None, help="repeatable; default: all")
+    args = ap.parse_args()
+
+    client = TactileClient(
+        sensor_names=args.sensors or list(KNOWN_SENSORS),
+        server_address=args.server,
+        port=args.port,
+    )
+    client.start()
+    print(f"Subscribed to tcp://{args.server}:{args.port}")
+
+    last = 0
+    try:
+        while True:
+            time.sleep(1.0)
+            new = client.frame_count - last
+            last = client.frame_count
+            parts = []
+            for sensor, s in client.snapshot().items():
+                if s["raw_sensor_bytes"]:
+                    nz = sum(1 for b in s["raw_sensor_bytes"] if b)
+                    parts.append(f"{sensor}(nonzero={nz})")
+            print(f"[tactile] {new} Hz total | {' '.join(parts) or 'no data'}")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        client.stop()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,10 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-import os
-import subprocess
-import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -18,6 +14,7 @@ from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_ as LowStateHG
 
 from common.depth_client import SimpleDepthClient
 from common.remote_controller import KeyMap, RemoteController
+from common.tactile_client import TactileClient
 from common.tactile_render import render_sensor_panels
 from common.viser_display import DeployViser
 from config import CONFIGS_DIR, DEFAULT_URDF_PATH
@@ -36,6 +33,8 @@ class StreamConfig:
     depth_raw_width: int = 640
     use_tactile: bool = False
     tactile_sensor_order: list[str] = field(default_factory=list)
+    tactile_server_ip: str = "192.168.123.164"
+    tactile_server_port: int = 5557
     action_joint2motor_idx: list[int] = field(default_factory=list)
     min_d: float = 0.1
     max_d: float = 2.0
@@ -65,6 +64,10 @@ def load_stream_config(file_path: str | Path) -> StreamConfig:
         tactile_sensor_order=data.get(
             "tactile_sensor_order", ["LF", "RF", "WB", "LH", "RH"]
         ),
+        tactile_server_ip=data.get(
+            "tactile_server_ip", data.get("depth_server_ip", "192.168.123.164")
+        ),
+        tactile_server_port=data.get("tactile_server_port", 5557),
         action_joint2motor_idx=data.get("action_joint2motor_idx", []),
         min_d=data.get("min_d", 0.1),
         max_d=data.get("max_d", 2.0),
@@ -146,7 +149,7 @@ class ViserUpdateThread(threading.Thread):
         viser_display: DeployViser,
         low_state_monitor: LowStateMonitor,
         depth_client: Optional[SimpleDepthClient],
-        tactile_client: Optional["TactileBridgeMonitor"],
+        tactile_client: Optional["TactileMonitor"],
         hz: float = 30.0,
     ):
         super().__init__(daemon=True)
@@ -178,82 +181,45 @@ class ViserUpdateThread(threading.Thread):
             time.sleep(dt)
 
 
-class TactileBridgeMonitor:
-    def __init__(self, sensor_names: list[str]):
-        self.sensor_names = sensor_names
-        self.proc: Optional[subprocess.Popen] = None
-        self.reader_thread: Optional[threading.Thread] = None
-        self.running = False
-        self.frame_count = 0
-        self.last_snapshot: dict = {
-            "frame_count": 0,
-            "samples": {
-                sensor: {"raw_len": 0, "gyro_len": 0, "last_rx_time": 0.0}
-                for sensor in sensor_names
-            },
-            "timestamp": 0.0,
-        }
+class TactileMonitor:
+    """Latest tactile frames over ZMQ, plus a resting baseline for rendering.
+
+    Wraps ``TactileClient``; keeps the same surface the viser thread uses.
+    """
+
+    def __init__(self, sensor_names: list[str], server_address: str, port: int):
+        self.sensor_names = list(sensor_names)
+        self.client = TactileClient(
+            sensor_names=self.sensor_names,
+            server_address=server_address,
+            port=port,
+        )
         self.calibration_window = 30
-        self.calibration_counts = {sensor: 0 for sensor in sensor_names}
-        self.calibration_sums = {
-            sensor: [0.0] * 256 for sensor in sensor_names
-        }
+        self.calibration_counts = {s: 0 for s in self.sensor_names}
+        self.calibration_sums = {s: [0.0] * 256 for s in self.sensor_names}
         self.baselines: dict[str, list[int] | None] = {
-            sensor: None for sensor in sensor_names
+            s: None for s in self.sensor_names
         }
         self.deadzone = 12
 
-    def start(self) -> None:
-        env = os.environ.copy()
-        # Inherit the RMW instead of forcing one: the robot publishes with the
-        # default rmw_fastrtps_cpp, and FastDDS/CycloneDDS do not interoperate,
-        # so hardcoding cyclonedds here made the bridge silently see no topics.
-        # Override with RMW_IMPLEMENTATION in the shell if both ends change.
-        cmd = [
-            sys.executable,
-            str(Path(__file__).resolve().parent / "common" / "tactile_bridge.py"),
-            "--period",
-            "0.05",
-        ]
-        for sensor in self.sensor_names:
-            cmd.extend(["--sensor", sensor])
-        self.proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            env=env,
-        )
-        self.running = True
-        self.reader_thread = threading.Thread(target=self._read_loop, daemon=True)
-        self.reader_thread.start()
+    @property
+    def frame_count(self) -> int:
+        return self.client.frame_count
 
-    def _read_loop(self) -> None:
-        assert self.proc is not None
-        assert self.proc.stdout is not None
-        for line in self.proc.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                snapshot = json.loads(line)
-            except json.JSONDecodeError:
-                print(f"[tactile_bridge] {line}")
-                continue
-            self.last_snapshot = snapshot
-            self.frame_count = snapshot.get("frame_count", 0)
-            self._update_calibration(snapshot)
-        self.running = False
+    def start(self) -> None:
+        self.client.start()
+
+    def stop(self) -> None:
+        self.client.stop()
 
     def _update_calibration(self, snapshot: dict) -> None:
         for sensor in self.sensor_names:
             if self.baselines[sensor] is not None:
                 continue
-            raw_values = snapshot.get("samples", {}).get(sensor, {}).get("raw_values", [])
-            if len(raw_values) < 256:
+            raw = snapshot.get(sensor, {}).get("raw_sensor_bytes", b"")
+            if len(raw) < 256:
                 continue
-            for idx, value in enumerate(raw_values[:256]):
+            for idx, value in enumerate(raw[:256]):
                 self.calibration_sums[sensor][idx] += float(value)
             self.calibration_counts[sensor] += 1
             if self.calibration_counts[sensor] >= self.calibration_window:
@@ -262,40 +228,30 @@ class TactileBridgeMonitor:
                     int(round(total / count)) for total in self.calibration_sums[sensor]
                 ]
 
-    def stop(self) -> None:
-        if self.proc is not None and self.proc.poll() is None:
-            self.proc.terminate()
-            try:
-                self.proc.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-        if self.reader_thread is not None:
-            self.reader_thread.join(timeout=1.0)
-
     def sensor_status_text(self) -> tuple[str, dict[str, str]]:
-        samples = self.last_snapshot.get("samples", {})
+        snapshot = self.client.snapshot()
+        self._update_calibration(snapshot)
         parts = {}
         overall_on = False
         for sensor in self.sensor_names:
-            sample = samples.get(sensor, {})
-            raw_len = int(sample.get("raw_len", 0))
-            gyro_len = int(sample.get("gyro_len", 0))
-            on = raw_len > 0 or gyro_len > 0
+            sample = snapshot.get(sensor, {})
+            raw_len = len(sample.get("raw_sensor_bytes", b""))
+            imu_len = len(sample.get("raw_imu_bytes", b""))
+            on = raw_len > 0
             overall_on = overall_on or on
-            status = "ON" if on else "OFF"
-            parts[sensor] = f"{status}(raw={raw_len},gyro={gyro_len})"
+            parts[sensor] = f"{'ON' if on else 'OFF'}(raw={raw_len},imu={imu_len})"
         return ("ON" if overall_on else "OFF"), parts
 
     def render_panels(self) -> dict[str, object]:
-        samples = self.last_snapshot.get("samples", {})
+        snapshot = self.client.snapshot()
         panels = {}
         for sensor in self.sensor_names:
-            raw_values = samples.get(sensor, {}).get("raw_values", [])
-            if raw_values:
+            raw = snapshot.get(sensor, {}).get("raw_sensor_bytes", b"")
+            if raw:
                 panels.update(
                     render_sensor_panels(
                         sensor,
-                        raw_values,
+                        list(raw),
                         baseline_values=self.baselines.get(sensor),
                         deadzone=self.deadzone,
                     )
@@ -326,7 +282,7 @@ def summarize_depth(
 
 
 def summarize_tactile(
-    client: Optional[TactileBridgeMonitor], last_count: int
+    client: Optional[TactileMonitor], last_count: int
 ) -> tuple[str, int]:
     if client is None:
         return "tactile: disabled", last_count
@@ -371,7 +327,11 @@ def main():
 
     tactile_client = None
     if config.use_tactile:
-        tactile_client = TactileBridgeMonitor(sensor_names=config.tactile_sensor_order)
+        tactile_client = TactileMonitor(
+            sensor_names=config.tactile_sensor_order,
+            server_address=config.tactile_server_ip,
+            port=config.tactile_server_port,
+        )
         tactile_client.start()
 
     ChannelFactoryInitialize(0)
