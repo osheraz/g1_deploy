@@ -428,12 +428,16 @@ def main():
             "exit_reason": exit_reason,
             "steps": int(hl.counter),
             "T": float(hl.elapsed_time),
-            # Schema for the tactile_* keys, so readers don't hardcode it.
+            # Schema per modality, so readers don't hardcode it.
             "tactile_sensors": (
                 list(config.tactile_sensor_order) if config.use_tactile else []
             ),
             "tactile_raw_len": TACTILE_RAW_LEN,
             "tactile_gyro_len": TACTILE_GYRO_LEN,
+            "depth_enabled": bool(config.use_depth_obs),
+            "depth_shape": [int(config.depth_img_height), int(config.depth_img_width)],
+            "depth_min_m": float(config.min_d),
+            "depth_max_m": float(config.max_d),
         }
     )
     if ext_cam is not None:
