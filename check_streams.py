@@ -205,7 +205,10 @@ class TactileBridgeMonitor:
 
     def start(self) -> None:
         env = os.environ.copy()
-        env["RMW_IMPLEMENTATION"] = "rmw_cyclonedds_cpp"
+        # Inherit the RMW instead of forcing one: the robot publishes with the
+        # default rmw_fastrtps_cpp, and FastDDS/CycloneDDS do not interoperate,
+        # so hardcoding cyclonedds here made the bridge silently see no topics.
+        # Override with RMW_IMPLEMENTATION in the shell if both ends change.
         cmd = [
             sys.executable,
             str(Path(__file__).resolve().parent / "common" / "tactile_bridge.py"),
@@ -300,18 +303,24 @@ class TactileBridgeMonitor:
         return panels
 
 
-def summarize_depth(client: Optional[SimpleDepthClient], last_count: int) -> tuple[str, int]:
+def summarize_depth(
+    client: Optional[SimpleDepthClient], last_count: int, dt: float
+) -> tuple[str, int]:
     if client is None:
         return "depth: disabled", last_count
 
     depth = client.latest_depth
     new_frames = client.frame_count - last_count
+    # measured over the real elapsed time, so --period does not skew it
+    fps = new_frames / dt if dt > 0 else 0.0
     if depth is None:
-        return f"depth: OFF frames={client.frame_count}", client.frame_count
+        return (
+            f"depth: OFF frames={client.frame_count} fps={fps:.1f}"
+        ), client.frame_count
 
     return (
         "depth: ON "
-        f"frames={client.frame_count} (+{new_frames}) "
+        f"frames={client.frame_count} (+{new_frames}) fps={fps:.1f} "
         f"shape={depth.shape} min={float(depth.min()):.3f} max={float(depth.max()):.3f}"
     ), client.frame_count
 
@@ -406,13 +415,19 @@ def main():
         )
         viser_thread.start()
 
+    last_time = time.perf_counter()
+
     try:
         while True:
             time.sleep(args.period)
+            now = time.perf_counter()
+            dt = now - last_time
+            last_time = now
+
             print(low_state_monitor.summary())
 
             depth_summary, last_depth_count = summarize_depth(
-                depth_client, last_depth_count
+                depth_client, last_depth_count, dt
             )
             print(depth_summary)
 
