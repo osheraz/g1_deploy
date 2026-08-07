@@ -55,6 +55,12 @@ class SimpleDepthClient(threading.Thread):
         self.latest_depth = None
         self.latest_depth_full = None
         self.latest_color = None
+        # The encoded bytes exactly as received. Recorders should store these
+        # rather than the decoded arrays: colour is already JPEG so the decoded
+        # array recovers no quality, and depth PNG is lossless. ~5x smaller.
+        self.latest_color_jpg = None
+        self.latest_depth_png = None
+        self.latest_seq = 0
         self.running = True
         self.frame_count = 0
 
@@ -69,8 +75,11 @@ class SimpleDepthClient(threading.Thread):
                     self.latest_color = cv2.imdecode(
                         np.frombuffer(color_msg, dtype=np.uint8), cv2.IMREAD_COLOR
                     )
+                    self.latest_color_jpg = color_msg
                 else:
                     depth_msg = parts[0]
+                    self.latest_color_jpg = None
+                self.latest_depth_png = depth_msg
 
                 depth = cv2.imdecode(
                     np.frombuffer(depth_msg, dtype=np.uint8), cv2.IMREAD_UNCHANGED
@@ -93,6 +102,7 @@ class SimpleDepthClient(threading.Thread):
                 x0 = (W - crop) // 2
                 self.latest_depth = depth_m[y0:y0 + crop, x0:x0 + crop]
                 self.frame_count += 1
+                self.latest_seq += 1
 
                 if self.show_debug:
 
