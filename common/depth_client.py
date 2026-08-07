@@ -48,7 +48,12 @@ class SimpleDepthClient(threading.Thread):
         self.socket.connect(f"tcp://{self.server_address}:{self.port}")
         self.socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
+        # latest_depth      : centre-cropped square, metres -- what the policy sees
+        #                     (matches the sim's square ego camera).
+        # latest_depth_full  : uncropped HxW, metres -- for data collection.
+        # latest_color       : uncropped HxW BGR uint8.
         self.latest_depth = None
+        self.latest_depth_full = None
         self.latest_color = None
         self.running = True
         self.frame_count = 0
@@ -77,16 +82,16 @@ class SimpleDepthClient(threading.Thread):
                 if depth.size != self.H * self.W:
                     print(f"Unexpected depth shape: {depth.shape}")
 
-                # depth = depth[10:-11, 43:-43]
-                H, W = depth.shape
-                # center crop
-                crop = min(H,W)
+                depth_m = depth * DEPTH_SCALE
+                self.latest_depth_full = depth_m
+
+                # Centre crop to a square for the policy; keep the full frame
+                # above so logging retains the camera's native resolution.
+                H, W = depth_m.shape
+                crop = min(H, W)
                 y0 = (H - crop) // 2
                 x0 = (W - crop) // 2
-                depth = depth[y0: y0+crop, x0: x0 + crop]
-                
-                depth = depth * DEPTH_SCALE
-                self.latest_depth = depth
+                self.latest_depth = depth_m[y0:y0 + crop, x0:x0 + crop]
                 self.frame_count += 1
 
                 if self.show_debug:

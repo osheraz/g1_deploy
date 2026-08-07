@@ -176,8 +176,12 @@ class HighLevelController:
         )
 
         depth_raw = None
+        depth_full = None
+        color_full = None
         if self.depth_client is not None:
             depth_raw = self.depth_client.latest_depth
+            depth_full = self.depth_client.latest_depth_full
+            color_full = self.depth_client.latest_color
 
         tactile_snapshot = {}
         if self.tactile_client is not None:
@@ -214,6 +218,8 @@ class HighLevelController:
             action=action,
             target_dof_pos=target_dof_pos,
             depth_raw=depth_raw,
+            depth_full=depth_full,
+            color_full=color_full,
             tactile_snapshot=tactile_snapshot,
             imu_quat=imu_quat,
         )
@@ -247,6 +253,8 @@ class HighLevelController:
         action: np.ndarray,
         target_dof_pos: np.ndarray,
         depth_raw,
+        depth_full,
+        color_full,
         tactile_snapshot: dict,
         imu_quat,
     ):
@@ -277,6 +285,16 @@ class HighLevelController:
             )
             sample["depth_vis_u8"] = vis_u8
             sample["depth_obs_u8"] = ov_u8
+
+        # Full-resolution streams for data collection, uncropped. Depth stays in
+        # millimetres as uint16 so it is lossless; the u8 fields above are the
+        # policy's cropped/normalised view and are not a substitute.
+        if depth_full is not None:
+            sample["depth_full_mm_u16"] = (
+                np.clip(depth_full * 1000.0, 0, 65535).astype(np.uint16)
+            )
+        if color_full is not None:
+            sample["color_full_bgr_u8"] = color_full.astype(np.uint8)
 
         for sensor_name, tactile in tactile_snapshot.items():
             tag = sensor_name.lower()
@@ -444,6 +462,14 @@ def main():
             "tactile_imu_len": TACTILE_IMU_LEN,
             "depth_enabled": bool(config.use_depth_obs),
             "depth_shape": [int(config.depth_img_height), int(config.depth_img_width)],
+            "depth_full_shape": [
+                int(config.depth_raw_height), int(config.depth_raw_width)
+            ],
+            "depth_full_units": "mm_uint16",
+            "color_full_shape": [
+                int(config.depth_raw_height), int(config.depth_raw_width), 3
+            ],
+            "color_full_format": "bgr8",
             "depth_min_m": float(config.min_d),
             "depth_max_m": float(config.max_d),
         }
