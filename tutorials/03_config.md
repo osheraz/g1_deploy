@@ -5,9 +5,7 @@ Configs live in [`configs/`](../configs/), selected with `--config`.
 | Config | Use |
 | --- | --- |
 | `g1_23dof.yaml` | fall recovery |
-| `g1_23dof_tracker.yaml` | reference tracking |
-| `g1_23dof_armtight.yaml` | reference tracking, validated ONNX |
-| `g1_23dof_pico.yaml` | PICO teleop — [PICO_TELEOP.md](PICO_TELEOP.md) |
+| `g1_23dof_sonic.yaml` | SONIC tracker + tactile, run with `deploy_eskin.py` |
 
 Set these for a first run:
 
@@ -37,7 +35,7 @@ resize to `64×64` (`INTER_AREA`) → clip to `[min_d, max_d]` → normalize to 
 ```yaml
 use_depth_obs: true
 depth_server_ip: "192.168.123.164"   # robot onboard PC
-depth_server_port: 5555
+depth_server_port: 5556
 min_d: 0.1                           # meters, from sim ego_camera.clipping_range
 max_d: 2.0
 depth_scale: 0.001                   # raw units -> meters

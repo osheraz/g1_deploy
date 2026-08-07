@@ -1,43 +1,73 @@
-# PICO 3-point teleop (deploy)
+# PICO teleop
 
-Live VR teleop for the reference-tracking WBC: stream **head + 2 controllers** from a
-PICO headset (XRoboToolkit) straight into the policy as a sparse keypoint goal — **no IK**.
-This is the SONIC/CHIP route (`../others/_WBC_SUMMARY/14_PICO_teleop_obs.md`).
+Live VR teleop drives the SONIC tracker. Run with `deploy_eskin.py --mode pico`.
 
 ## Pieces
 
-- `policy/pico_reader.py` — `PicoReader`: background thread over `xrobotoolkit_sdk`,
-  reads head + L/R controller poses, transforms Unity Y-up → Z-up (mirrors GMR
-  `XRobotStreamer`), exposes `latest()` → `{head, left_wrist, right_wrist: (pos, quat_wxyz),
-  *_grip, *_trig}`. Inert if the SDK is absent so the loop never blocks.
-- `policy/pico_reference_provider.py` — `PicoReferenceProvider`: turns the 3 poses + the
-  robot pelvis-anchor pos/quat into the goal obs blocks with the exact env getter math
-  (`motion_anchor_pos_b/ori_b`, `ref_body_pos_b/ori_b`). Returns `{obs_name: block}`;
-  `PolicyRunner` merges it so the `sorted(keys)` concat picks up the trained keys.
+| | |
+| --- | --- |
+| PICO publisher | separate process owning the XR SDK; publishes the `planner` ZMQ topic |
+| [`common/pico_client.py`](../common/pico_client.py) | subscribes and decodes that topic |
+| [`policy/pico_reference.py`](../policy/pico_reference.py) | drives the SONIC kinematic planner, builds the encoder window |
+| [`policy/sonic_runner.py`](../policy/sonic_runner.py) | encoder -> token -> decoder -> 23-dof action |
 
-## Contract (must match the trained policy)
+## Wire format
 
-- `tracked_order` == trained `tracked_body_names`, in order. Default `(head, left_wrist, right_wrist)`.
-- `emit` == the goal-obs keys in the trained obs config.
-- Anchor body = `pelvis`. Quats are wxyz at the provider boundary.
+`[b"planner"][1280-byte JSON header][little-endian payload]`, from
+NVlabs/GR00T-WholeBodyControl `gear_sonic/utils/teleop/zmq/zmq_planner_sender.py`.
 
-## Not yet wired (intentional)
+Always present:
 
-The current ONNX (`g1_23dof_tracker.yaml`) trained on dense `future_ref_motion_proto` — not
-drivable by 3 sparse poses. PICO support is the deploy half of a policy trained on the sparse
-keypoint obs (`+exp=reference_tracking_3point`). Once that ONNX exists:
+| field | |
+| --- | --- |
+| `mode` i32 | `LocomotionMode`, includes object carrying |
+| `movement` f32[3], `facing` f32[3] | base navigation |
+| `speed`, `height` f32 | -1 = planner default |
 
-1. `g1_23dof_pico.yaml` with `pico_teleop: true`, `pico_tracked_order`, `pico_emit`.
-2. `PolicyRunner.__init__`: if `pico_teleop`, start `PicoReader` + `PicoReferenceProvider`
-   instead of the clip `ReferenceProvider`.
-3. `compute_action`: `values.update(provider.blocks(reader.latest(), ref_anchor, robot_anchor))`.
-   World→pelvis calibration (headset origin ↔ robot pelvis) is the bench-test step.
+Optional: `upper_body_position/velocity`, `left_hand_joints`, `right_hand_joints`
+(Dex3 hand control), `vr_position` f32[9] (3 endpoints xyz), `vr_orientation`
+f32[12] (3 endpoints wxyz), `vr_compliance`.
 
-## Next to-do
+Check the stream on its own:
 
-1. Train the 3-point tracker (`+exp=reference_tracking_3point`) — gated on the anchor-reward sigma fix.
-2. Export ONNX; MuJoCo sim2sim gate (`tools/test_tracker_mujoco.py`).
-3. Wire steps 1–3 above; bench-test `PicoReader` on a real headset.
-4. Decide lower-body: learned stance (chair-push) vs base-velocity channel (walk-while-teleop).
-5. Warm-start CHIP compliance on it: `ref_body_pos_b_hindsight` + `cmp_inv_k` from grip + history.
-6. Map grip/trigger → tactile hand close + commanded stiffness.
+```bash
+python -m common.pico_client --server <publisher-ip>
+```
+
+## Command mapping
+
+`pico_reference.py` feeds the planner directly:
+
+| topic field | `SonicKinematicPlanner.update()` |
+| --- | --- |
+| `mode` | `mode` |
+| `speed` | `target_vel` |
+| `height` | `height` |
+| `movement` | `movement_direction` |
+| `facing` | `facing_direction` |
+
+`gather(10, 5)` then returns the encoder's future window, and the VR endpoints
+pass through in the pelvis frame (`vr_targets_local=True`).
+
+## Setup
+
+The planner ONNX is ~774 MB, so it is not vendored. Point the config at a
+checkout that has it:
+
+```yaml
+sonic_repo: "~/tactile"
+pico_server_ip: "127.0.0.1"
+pico_server_port: 5560
+```
+
+## Recorded per step
+
+`teleop_mode`, `teleop_movement`, `teleop_facing`, `teleop_speed`,
+`teleop_height`, `teleop_left_hand`, `teleop_right_hand`, `teleop_vr_pos`,
+`teleop_vr_quat_wxyz` — alongside robot state, tactile, colour and depth.
+
+## Status
+
+Untested against a live publisher. The wire decoder is verified by round-trip
+against NVIDIA's own encoder, and the planner call signatures are checked
+against `sonic/planner/kinematic.py`, but no PICO headset has driven it yet.

@@ -34,6 +34,9 @@ tactile_server_port: 5557
 Then `check_streams.py` shows tactile panels in viser alongside robot state, and
 `deploy_g1.py` logs `tactile_<sensor>_raw_u8` / `_imu_u8` per step.
 
+For data collection, `deploy_eskin.py` records
+tactile together with colour, depth and robot state.
+
 Check the stream on its own:
 
 ```bash

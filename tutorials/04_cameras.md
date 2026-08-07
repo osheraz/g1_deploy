@@ -14,39 +14,32 @@ RealSense (on robot)
 Nothing is plugged into your machine. Without the server running you get no frames and no
 error — the subscriber just waits.
 
-## The two servers
+## The server
 
-Both live in `~/osher/image_server/` on the robot.
+Run **`img_server_rgbd.py`** on the robot. It publishes colour and depth as a 2-part
+message `[color_jpg, depth_png]` on port 5556, which covers both the deploy runtime and
+data collection.
 
-| Script | Port | Publishes |
-| --- | --- | --- |
-| `img_server_osher.py` | 5555 | depth only, single-part |
-| `img_server_rgbd.py` | 5556 | color + depth, 2-part `[color_jpg, depth_png]` |
+| Script | Port | Publishes | |
+| --- | --- | --- | --- |
+| `img_server_rgbd.py` | 5556 | color + depth, 2-part | use this |
+| `img_server_osher.py` | 5555 | depth only, single-part | older, redundant |
 
-`img_server_osher.py` is what the deploy runtime consumes ([3. Config](03_config.md#depth-as-policy-input)).
-`img_server_rgbd.py` is for looking at both streams.
+Do not run both: they open the same camera, so the second gets `Device or resource busy`.
+[`depth_client.py`](../common/depth_client.py) accepts either message shape, so nothing
+downstream cares.
 
-Run one of them on the robot, then read it on your workstation.
-
-## Depth only
-
-On the robot:
-
-```bash
-ssh g1
-cd ~/osher/image_server && python3 img_server_osher.py
-```
+## Depth encoding
 
 The RealSense filter chain runs on each frame (decimation → disparity → spatial → temporal
-→ hole-filling), then the 16-bit `z16` depth is PNG-encoded and published on port 5555. PNG
-because JPEG would destroy the 16-bit values.
+→ hole-filling), then the 16-bit `z16` depth is PNG-encoded. PNG because JPEG would destroy
+the 16-bit values.
 
-View it from your machine — [`common/depth_client.py`](../common/depth_client.py) has a
-built-in viewer:
+View depth alone with the built-in viewer in
+[`common/depth_client.py`](../common/depth_client.py):
 
 ```bash
-uv pip install pyzmq        # not in pyproject.toml
-PYTHONPATH=. python common/depth_client.py --server 192.168.123.164 --port 5555 --debug
+PYTHONPATH=. python common/depth_client.py --server 192.168.123.164 --port 5556 --debug
 ```
 
 Grayscale window clipped to `0.1–2.0 m`. Press `q` to quit.

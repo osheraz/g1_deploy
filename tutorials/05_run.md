@@ -44,7 +44,7 @@ Any remote combo needed to get the G1 out of its built-in sport mode into a stat
 `--log` writes an `.npz` per run:
 
 ```bash
-PYTHONPATH=. python tools/replay_rollout.py --log TEST.npz
+PYTHONPATH=. python scripts/replay_rollout.py --log TEST.npz
 ```
 
 ## Troubleshooting

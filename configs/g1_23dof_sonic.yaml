@@ -1,0 +1,144 @@
+###############################################################
+# SONIC deploy: released encoder/decoder tracker + tactile + recording.
+# Run with deploy_eskin.py.
+#
+# Gains, action_scale and the default pose are computed from the official
+# NVlabs/GR00T-WholeBodyControl reference implementation,
+#   gear_sonic_deploy/src/g1/g1_deploy_onnx_ref/include/policy_parameters.hpp
+#     stiffness = armature * (2*pi*10)^2
+#     damping   = 2 * 2.0 * armature * (2*pi*10)
+#     ankles and waist roll/pitch use 2x stiffness/damping
+#     wrist pitch/yaw use the 4010 motor (16.78 / 1.068), not the 5020
+#     action_scale = 0.25 * effort_limit / stiffness   -> PER JOINT
+# and cross-checked against humanoidverse2/config/robot/g1/g1_23dof_sonic.yaml.
+#
+# These are NOT the fall-recovery numbers in g1_23dof.yaml. That policy uses a
+# different standing pose and much stiffer arms; a pretrained policy has to run
+# on the gains and default pose it was trained with.
+###############################################################
+
+policy_type: sonic
+policy_path: "policy/sonic/model_decoder.onnx"    # informational
+sonic_encoder: "policy/sonic/model_encoder.onnx"
+sonic_decoder: "policy/sonic/model_decoder.onnx"
+sonic_mode: "g1"
+
+# Our robot is 23-DoF; the released policy is 29-DoF. Phantom mode maps our 23
+# joints into IsaacLab's 29 (robot_g1.IL_FROM_OUR23) and locks the 6 the robot
+# lacks (MISSING_IL: waist roll/pitch, both wrist pitch/yaw) at their defaults,
+# masking them out of the action history.
+# Same as sonic/config/algo/sonic_runner_23dof.yaml: phantom_23dof: true.
+phantom_23dof: true
+phantom_hold_ref_dof: true
+
+# --mode motion replays this; --mode pico additionally needs sonic_repo for the
+# kinematic planner (its ONNX is ~774 MB, so it is not vendored here).
+sonic_motion_clip: "policy/sonic/motion_clip.npz"
+sonic_motion_loop: true
+# --mode pico: the SONIC kinematic planner comes from a research checkout
+# (its ONNX is ~774 MB). sonic_planner_onnx overrides the default path.
+sonic_repo: "~/tactile"
+# sonic_planner_onnx: "~/tactile/others/GR00T-WholeBodyControl/gear_sonic_deploy/planner/target_vel/V2/planner_sonic.onnx"
+pico_server_ip: "127.0.0.1"
+pico_server_port: 5560
+
+control_dt: 0.02
+msg_type: "hg"
+imu_type: "pelvis"
+lowcmd_topic: "rt/lowcmd"
+lowstate_topic: "rt/lowstate"
+viser_display: true
+
+###############################################################
+# Sensors -- recorded, not consumed by the policy
+###############################################################
+use_depth_obs: false
+use_tactile: true
+tactile_sensor_order: ["LH", "RH"]
+tactile_server_ip: "127.0.0.1"          # gloves plug into the workstation
+tactile_server_port: 5557
+
+depth_server_ip: "192.168.123.164"      # img_server_rgbd.py on the robot
+depth_server_port: 5556
+depth_raw_height: 480
+depth_raw_width: 640
+min_d: 0.1
+max_d: 2.0
+depth_scale: 0.001
+
+###############################################################
+# Joints
+###############################################################
+action_joint2motor_idx: [
+    0, 1, 2, 3, 4, 5,        # left leg
+    6, 7, 8, 9, 10, 11,      # right leg
+    12,                      # waist yaw
+    15, 16, 17, 18, 19,      # left arm  + wrist roll
+    22, 23, 24, 25, 26,      # right arm + wrist roll
+]
+
+fixed_joint2motor_idx: [13, 14, 20, 21, 27, 28]
+fixed_kps: [28.5012, 28.5012, 16.7783, 16.7783, 16.7783, 16.7783]
+fixed_kds: [1.8144, 1.8144, 1.0681, 1.0681, 1.0681, 1.0681]
+fixed_target: [0, 0, 0, 0, 0, 0]
+
+# By MOTOR index (29): robot_interface indexes kps/kds by motor index and
+# move_to_default_pos walks all 29.
+kps: [
+    99.0984, 99.0984, 40.1792, 99.0984, 28.5012, 28.5012,
+    99.0984, 99.0984, 40.1792, 99.0984, 28.5012, 28.5012,
+    40.1792, 28.5012, 28.5012,
+    14.2506, 14.2506, 14.2506, 14.2506, 14.2506, 16.7783, 16.7783,
+    14.2506, 14.2506, 14.2506, 14.2506, 14.2506, 16.7783, 16.7783
+]
+kds: [
+    6.3088, 6.3088, 2.5579, 6.3088, 1.8144, 1.8144,
+    6.3088, 6.3088, 2.5579, 6.3088, 1.8144, 1.8144,
+    2.5579, 1.8144, 1.8144,
+    0.9072, 0.9072, 0.9072, 0.9072, 0.9072, 1.0681, 1.0681,
+    0.9072, 0.9072, 0.9072, 0.9072, 0.9072, 1.0681, 1.0681
+]
+
+default_angles: [
+    -0.312, 0.000, 0.000, 0.669, -0.363, 0.000,
+    -0.312, 0.000, 0.000, 0.669, -0.363, 0.000,
+    0.000, 0.000, 0.000,
+    0.200, 0.200, 0.000, 0.600, 0.000, 0.000, 0.000,
+    0.200, -0.200, 0.000, 0.600, 0.000, 0.000, 0.000
+]
+default_angles_23: [
+    -0.312, 0.000, 0.000, 0.669, -0.363, 0.000,
+    -0.312, 0.000, 0.000, 0.669, -0.363, 0.000,
+    0.000,
+    0.200, 0.200, 0.000, 0.600, 0.000,
+    0.200, -0.200, 0.000, 0.600, 0.000
+]
+
+###############################################################
+# Action / obs
+###############################################################
+# PER-JOINT, our 23-dof order. NOT the scalar 0.25 the fall-recovery config
+# uses -- that would be wrong on every joint by a different factor.
+action_scale: [
+    0.350661, 0.350661, 0.547546, 0.350661, 0.438577, 0.438577,
+    0.350661, 0.350661, 0.547546, 0.350661, 0.438577, 0.438577,
+    0.547546,
+    0.438577, 0.438577, 0.438577, 0.438577, 0.438577,
+    0.438577, 0.438577, 0.438577, 0.438577, 0.438577
+]
+
+action_ema: 1.0
+num_actions: 23
+num_obs: 994            # decoder obs; the encoder takes 1762
+obs_dim: {}
+
+ang_vel_scale: 1.0      # SONIC builds its own obs; these scales are unused
+dof_pos_scale: 1.0
+dof_vel_scale: 1.0
+cmd_scale: [2.0, 2.0, 0.25]
+max_cmd: [0.2, 0.2, 0.8]
+
+clip_actions: 100.
+clip_obs: 100.
+reference_motion: "sonic"
+reference_keyframes: 1

@@ -26,6 +26,5 @@ Nothing sends robot commands until [5. Run](05_run.md). `check_streams.py` is re
 | --- | --- | --- |
 | `deploy_g1.py` (policy) | your machine | Unitree DDS over ethernet |
 | robot state / motor commands | G1 onboard | DDS `rt/lowstate`, `rt/lowcmd` |
-| RealSense depth | G1 onboard PC `192.168.123.164` | ZMQ port 5555 |
-| RealSense RGB + depth | G1 onboard PC `192.168.123.164` | ZMQ port 5556 |
+| RealSense colour + depth | G1 onboard PC `192.168.123.164` | ZMQ port 5556 |
 | tactile | G1 onboard, system python | ZMQ port 5557 |

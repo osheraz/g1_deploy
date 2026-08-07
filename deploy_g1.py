@@ -13,18 +13,10 @@ from common.command_helper import create_damping_cmd
 from common.remote_controller import KeyMap
 from common.timer import TicToc
 from common.real_logger import RealLogger
-from common.tactile_render import render_sensor_panels
 from config import Config
-
-if TYPE_CHECKING:
-    from common.tactile_client import TactileClient
 
 from robot.robot_interface import RobotInterface
 from policy.policy_runner import PolicyRunner
-
-TACTILE_RAW_LEN = 256
-TACTILE_IMU_LEN = 16
-
 
 class ViserUpdateThread(threading.Thread):
     def __init__(
@@ -32,7 +24,6 @@ class ViserUpdateThread(threading.Thread):
         viser_display,
         robot: RobotInterface,
         depth_client: Optional[SimpleDepthClient],
-        tactile_client: Optional[TactileClient],
         hz: float = 30.0,
         ext_cam=None,
     ):
@@ -40,7 +31,6 @@ class ViserUpdateThread(threading.Thread):
         self.viser_display = viser_display
         self.robot = robot
         self.depth_client = depth_client
-        self.tactile_client = tactile_client
         self.ext_cam = ext_cam
 
         self.hz = hz
@@ -63,27 +53,6 @@ class ViserUpdateThread(threading.Thread):
                 depth_raw=depth_raw,
                 rgb_bgr=rgb_bgr,
             )
-            if self.tactile_client is not None:
-                snapshot = self.tactile_client.snapshot()
-                sensor_status = {}
-                panels = {}
-                overall_on = False
-                for sensor_name, sample in snapshot.items():
-                    raw = sample.get("raw_sensor_bytes", b"")
-                    imu = sample.get("raw_imu_bytes", b"")
-                    on = bool(raw or imu)
-                    overall_on = overall_on or on
-                    status = "ON" if on else "OFF"
-                    sensor_status[sensor_name] = (
-                        f"{status}(raw={len(raw)},imu={len(imu)})"
-                    )
-                    if raw:
-                        panels.update(render_sensor_panels(sensor_name, raw))
-                self.viser_display.update_tactile(
-                    "ON" if overall_on else "OFF",
-                    sensor_status,
-                )
-                self.viser_display.update_tactile_images(panels)
             time.sleep(dt)
 
 
@@ -116,25 +85,6 @@ def init_loco_client():
     return loco_client
 
 
-def init_tactile_client(config: Config) -> Optional["TactileClient"]:
-    if not config.use_tactile:
-        return None
-
-    from common.tactile_client import TactileClient
-
-    tactile_client = TactileClient(
-        sensor_names=config.tactile_sensor_order,
-        server_address=config.tactile_server_ip,
-        port=config.tactile_server_port,
-    )
-    tactile_client.start()
-    print(
-        f"Tactile client started: "
-        f"tcp://{config.tactile_server_ip}:{config.tactile_server_port} "
-        f"sensors={config.tactile_sensor_order}"
-    )
-    return tactile_client
-
 
 class HighLevelController:
     def __init__(
@@ -143,7 +93,6 @@ class HighLevelController:
         robot: RobotInterface,
         policy_runner: PolicyRunner,
         depth_client: Optional[SimpleDepthClient] = None,
-        tactile_client: Optional[TactileClient] = None,
         logger: Optional[RealLogger] = None,
         ext_cam=None,
     ):
@@ -151,7 +100,6 @@ class HighLevelController:
         self.robot = robot
         self.policy_runner = policy_runner
         self.depth_client = depth_client
-        self.tactile_client = tactile_client
         self.ext_cam = ext_cam
         self.logger = logger
 
@@ -182,10 +130,6 @@ class HighLevelController:
             depth_raw = self.depth_client.latest_depth
             depth_full = self.depth_client.latest_depth_full
             color_full = self.depth_client.latest_color
-
-        tactile_snapshot = {}
-        if self.tactile_client is not None:
-            tactile_snapshot = self.tactile_client.snapshot()
 
         action = self.policy_runner.compute_action(
             base_ang_vel=base_ang_vel,
@@ -220,7 +164,6 @@ class HighLevelController:
             depth_raw=depth_raw,
             depth_full=depth_full,
             color_full=color_full,
-            tactile_snapshot=tactile_snapshot,
             imu_quat=imu_quat,
         )
 
@@ -255,7 +198,6 @@ class HighLevelController:
         depth_raw,
         depth_full,
         color_full,
-        tactile_snapshot: dict,
         imu_quat,
     ):
         if self.logger is None:
@@ -296,18 +238,7 @@ class HighLevelController:
         if color_full is not None:
             sample["color_full_bgr_u8"] = color_full.astype(np.uint8)
 
-        for sensor_name, tactile in tactile_snapshot.items():
-            tag = sensor_name.lower()
-            raw_u8 = np.zeros(TACTILE_RAW_LEN, dtype=np.uint8)
-            imu_u8 = np.zeros(TACTILE_IMU_LEN, dtype=np.uint8)
 
-            raw_src = np.frombuffer(tactile["raw_sensor_bytes"], dtype=np.uint8)
-            imu_src = np.frombuffer(tactile["raw_imu_bytes"], dtype=np.uint8)
-            raw_u8[: min(TACTILE_RAW_LEN, raw_src.size)] = raw_src[:TACTILE_RAW_LEN]
-            imu_u8[: min(TACTILE_IMU_LEN, imu_src.size)] = imu_src[:TACTILE_IMU_LEN]
-
-            sample[f"tactile_{tag}_raw_u8"] = raw_u8
-            sample[f"tactile_{tag}_imu_u8"] = imu_u8
 
         if self.ext_cam is not None:
             frame = self.ext_cam.latest_bgr
@@ -333,7 +264,6 @@ def main():
     config = Config(args.config)
 
     depth_client = init_depth_client(config)
-    tactile_client = init_tactile_client(config)
 
     viser_display = None
     if config.viser_display:
@@ -345,7 +275,6 @@ def main():
             depth_min=config.min_d,
             depth_max=config.max_d,
             depth_scale=config.depth_scale,
-            tactile_sensors=config.tactile_sensor_order if config.use_tactile else [],
         )
 
     ChannelFactoryInitialize(0)
@@ -379,7 +308,6 @@ def main():
         robot,
         policy_runner,
         depth_client=depth_client,
-        tactile_client=tactile_client,
         logger=logger,
         ext_cam=ext_cam,
     )
@@ -390,7 +318,6 @@ def main():
             viser_display=viser_display,
             robot=robot,
             depth_client=depth_client,
-            tactile_client=tactile_client,
             ext_cam=ext_cam,
             hz=50.0,
         )
@@ -441,9 +368,6 @@ def main():
     if depth_client is not None:
         depth_client.running = False
 
-    if tactile_client is not None:
-        tactile_client.stop()
-
     if viser_thread is not None:
         viser_thread.running = False
         viser_thread.join(timeout=1.0)
@@ -454,12 +378,6 @@ def main():
             "exit_reason": exit_reason,
             "steps": int(hl.counter),
             "T": float(hl.elapsed_time),
-            # Schema per modality, so readers don't hardcode it.
-            "tactile_sensors": (
-                list(config.tactile_sensor_order) if config.use_tactile else []
-            ),
-            "tactile_raw_len": TACTILE_RAW_LEN,
-            "tactile_imu_len": TACTILE_IMU_LEN,
             "depth_enabled": bool(config.use_depth_obs),
             "depth_shape": [int(config.depth_img_height), int(config.depth_img_width)],
             "depth_full_shape": [

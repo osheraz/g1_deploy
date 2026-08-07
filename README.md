@@ -38,11 +38,12 @@ python deploy_g1.py --net enp132s0 --config g1_23dof.yaml --log TEST.npz
 
 | Path | What |
 | --- | --- |
-| [deploy_g1.py](deploy_g1.py) | policy runtime |
+| [deploy_g1.py](deploy_g1.py) | fall-recovery policy runtime |
+| [deploy_eskin.py](deploy_eskin.py) | SONIC teleop + tactile + episode recording |
 | [check_streams.py](check_streams.py) | read-only stream checker |
 | [config.py](config.py) | config loader |
 | [configs/](configs/) | per-robot / per-policy configs |
-| [policy/](policy/) | policy runner, reference providers, ONNX |
+| [policy/](policy/) | policy runners, SONIC tracker + vendored ONNX |
 | [robot/](robot/) | DDS interface |
 | [common/](common/) | camera, depth, tactile, viser, logging |
-| [tools/](tools/) | replay, video, MuJoCo sim2sim |
+| [scripts/](scripts/) | episode + rollout replay, video |

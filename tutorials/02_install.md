@@ -41,13 +41,13 @@ Keep `CYCLONEDDS_HOME` exported in your shell profile — the SDK needs it at im
 python -c "import unitree_sdk2py, cv2, numpy, torch; print(numpy.__version__, cv2.__version__)"
 ```
 
-## Running scripts under `tools/`
+## Running scripts under `scripts/`
 
 Python puts the *script's* directory on `sys.path`, not your cwd, so scripts importing
 `common` need the repo root:
 
 ```bash
-PYTHONPATH=. python tools/<script>.py
+PYTHONPATH=. python scripts/<script>.py
 ```
 
 ## Troubleshooting

@@ -5,10 +5,9 @@
 # TODO: all of this from the trained actor cfg
 
 use_depth_obs: true
-use_tactile: true
-tactile_sensor_order: ["LH", "RH"]     # only the two gloves are wired up
-tactile_server_ip: "192.168.123.164"
-tactile_server_port: 5557
+# Fall recovery only, run with deploy_g1.py. Tactile + teleop data collection
+# is deploy_eskin.py with configs/g1_23dof_sonic.yaml.
+use_tactile: false
 
 # from ego_camera.clipping_range in sim
 min_d: 0.1
@@ -21,7 +20,7 @@ depth_img_height: 64 #54
 depth_obs_dim: 4096
 
 depth_server_ip: "192.168.123.164"
-depth_server_port: 5555
+depth_server_port: 5556
 
 # raw RealSense depth
 depth_raw_height: 480
@@ -108,20 +107,28 @@ action_joint2motor_idx: [
 #       2.0, 1.0, 0.4, 1.0, 0.4, 0.4, 0.4,              # Left arm
 #       2.0, 1.0, 0.4, 1.0, 0.4, 0.4, 0.4]              # Right arm
 
+# Matches the config the fall-recovery teacher was trained with:
+# humanoidverse2/config/robot/g1/g1_23dof.yaml -- stiffness hip 100 / knee 200 /
+# ankle 20 / waist_yaw 400 / shoulder 90,60,20 / elbow 60 / wrist_roll 40.
+#
+# CHANGED 2026-08-07: wrist_roll (motors 19 and 26) was 4 here, 10x softer than
+# training, and its damping 0.2 instead of 1.0. All other active joints already
+# matched. Old values, in case the soft wrist was deliberate:
+#     kps[19] = kps[26] = 4        kds[19] = kds[26] = 0.2
 kps: [
     100, 100, 100, 200, 20, 20,
     100, 100, 100, 200, 20, 20,
     400, 400, 400,
-    90, 60, 20, 60, 4, 4, 0,
-    90, 60, 20, 60, 4, 4, 4
+    90, 60, 20, 60, 40, 4, 0,
+    90, 60, 20, 60, 40, 4, 4
 ]
 
 kds: [
    2.5, 2.5, 2.5, 5, 0.2, 0.1,
    2.5, 2.5, 2.5, 5, 0.2, 0.1,
    5.0, 5.0, 5.0,
-   2.0, 1.0, 0.4, 1.0, 0.2, 0.2, 0.2,
-    2.0, 1.0, 0.4, 1.0, 0.2, 0.2, 0.2
+   2.0, 1.0, 0.4, 1.0, 1.0, 0.2, 0.2,
+    2.0, 1.0, 0.4, 1.0, 1.0, 0.2, 0.2
 ]
 
 # 29dof
