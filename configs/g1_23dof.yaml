@@ -6,7 +6,9 @@
 
 use_depth_obs: true
 use_tactile: true
-tactile_sensor_order: ["LF", "RF", "WB", "LH", "RH"]
+tactile_sensor_order: ["LH", "RH"]     # only the two gloves are wired up
+tactile_server_ip: "192.168.123.164"
+tactile_server_port: 5557
 
 # from ego_camera.clipping_range in sim
 min_d: 0.1
