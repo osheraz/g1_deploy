@@ -26,6 +26,11 @@ SMPL_N, SMPL_STEP = 10, 1
 WRIST_IL_IDX = np.array([23, 24, 25, 26, 27, 28])
 
 
+def _yaw(q) -> float:
+    w, x, y, z = np.asarray(q, np.float64)
+    return float(np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)))
+
+
 class MotionReferenceWindow:
     """Replay an exported motion clip.
 
@@ -63,16 +68,56 @@ class MotionReferenceWindow:
         self.T = len(self.dof_il)
         self.loop = loop
         self.frame = 0
+        self.done = False
+        self.initialized = False
+        self.sonic_mode = "g1"        # clip tracking
         print(f"SONIC reference: motion clip {path.name}, {self.T} frames "
               f"({self.T / 50.0:.1f}s @50fps){' looping' if loop else ''}")
 
     def reset(self) -> None:
         self.frame = 0
+        self.done = False
 
     def step(self) -> None:
         self.frame += 1
         if self.frame >= self.T:
-            self.frame = 0 if self.loop else self.T - 1
+            if self.loop:
+                self.frame = 0
+            else:
+                self.frame = self.T - 1
+                self.done = True
+
+    def initialize_from_robot(self, base_quat_wxyz, dof_pos_23) -> None:
+        """Rotate the clip about z so its heading starts at the robot's.
+
+        The encoder compares the robot quat against rootq_fut ABSOLUTELY, and
+        clips carry a baked-in world yaw. Without this the policy spins the
+        robot to the clip's yaw on the first step.
+        """
+        d = _yaw(base_quat_wxyz) - _yaw(self.body_quat_wxyz_il[0, 0])
+        c, s = np.cos(d), np.sin(d)
+        off = np.array([np.cos(d / 2), 0.0, 0.0, np.sin(d / 2)])
+
+        q = self.body_quat_wxyz_il
+        w0, x0, y0, z0 = off
+        w1, x1, y1, z1 = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
+        self.body_quat_wxyz_il = np.stack([
+            w0 * w1 - x0 * x1 - y0 * y1 - z0 * z1,
+            w0 * x1 + x0 * w1 + y0 * z1 - z0 * y1,
+            w0 * y1 - x0 * z1 + y0 * w1 + z0 * x1,
+            w0 * z1 + x0 * y1 - y0 * x1 + z0 * w1,
+        ], axis=-1)
+
+        x, y = self.body_pos_il[..., 0].copy(), self.body_pos_il[..., 1].copy()
+        self.body_pos_il[..., 0] = c * x - s * y
+        self.body_pos_il[..., 1] = s * x + c * y
+
+        self.initialized = True
+        print(f"clip yaw-aligned to robot: {np.degrees(d):+.1f} deg")
+
+    def teleop_fields(self) -> dict:
+        """No teleop command in clip replay."""
+        return {}
 
     def _idx(self, n: int, step: int) -> np.ndarray:
         return np.clip(self.frame + np.arange(n) * step, 0, self.T - 1)
@@ -101,16 +146,16 @@ def build_reference(config, mode: str):
     """``mode`` is 'motion' or 'pico'."""
     if mode == "motion":
         return MotionReferenceWindow(
-            getattr(config, "sonic_motion_clip", "policy/sonic/motion_clip.npz"),
-            loop=getattr(config, "sonic_motion_loop", True),
+            config.sonic_motion_clip,
+            loop=config.sonic_motion_loop,
         )
     if mode == "pico":
         from common.pico_client import PicoClient
         from policy.pico_reference import PicoReferenceWindow
 
         client = PicoClient(
-            getattr(config, "pico_server_ip", "127.0.0.1"),
-            getattr(config, "pico_server_port", 5560),
+            config.pico_server_ip,
+            config.pico_server_port,
         )
         client.start()
         print(f"teleop:  tcp://{client.server_address}:{client.port}")

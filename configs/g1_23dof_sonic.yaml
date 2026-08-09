@@ -38,7 +38,7 @@ sonic_motion_loop: true
 # --mode pico: the SONIC kinematic planner comes from a research checkout
 # (its ONNX is ~774 MB). sonic_planner_onnx overrides the default path.
 sonic_repo: "~/tactile"
-# sonic_planner_onnx: "~/tactile/others/GR00T-WholeBodyControl/gear_sonic_deploy/planner/target_vel/V2/planner_sonic.onnx"
+sonic_planner_onnx: "~/tactile/others/GR00T-WholeBodyControl/gear_sonic_deploy/planner/target_vel/V2/planner_sonic.onnx"
 pico_server_ip: "127.0.0.1"
 pico_server_port: 5560
 
@@ -125,6 +125,24 @@ action_scale: [
     0.547546,
     0.438577, 0.438577, 0.438577, 0.438577, 0.438577,
     0.438577, 0.438577, 0.438577, 0.438577, 0.438577
+]
+
+# Hardware joint limits (MJCF g1_23dof), our 23-dof order. Targets are
+# clamped to these in apply_target_dof_pos -- the only guard now that the
+# waist-yaw mechanical stop is gone.
+dof_lower: [
+    -2.5307, -0.5236, -2.7576, -0.0873, -0.8727, -0.2618,
+    -2.5307, -2.9671, -2.7576, -0.0873, -0.8727, -0.2618,
+    -2.6180,
+    -3.0892, -1.5882, -2.6180, -1.0472, -1.9722,
+    -3.0892, -2.2515, -2.6180, -1.0472, -1.9722
+]
+dof_upper: [
+    2.8798, 2.9671, 2.7576, 2.8798, 0.5236, 0.2618,
+    2.8798, 0.5236, 2.7576, 2.8798, 0.5236, 0.2618,
+    2.6180,
+    2.6704, 2.2515, 2.6180, 2.0944, 1.9722,
+    2.6704, 1.5882, 2.6180, 2.0944, 1.9722
 ]
 
 action_ema: 1.0

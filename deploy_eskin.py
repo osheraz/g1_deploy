@@ -1,37 +1,19 @@
 #!/usr/bin/env python3
-"""e-skin deploy: PICO teleop + tactile, with gamepad-triggered recording.
-
-Same runtime as deploy_g1.py -- same RobotInterface, PolicyRunner and configs --
-but this is the data-collection variant: it adds the tactile stream and records
-episodes on a button press instead of one log per run.
+"""e-skin deploy: SONIC tracker + tactile, with gamepad-triggered recording.
 
     python deploy_eskin.py --mode record --out ~/episodes
+    python deploy_eskin.py --mode motion --clip policy/sonic/motion_stand.npz
 
-**Moves the robot on launch.**
+MOVES THE ROBOT ON LAUNCH.  A = start, X = toggle recording, select = quit.
 
-Gamepad, while running:
-
-    A       start an episode
-    B       stop it and write to disk
-    select  quit
-
-Each episode is a directory:
-
-    episodes/episode_001/
-        state.npz     robot joints, IMU, tactile, PICO poses, actions
-        frames.bin    colour+depth exactly as the camera server sent them
-        meta.json     shapes, rates, schema
-
-Camera frames are stored still-encoded (JPEG colour, PNG depth). The server
-encodes before sending, so decoding and re-storing them would be ~5x larger for
-identical pixels; depth PNG is lossless either way. Frames stream to disk as
-they arrive, so RAM stays flat.
-
-Read an episode back with ``load_episode()`` at the bottom of this file.
+Episodes are directories: state.npz + frames.bin + meta.json.
+Read one back with common.episode.load_episode().
 """
 from __future__ import annotations
 
 import argparse
+import copy
+import threading
 import time
 from pathlib import Path
 
@@ -47,6 +29,29 @@ from config import Config
 from robot.robot_interface import RobotInterface
 
 
+class EskinRobot(RobotInterface):
+    """RobotInterface + the official deploy's 500 Hz command re-writer:
+    the last command is re-sent every 2 ms as packet-loss insurance."""
+
+    def __init__(self, config):
+        super().__init__(config)
+        self._snap_lock = threading.Lock()
+        self._snap = None
+        threading.Thread(target=self._rewriter, daemon=True).start()
+
+    def send_cmd(self):
+        with self._snap_lock:
+            super().send_cmd()
+            self._snap = copy.deepcopy(self.low_cmd)
+
+    def _rewriter(self):
+        while True:
+            with self._snap_lock:
+                if self._snap is not None:
+                    self.lowcmd_publisher_.Write(self._snap)
+            time.sleep(0.002)
+
+
 class EskinController:
     def __init__(self, config, robot, policy_runner, camera, tactile, recorder):
         self.config = config
@@ -56,9 +61,9 @@ class EskinController:
         self.tactile = tactile
         self.recorder = recorder
 
-        # record mode has no policy: hold the default pose and only stream.
-        self.is_sonic = hasattr(policy_runner, "reference")
+        self.teleop = None
         self.record_only = policy_runner is None
+        self.is_sonic = not self.record_only and policy_runner.reference is not None
         self.counter = 0
         self.elapsed = 0.0
         self._last_camera_seq = -1
@@ -74,9 +79,7 @@ class EskinController:
             self.robot.get_base_features_scaled()
         )
 
-        if self.record_only:
-            # Hold the default pose. Nothing is inferred and no new target is
-            # computed, so this is the safe way to prove the recorder works.
+        if self.record_only:                      # hold default, no inference
             action = np.zeros(self.config.num_actions, np.float32)
             target_dof_pos = self.config.default_angles_23.copy()
             self.robot.apply_target_dof_pos(target_dof_pos)
@@ -85,18 +88,20 @@ class EskinController:
                          if (self.camera and self.config.use_depth_obs) else None)
             if self.is_sonic:
                 ref = self.policy_runner.reference
-                if hasattr(ref, "initialize_from_robot") and not ref._initialized:
+                if not ref.initialized:
                     ref.initialize_from_robot(imu_quat, self.robot.qj)
-                # SONIC builds its own observation: RAW joint state in robot
-                # order and world-frame angular velocity, NOT the scaled
-                # actor features.
+                # SONIC builds its own obs from RAW state, not the scaled features
                 action = self.policy_runner.compute_action(
                     dof_pos=self.robot.qj,
                     dof_vel=self.robot.dqj,
                     base_quat_wxyz=imu_quat,
-                    base_ang_vel_world=imu_gyro,
+                    base_ang_vel_body=imu_gyro,
                 )
-                self.policy_runner.reference.step()
+                ref.step()
+                if self.teleop is not None:
+                    rc = self.robot.remote_controller
+                    self.teleop.set_axes(rc.lx, rc.ly, rc.rx)
+                    self.teleop.tick(self.config.control_dt)
             else:
                 action = self.policy_runner.compute_action(
                     base_ang_vel=base_ang_vel,
@@ -131,6 +136,22 @@ class EskinController:
         else:
             self._t_next = time.perf_counter()
 
+    def ramp_to(self, target, seconds: float = 3.0, label: str = "") -> None:
+        """Linearly interpolate from the current pose to `target`."""
+        self.robot.update_joint_state()
+        start = self.robot.qj.copy()
+        target = np.asarray(target, np.float32)
+        n = max(1, int(seconds / self.config.control_dt))
+        gap = np.degrees(np.abs(target - start).max())
+        print(f"\n{label or 'ramping'}: {gap:.0f} deg over {seconds:.1f}s ...")
+        for i in range(n):
+            a = (i + 1) / n
+            self.robot.apply_target_dof_pos((1 - a) * start + a * target)
+            time.sleep(self.config.control_dt)
+
+    def ramp_to_default(self, seconds: float = 2.0) -> None:
+        self.ramp_to(self.config.default_angles_23, seconds, "returning to default")
+
     def _record(self, action, target_dof_pos, imu_quat,
                 base_ang_vel, projected_gravity, dof_pos, dof_vel) -> None:
         sample = {
@@ -146,18 +167,15 @@ class EskinController:
             "imu_quat_wxyz": np.asarray(imu_quat, np.float32),
         }
 
-        # Teleop command being imitated: mode, base nav, hands, VR endpoints.
-        ref = getattr(self.policy_runner, "reference", None)
-        if ref is not None and hasattr(ref, "teleop_fields"):
-            sample.update(ref.teleop_fields())
+        if self.is_sonic:
+            sample.update(self.policy_runner.reference.teleop_fields())
 
         if self.tactile is not None:
             sample.update(
                 tactile_fields(self.tactile.snapshot(), self.config.tactile_sensor_order)
             )
 
-        # The camera publishes at 30 Hz while this loop runs at 50, so only
-        # write the image bytes when the sequence number actually advanced.
+        # camera is 30 Hz, loop is 50: only write bytes when the frame changed
         seq = self.camera.latest_seq if self.camera else 0
         new_frame = seq != self._last_camera_seq
         self._last_camera_seq = seq
@@ -170,13 +188,27 @@ class EskinController:
         )
 
 
-def build_policy_runner(config, mode: str):
+def build_policy_runner(config, mode: str, teleop: str = None):
     """SONIC encoder/decoder driven by `mode`, the actor runner, or nothing."""
     if mode == "record":
         return None            # hold position and only record
-    if getattr(config, "policy_type", "actor") == "sonic":
-        from policy.sonic_reference import build_reference
+    if config.policy_type == "sonic":
         from policy.sonic_runner import SonicRunner
+
+        if mode == "pico" and teleop:
+            from policy.pico_reference import PicoReferenceWindow
+
+            if teleop == "joystick":
+                from common.joystick_teleop import JoystickTeleop
+
+                client = JoystickTeleop()
+            else:
+                from common.scripted_teleop import ScriptedTeleop
+
+                client = ScriptedTeleop(teleop)
+            return SonicRunner(config, PicoReferenceWindow(config, client))
+
+        from policy.sonic_reference import build_reference
 
         return SonicRunner(config, build_reference(config, mode))
 
@@ -194,6 +226,14 @@ def main() -> None:
                     help="record: hold position, stream+record only (no policy). "
                          "motion: replay an exported SONIC clip. pico: live VR.")
     ap.add_argument("--out", default="episodes", help="episode output directory")
+    ap.add_argument("--clip", default=None,
+                    help="--mode motion: override sonic_motion_clip from the config")
+    ap.add_argument("--loop", action="store_true",
+                    help="--mode motion: repeat the clip instead of stopping at the end")
+    ap.add_argument("--teleop", choices=["nav", "vr3", "both", "idle", "carry", "joystick"],
+                    default=None,
+                    help="--mode pico: scripted command instead of a headset")
+    ap.add_argument("--duration", type=float, default=None, help="stop after N seconds")
     ap.add_argument("--net", default="enp132s0")
     ap.add_argument("--tactile-ip", default=None,
                     help="override config; use 127.0.0.1 when the gloves are "
@@ -204,6 +244,9 @@ def main() -> None:
     args = ap.parse_args()
 
     config = Config(args.config)
+    if args.clip:
+        config.sonic_motion_clip = args.clip
+    config.sonic_motion_loop = args.loop
 
     # The camera is recorded even when the policy does not consume depth
     # (the PICO/sonic policy does not), so it is not gated on use_depth_obs.
@@ -236,13 +279,13 @@ def main() -> None:
               f"{config.tactile_sensor_order}")
 
     ChannelFactoryInitialize(0)
-    robot = RobotInterface(config)
-    policy_runner = build_policy_runner(config, args.mode)
+    robot = EskinRobot(config)
+    policy_runner = build_policy_runner(config, args.mode, args.teleop)
 
     # X, not A: A is consumed by default_pos_state() to release the loop,
     # so recording on A would start an episode the instant you start moving.
     recorder = Recorder(Path(args.out).expanduser(), {
-        "policy_type": getattr(config, "policy_type", "actor"),
+        "policy_type": config.policy_type,
         "mode": args.mode,
         "config": str(config.config_path),
         "policy": str(config.policy_path),
@@ -259,19 +302,46 @@ def main() -> None:
 
     hl = EskinController(config, robot, policy_runner, camera, tactile, recorder)
 
-    print("\n  X = toggle recording   select = quit\n")
+    if args.mode == "pico":
+        ref = policy_runner.reference
+        robot.update_joint_state()          # qj is zeros until this runs
+        ref.initialize_from_robot(robot.get_imu()[0], robot.qj)
+        if args.teleop:
+            hl.teleop = ref.client
+
+    print("\n  X = toggle recording   A = kill (straight to damping)   "
+          "select = quit\n")
 
     exit_reason = None
+    a_released = False        # A is still held from the start press
     try:
         while True:
             hl.step()
-            if robot.remote_controller.button[KeyMap.select] == 1:
+            btn = robot.remote_controller.button
+            if btn[KeyMap.A] == 0:
+                a_released = True
+            elif a_released:
+                exit_reason = "A"
+                break
+            if btn[KeyMap.select] == 1:
                 exit_reason = "select"
+                break
+            if hl.is_sonic and policy_runner.reference.done:
+                exit_reason = "clip finished"
+                break
+            if args.duration and hl.elapsed >= args.duration:
+                exit_reason = "duration"
                 break
     except KeyboardInterrupt:
         exit_reason = "keyboard"
 
     recorder.stop()  # flush an episode still open
+
+    # Ramp back to the default pose before going limp, so the robot does not
+    # drop from wherever the clip ended. A and Ctrl-C skip it: damping NOW.
+    if exit_reason not in ("keyboard", "A"):
+        hl.ramp_to_default()
+
     create_damping_cmd(robot.low_cmd)
     robot.send_cmd()
     if camera is not None:

@@ -17,7 +17,10 @@ The planner ONNX is ~774 MB, so it loads from the checkout named by
 """
 from __future__ import annotations
 
+import atexit
 import sys
+import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -31,8 +34,8 @@ NUM_BODIES = 14          # len(robot_g1.BODY_NAMES)
 class PicoReferenceWindow:
     """Live 3-point teleop: planner-generated window + VR endpoint targets."""
 
-    def __init__(self, config, pico_client, robot=None):
-        repo = getattr(config, "sonic_repo", None)
+    def __init__(self, config, pico_client, robot=None, threaded=True):
+        repo = config.sonic_repo
         if not repo:
             raise SystemExit(
                 "PICO mode needs the SONIC research checkout for the kinematic\n"
@@ -51,13 +54,24 @@ class PicoReferenceWindow:
         self.robot = robot
         self.config = config
 
-        planner_onnx = getattr(config, "sonic_planner_onnx", None)
+        planner_onnx = config.sonic_planner_onnx
         kwargs = {"model_path": Path(planner_onnx).expanduser()} if planner_onnx else {}
         self.planner = SonicKinematicPlanner(**kwargs)
 
-        self._initialized = False
+        self.initialized = False
+        self.done = False
+        self.sonic_mode = "teleop"   # g1 mode ignores the 3-point targets
         self._last_seq = -1
         self._last_cmd = None
+        # official deploy runs the planner in its own thread (10 Hz); the
+        # 50 Hz control loop must never block on the ~60 ms replan
+        # threaded matches the official deploy (planner thread, 50 Hz control
+        # never blocks). Synchronous is for faster-than-wall-clock headless sim.
+        self.threaded = threaded
+        self._lock = threading.Lock()
+        self._replan_thread = None
+        self._stop = False
+        atexit.register(self.stop)      # onnxruntime crashes if a run spans exit
         print(f"SONIC reference: live PICO teleop, planner from {repo}")
 
     # -- lifecycle -------------------------------------------------------
@@ -77,45 +91,94 @@ class PicoReferenceWindow:
             base_quat_wxyz=np.asarray(base_quat_wxyz, dtype=np.float32),
             joint_positions_mj=rg.il_to_mj(q_il),
         )
-        self._initialized = True
+        self.initialized = True
+        if self.threaded and self._replan_thread is None:
+            self._replan_thread = threading.Thread(
+                target=self._replan_loop, daemon=True
+            )
+            self._replan_thread.start()
 
     def reset(self) -> None:
-        self._initialized = False
+        self.initialized = False
         self._last_seq = -1
 
     def step(self) -> None:
         """Advance the planner one control step (50 Hz)."""
-        if self._initialized:
-            self.planner.advance(1)
+        if self.initialized:
+            with self._lock:
+                self.planner.advance(1)
 
-    # -- per tick --------------------------------------------------------
+    # -- replan thread ---------------------------------------------------
 
-    def _replan_if_new_command(self) -> None:
-        """Re-run the planner only when a fresh teleop command arrived."""
-        if self.client.latest_seq == self._last_seq:
-            return
-        self._last_seq = self.client.latest_seq
-        nav = self.client.nav_command()
-        mode = self.client.mode()
-        if nav is None or mode is None:
-            return
-        self._last_cmd = (mode, nav)
-        self.planner.update(
-            mode=int(mode),
+    def stop(self) -> None:
+        self._stop = True
+        if self._replan_thread is not None:
+            self._replan_thread.join(timeout=1.0)
+
+    def _replan_loop(self) -> None:
+        while not self._stop:
+            if self.client.latest_seq != self._last_seq:
+                self._last_seq = self.client.latest_seq
+                nav = self.client.nav_command()
+                mode = self.client.mode()
+                if nav is not None and mode is not None:
+                    self._last_cmd = (mode, nav)
+                    try:
+                        self._replan(int(mode), nav)
+                    except RuntimeError as e:   # late blend etc: skip, retry next
+                        print(f"replan skipped: {e}")
+            time.sleep(0.01)
+
+    def _replan(self, mode: int, nav: dict) -> None:
+        """planner.update(), split so the ONNX inference runs unlocked."""
+        p = self.planner
+        with self._lock:
+            gen_frame = int(p.current_frame + p.motion_look_ahead_steps)
+            context = p._context_from_motion(p.current_motion, gen_frame)
+            q = p.current_motion.root_quat_wxyz[
+                min(p.current_frame, p.current_motion.timesteps - 1)]
+
+        # commands are pelvis-relative; the planner wants WORLD xy (see the
+        # official clip_controller: movement_direction_world_xy)
+        w, x, y, z = np.asarray(q, np.float64).reshape(4)
+        yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+        c, s = np.cos(yaw), np.sin(yaw)
+
+        def to_world(v):
+            v = np.asarray(v, dtype=np.float32)
+            return np.array([c * v[0] - s * v[1], s * v[0] + c * v[1], v[2]],
+                            dtype=np.float32)
+
+        generated, _ = p._run_planner(
+            context,
+            mode=mode,
             target_vel=float(nav["speed"]),
             height=float(nav["height"]),
-            movement_direction=np.asarray(nav["movement"], dtype=np.float32),
-            facing_direction=np.asarray(nav["facing"], dtype=np.float32),
+            movement_direction=to_world(nav["movement"]),
+            facing_direction=to_world(nav["facing"]),
         )
+        with self._lock:
+            p.current_motion = p._blend_generated_motion(
+                p.current_motion, generated,
+                gen_frame=gen_frame, current_frame=p.current_frame,
+            )
+            p.current_frame = 0
 
     def window(self) -> dict:
-        if not self._initialized:
+        if not self.initialized:
             raise RuntimeError(
                 "PicoReferenceWindow.initialize_from_robot() must be called "
                 "with the robot's current state before the first window()"
             )
-        self._replan_if_new_command()
-        plan = self.planner.gather(FUTURE_FRAMES, FUTURE_STRIDE)
+        if not self.threaded and self.client.latest_seq != self._last_seq:
+            self._last_seq = self.client.latest_seq
+            nav = self.client.nav_command()
+            mode = self.client.mode()
+            if nav is not None and mode is not None:
+                self._last_cmd = (mode, nav)
+                self._replan(int(mode), nav)
+        with self._lock:
+            plan = self.planner.gather(FUTURE_FRAMES, FUTURE_STRIDE)
 
         root_pos_cur = np.asarray(plan["root_pos_cur"], dtype=np.float32)
         root_quat_cur = np.asarray(plan["root_quat_cur"], dtype=np.float32)

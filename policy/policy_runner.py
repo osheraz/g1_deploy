@@ -26,6 +26,7 @@ class PolicyRunner:
         self.ort_sess = None
         self.onnx_input_names = []
 
+        self.reference = None      # SonicRunner has one; this runner does not
         self.action = np.zeros(config.num_actions, dtype=np.float32)
         self.action_ema = config.action_ema  # 1.0 off, lower = smoother
 

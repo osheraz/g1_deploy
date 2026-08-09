@@ -198,7 +198,10 @@ class RobotInterface:
         return base_ang_vel, projected_gravity, dof_pos, dof_vel
 
     def apply_target_dof_pos(self, target_dof_pos: np.ndarray):
-
+        # hardware joint limits: last line of defense for every mode
+        target_dof_pos = np.clip(
+            target_dof_pos, self.config.dof_lower, self.config.dof_upper
+        )
         for i, motor_idx in enumerate(self.config.action_joint2motor_idx):
             cmd = self.low_cmd.motor_cmd[motor_idx]
             cmd.q = target_dof_pos[i]

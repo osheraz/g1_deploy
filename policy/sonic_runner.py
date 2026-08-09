@@ -68,7 +68,7 @@ class SonicRunner:
 
         self.config = config
         self.reference = reference
-        self.mode = getattr(config, "sonic_mode", "g1")
+        self.mode = reference.sonic_mode
 
         # Tiny MLPs: single-threaded is faster than the pool and avoids
         # setaffinity churn in the control loop.
@@ -76,8 +76,8 @@ class SonicRunner:
         so.intra_op_num_threads = 1
         so.inter_op_num_threads = 1
         vendored = Path(__file__).resolve().parent / "sonic"
-        enc = Path(getattr(config, "sonic_encoder", vendored / "model_encoder.onnx"))
-        dec = Path(getattr(config, "sonic_decoder", vendored / "model_decoder.onnx"))
+        enc = Path(config.sonic_encoder or vendored / "model_encoder.onnx")
+        dec = Path(config.sonic_decoder or vendored / "model_decoder.onnx")
 
         self._enc = ort.InferenceSession(str(enc.expanduser()),
                                          sess_options=so,
@@ -100,7 +100,7 @@ class SonicRunner:
         # reference, not just the decoder output. Matches sonic/tracker.py.
         self.hold_idx = robot_g1.MISSING_IL
         self.encoder_hold_idx = (
-            self.hold_idx if getattr(config, "phantom_hold_ref_dof", True) else None
+            self.hold_idx if config.phantom_hold_ref_dof else None
         )
 
         self._last_decoded_action_il = np.zeros((1, n_dof))
@@ -115,7 +115,7 @@ class SonicRunner:
 
         self.act_count = 0
         self.action = np.zeros(config.num_actions, np.float32)
-        self.action_ema = getattr(config, "action_ema", 1.0)
+        self.action_ema = config.action_ema
 
         print(f"SONIC: encoder={enc}")
         print(f"       decoder={dec}")
@@ -143,9 +143,15 @@ class SonicRunner:
         v[:, self.robot_g1.IL_FROM_OUR23] = dof_vel_23
         return q - self.default_il[None], v
 
-    def compute_action(self, dof_pos, dof_vel, base_quat_wxyz, base_ang_vel_world,
+    def compute_action(self, dof_pos, dof_vel, base_quat_wxyz, base_ang_vel_body,
                        **_ignored) -> np.ndarray:
         """One control step. ``dof_pos``/``dof_vel`` are RAW 23-DoF robot order.
+
+        ``base_ang_vel_body`` is angular velocity in the BODY frame, which is
+        what both the robot IMU gyroscope and MuJoCo's freejoint qvel[3:6]
+        report. sonic/tracker.py receives IsaacLab's world-frame value and
+        rotates it into the body frame; that rotation is already done for us,
+        so doing it again would corrupt the observation.
 
         Extra keyword arguments are accepted and ignored so this is a drop-in
         for ``PolicyRunner.compute_action`` where the caller passes depth etc.
@@ -163,8 +169,7 @@ class SonicRunner:
         )
         token = self._encode(enc_obs)
 
-        world_angvel = np.asarray(base_ang_vel_world, np.float64).reshape(1, 3)
-        ang_vel = self.obs.quat_apply(self.obs.quat_inv(base_quat), world_angvel)
+        ang_vel = np.asarray(base_ang_vel_body, np.float64).reshape(1, 3)
         jpos_rel, jvel = self._proprio_il(
             np.asarray(dof_pos, np.float64).reshape(1, -1),
             np.asarray(dof_vel, np.float64).reshape(1, -1),

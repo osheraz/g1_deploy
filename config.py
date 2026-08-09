@@ -70,6 +70,8 @@ class Config:
         self.kds = np.array(config["kds"])
         self.default_angles = np.array(config["default_angles"], dtype=np.float32)
         self.default_angles_23 = np.array(config["default_angles_23"], dtype=np.float32)
+        self.dof_lower = np.array(config["dof_lower"], dtype=np.float32)
+        self.dof_upper = np.array(config["dof_upper"], dtype=np.float32)
 
         self.fixed_joint2motor_idx = config["fixed_joint2motor_idx"]
         self.fixed_kps = np.array(config["fixed_kps"])
