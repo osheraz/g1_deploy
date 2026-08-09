@@ -11,12 +11,16 @@ import numpy as np
 
 IDLE, SLOW_WALK, OBJECT_CARRYING = 0, 1, 21   # sonic/planner/navigation.py
 
-# obs.VR_ENDPOINT_NAMES order, pelvis frame, standing
+# obs.VR_ENDPOINT_NAMES order, pelvis frame, standing. Values are the official
+# neutral (COMFORT_POS/QUAT_LOCAL in sonic/push_env/clip_controller.py) -- the
+# quats are real hand orientations, not identity.
 WRIST_L, WRIST_R, HEAD = 0, 1, 2
-REST_VR = np.array([[0.150, 0.201, -0.221],
-                    [0.121, -0.210, -0.237],
-                    [0.047, -0.008, 0.390]], np.float32)
-IDENT_QUATS = np.tile(np.array([1.0, 0.0, 0.0, 0.0], np.float32), (3, 1))
+REST_VR = np.array([[0.0903, 0.1615, -0.2411],
+                    [0.1280, -0.1522, -0.2461],
+                    [0.0241, -0.0081, 0.4028]], np.float32)
+REST_QUATS = np.array([[0.7295, 0.3145, 0.5533, -0.2506],
+                       [0.7320, -0.2639, 0.5395, 0.3217],
+                       [0.9991, 0.0110, 0.0402, -0.0002]], np.float32)
 
 TESTS = ("nav", "vr3", "both", "idle", "carry")
 
@@ -87,4 +91,4 @@ class ScriptedTeleop(TeleopBase):
             pos = self.raised_wrists(0.18, self.wrist_amp, osc)
         else:
             pos = REST_VR.copy()
-        return pos, IDENT_QUATS.copy()
+        return pos, REST_QUATS.copy()

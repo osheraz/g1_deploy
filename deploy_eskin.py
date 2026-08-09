@@ -62,6 +62,7 @@ class EskinController:
         self.recorder = recorder
 
         self.teleop = None
+        self.blend = False
         self.record_only = policy_runner is None
         self.is_sonic = not self.record_only and policy_runner.reference is not None
         self.counter = 0
@@ -115,7 +116,8 @@ class EskinController:
             target_dof_pos = (
                 action * self.config.action_scale + self.config.default_angles_23
             )
-            if self.policy_runner.act_count < 50:
+            # sim has no startup blend; --blend eases the handover anyway
+            if self.blend and self.policy_runner.act_count < 50:
                 e = 0.5
                 target_dof_pos = e * target_dof_pos + (1 - e) * self.robot.qj
             self.robot.apply_target_dof_pos(target_dof_pos)
@@ -188,7 +190,7 @@ class EskinController:
         )
 
 
-def build_policy_runner(config, mode: str, teleop: str = None):
+def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = True):
     """SONIC encoder/decoder driven by `mode`, the actor runner, or nothing."""
     if mode == "record":
         return None            # hold position and only record
@@ -206,7 +208,7 @@ def build_policy_runner(config, mode: str, teleop: str = None):
                 from common.scripted_teleop import ScriptedTeleop
 
                 client = ScriptedTeleop(teleop)
-            return SonicRunner(config, PicoReferenceWindow(config, client))
+            return SonicRunner(config, PicoReferenceWindow(config, client, gated=gated))
 
         from policy.sonic_reference import build_reference
 
@@ -234,6 +236,10 @@ def main() -> None:
                     default=None,
                     help="--mode pico: scripted command instead of a headset")
     ap.add_argument("--duration", type=float, default=None, help="stop after N seconds")
+    ap.add_argument("--blend", action="store_true",
+                    help="ease the first second toward policy targets (sim has none)")
+    ap.add_argument("--replan-ungated", action="store_true",
+                    help="--mode pico: replan on every command instead of official_gated")
     ap.add_argument("--net", default="enp132s0")
     ap.add_argument("--tactile-ip", default=None,
                     help="override config; use 127.0.0.1 when the gloves are "
@@ -280,7 +286,8 @@ def main() -> None:
 
     ChannelFactoryInitialize(0)
     robot = EskinRobot(config)
-    policy_runner = build_policy_runner(config, args.mode, args.teleop)
+    policy_runner = build_policy_runner(config, args.mode, args.teleop,
+                                        gated=not args.replan_ungated)
 
     # X, not A: A is consumed by default_pos_state() to release the loop,
     # so recording on A would start an episode the instant you start moving.
@@ -301,6 +308,7 @@ def main() -> None:
     robot.default_pos_state()
 
     hl = EskinController(config, robot, policy_runner, camera, tactile, recorder)
+    hl.blend = args.blend
 
     if args.mode == "pico":
         ref = policy_runner.reference

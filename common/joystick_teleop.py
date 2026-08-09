@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from common.scripted_teleop import IDLE, OBJECT_CARRYING, IDENT_QUATS, TeleopBase
+from common.scripted_teleop import IDLE, OBJECT_CARRYING, REST_QUATS, TeleopBase
 
 DEADZONE = 0.15
 MAX_TURN = 0.6      # rad of heading offset per replan at full stick
@@ -47,4 +47,4 @@ class JoystickTeleop(TeleopBase):
         }
 
     def vr_3point(self):
-        return self.raised_wrists(0.18, 0.25), IDENT_QUATS.copy()
+        return self.raised_wrists(0.18, 0.25), REST_QUATS.copy()

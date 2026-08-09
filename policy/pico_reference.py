@@ -30,11 +30,29 @@ FUTURE_FRAMES = 10
 FUTURE_STRIDE = 5
 NUM_BODIES = 14          # len(robot_g1.BODY_NAMES)
 
+# official_gated replan policy, values from teleop_planner_runner.yaml
+REPLAN_MIN_TICKS = 5         # 0.1 s between replans
+REPLAN_PERIOD_TICKS = 50     # 1 s periodic while moving
+SPEED_EPS = 0.05
+DIR_EPS = np.radians(5.0)
+
+
+def _direction_changed(cur, prev) -> bool:
+    cur = np.asarray(cur, np.float32)[:2]
+    prev = np.asarray(prev, np.float32)[:2]
+    cn, pn = float(np.linalg.norm(cur)), float(np.linalg.norm(prev))
+    if cn < 1e-6 and pn < 1e-6:
+        return False
+    if cn < 1e-6 or pn < 1e-6:
+        return True
+    dot = float(np.dot(cur / cn, prev / pn))
+    return float(np.arccos(np.clip(dot, -1.0, 1.0))) > DIR_EPS
+
 
 class PicoReferenceWindow:
     """Live 3-point teleop: planner-generated window + VR endpoint targets."""
 
-    def __init__(self, config, pico_client, robot=None, threaded=True):
+    def __init__(self, config, pico_client, robot=None, threaded=True, gated=True):
         repo = config.sonic_repo
         if not repo:
             raise SystemExit(
@@ -68,6 +86,9 @@ class PicoReferenceWindow:
         # threaded matches the official deploy (planner thread, 50 Hz control
         # never blocks). Synchronous is for faster-than-wall-clock headless sim.
         self.threaded = threaded
+        self.gated = gated       # official_gated: replan on change / 1 Hz moving
+        self._ticks = 0
+        self._last_replan_tick = -REPLAN_PERIOD_TICKS
         self._lock = threading.Lock()
         self._replan_thread = None
         self._stop = False
@@ -105,6 +126,7 @@ class PicoReferenceWindow:
     def step(self) -> None:
         """Advance the planner one control step (50 Hz)."""
         if self.initialized:
+            self._ticks += 1
             with self._lock:
                 self.planner.advance(1)
 
@@ -117,17 +139,45 @@ class PicoReferenceWindow:
 
     def _replan_loop(self) -> None:
         while not self._stop:
-            if self.client.latest_seq != self._last_seq:
-                self._last_seq = self.client.latest_seq
-                nav = self.client.nav_command()
-                mode = self.client.mode()
-                if nav is not None and mode is not None:
-                    self._last_cmd = (mode, nav)
-                    try:
-                        self._replan(int(mode), nav)
-                    except RuntimeError as e:   # late blend etc: skip, retry next
-                        print(f"replan skipped: {e}")
+            self._maybe_replan()
             time.sleep(0.01)
+
+    def _maybe_replan(self) -> None:
+        if self.client.latest_seq == self._last_seq:
+            return
+        self._last_seq = self.client.latest_seq
+        nav = self.client.nav_command()
+        mode = self.client.mode()
+        if nav is None or mode is None:
+            return
+        if self.gated and not self._should_replan(int(mode), nav):
+            return
+        self._last_cmd = (int(mode), nav)
+        self._last_replan_tick = self._ticks
+        try:
+            self._replan(int(mode), nav)
+        except RuntimeError as e:       # late blend etc: skip, retry next
+            print(f"replan skipped: {e}")
+
+    def _should_replan(self, mode: int, nav: dict) -> bool:
+        """teleop_planner_runner official_gated, minus modes we don't use."""
+        if self._last_cmd is None:
+            return True
+        lmode, lnav = self._last_cmd
+        if mode != lmode:
+            return True
+        elapsed = self._ticks - self._last_replan_tick
+        if elapsed < REPLAN_MIN_TICKS:
+            return False
+        if float(nav["height"]) != float(lnav["height"]):
+            return True
+        if _direction_changed(nav["facing"], lnav["facing"]):
+            return True
+        if abs(float(nav["speed"]) - float(lnav["speed"])) > SPEED_EPS:
+            return True
+        if _direction_changed(nav["movement"], lnav["movement"]):
+            return True
+        return elapsed >= REPLAN_PERIOD_TICKS and float(nav["speed"]) != 0.0
 
     def _replan(self, mode: int, nav: dict) -> None:
         """planner.update(), split so the ONNX inference runs unlocked."""
@@ -170,13 +220,8 @@ class PicoReferenceWindow:
                 "PicoReferenceWindow.initialize_from_robot() must be called "
                 "with the robot's current state before the first window()"
             )
-        if not self.threaded and self.client.latest_seq != self._last_seq:
-            self._last_seq = self.client.latest_seq
-            nav = self.client.nav_command()
-            mode = self.client.mode()
-            if nav is not None and mode is not None:
-                self._last_cmd = (mode, nav)
-                self._replan(int(mode), nav)
+        if not self.threaded:
+            self._maybe_replan()
         with self._lock:
             plan = self.planner.gather(FUTURE_FRAMES, FUTURE_STRIDE)
 
