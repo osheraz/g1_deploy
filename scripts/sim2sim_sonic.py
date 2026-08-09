@@ -93,6 +93,10 @@ def main():
     ap.add_argument("--remote", action="store_true",
                     help="--pico joystick: real Unitree remote via DDS "
                          "(robot on and reachable; nothing publishes lowcmd)")
+    ap.add_argument("--blend", action="store_true",
+                    help="ease the first second toward policy targets, as deploy --blend")
+    ap.add_argument("--replan-ungated", action="store_true",
+                    help="replan on every command instead of official_gated, as deploy")
     ap.add_argument("--steps", type=int, default=None, help="default: whole clip")
     ap.add_argument("--control-dt", type=float, default=None)
     ap.add_argument("--init-height", type=float, default=0.78)
@@ -181,7 +185,8 @@ def main():
             teleop = ScriptedTeleop(args.pico, speed=args.speed)
         # wall-paced viewing uses the deploy's planner thread; headless sim
         # outruns the wall clock, so it replans synchronously instead
-        ref = PicoReferenceWindow(cfg, teleop, threaded=args.realtime)
+        ref = PicoReferenceWindow(cfg, teleop, threaded=args.realtime,
+                                  gated=not args.replan_ungated)
         runner = SonicRunner(cfg, ref)
         ref_dof = None
         d.qpos[:3] = [0.0, 0.0, 0.793]
@@ -270,6 +275,8 @@ def main():
                   f"gx={proj_g[0]:+.2f} gy={proj_g[1]:+.2f} dof_err={de:.3f}", flush=True)
 
         target = DEFAULT if args.zero_action else action * ACTION_SCALE + DEFAULT
+        if args.blend and step < 50:        # same easing as deploy --blend
+            target = 0.5 * target + 0.5 * q
         d.ctrl[pd_act] = np.clip(target, cfg.dof_lower, cfg.dof_upper)
         if len(hold_act):
             d.ctrl[hold_act] = hold_tgt
