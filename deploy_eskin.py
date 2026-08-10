@@ -78,6 +78,14 @@ class EskinRobot(RobotInterface):
 ANKLE_IDX = np.array([4, 5, 10, 11])
 ANKLE_SETTLE_SCALE = 4.0
 
+JOINT_NAMES_23 = [
+    "L_hip_pitch", "L_hip_roll", "L_hip_yaw", "L_knee", "L_ankle_pitch", "L_ankle_roll",
+    "R_hip_pitch", "R_hip_roll", "R_hip_yaw", "R_knee", "R_ankle_pitch", "R_ankle_roll",
+    "waist_yaw",
+    "L_shoulder_pitch", "L_shoulder_roll", "L_shoulder_yaw", "L_elbow", "L_wrist_roll",
+    "R_shoulder_pitch", "R_shoulder_roll", "R_shoulder_yaw", "R_elbow", "R_wrist_roll",
+]
+
 
 class EskinController:
     def __init__(self, config, robot, policy_runner, camera, tactile, recorder,
@@ -268,6 +276,7 @@ class EskinController:
         n = max(1, int(seconds / self.config.control_dt))
         tail_start = max(0, n - max(5, n // 4))
         tail_error_deg = []
+        tail_per_joint = []
         tail_velocity = []
         print(f"{label}: holding for {seconds:.1f}s ...")
         for i in range(n):
@@ -288,15 +297,22 @@ class EskinController:
                 err = np.abs(target - self.robot.qj)
                 err[ANKLE_IDX] /= ANKLE_SETTLE_SCALE   # ground forces the ankles
                 tail_error_deg.append(float(np.degrees(err.max())))
+                tail_per_joint.append(np.degrees(np.abs(target - self.robot.qj)))
                 tail_velocity.append(speed)
             time.sleep(self.config.control_dt)
 
         observed_error = max(tail_error_deg, default=float("inf"))
         observed_velocity = max(tail_velocity, default=float("inf"))
         print(
-            f"{label}: tail max error={observed_error:.2f}deg, "
+            f"{label}: tail max error={observed_error:.2f}deg (ankle-weighted), "
             f"tail max |dq|={observed_velocity:.3f}rad/s"
         )
+        if tail_per_joint:
+            per = np.max(tail_per_joint, axis=0)
+            print(f"{label}: per-joint deviation (deg, raw):")
+            for j in np.argsort(-per):
+                mark = " (ankle, /4 in gate)" if j in ANKLE_IDX else ""
+                print(f"    {JOINT_NAMES_23[j]:16s} {per[j]:6.2f}{mark}")
         if observed_error > max_error_deg or observed_velocity > max_velocity:
             raise RuntimeError(
                 f"motion frame 0 did not settle: error={observed_error:.2f}deg "
