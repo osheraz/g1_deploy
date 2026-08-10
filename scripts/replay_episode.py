@@ -58,6 +58,16 @@ def main():
     qj = state["qj"].astype(np.float32) if "qj" in state else None
     imu = (state["imu_quat_wxyz"].astype(np.float32)
            if "imu_quat_wxyz" in state else None)
+    cmd = (state["command_q_23"].astype(np.float32)
+           if "command_q_23" in state else None)
+    temp = state.get("motor_temperature_29x2")
+    err = (state["tracking_error_q_23"].astype(np.float32)
+           if "tracking_error_q_23" in state else None)
+    JOINT_NAMES = ["Lhip_p", "Lhip_r", "Lhip_y", "Lknee", "Lank_p", "Lank_r",
+                   "Rhip_p", "Rhip_r", "Rhip_y", "Rknee", "Rank_p", "Rank_r",
+                   "waist",
+                   "Lsh_p", "Lsh_r", "Lsh_y", "Lelb", "Lwr",
+                   "Rsh_p", "Rsh_r", "Rsh_y", "Relb", "Rwr"]
 
     # Resting baseline per sensor, so light contact is visible rather than
     # swamped by each taxel's offset. Same idea as the live viewer.
@@ -76,6 +86,18 @@ def main():
         tactile_sensors=sensors,
     )
 
+    # commanded pose as a second robot, 0.9 m to the side: divergence between
+    # the two IS the tracking error (a dragged leg reads as measured lagging)
+    cmd_vis = None
+    if cmd is not None:
+        from viser.extras import ViserUrdf
+
+        cmd_frame = dv.server.scene.add_frame("/cmd", position=(0.0, 0.9, 0.0),
+                                              show_axes=False)
+        cmd_vis = ViserUrdf(dv.server, urdf_or_path=Path(args.urdf).expanduser(),
+                            root_node_name="/cmd", load_meshes=True,
+                            load_collision_meshes=False)
+
     folder = dv.server.gui.add_folder("Replay")
     with folder:
         idx = dv.server.gui.add_slider("Index", min=0, max=max(n - 1, 1), step=1,
@@ -83,6 +105,8 @@ def main():
         play = dv.server.gui.add_checkbox("Play", False)
         fps = dv.server.gui.add_number("FPS", float(args.fps))
         label = dv.server.gui.add_text("t", "0.000 s")
+        err_label = dv.server.gui.add_text("worst err", "-")
+        temp_label = dv.server.gui.add_text("ankle temps L/R", "-")
 
     def render(k: int):
         ls = type("LS", (), {})()
@@ -102,6 +126,20 @@ def main():
 
         dv.update(ls, qj[k] if qj is not None else np.zeros(23, np.float32),
                   depth_raw=depth, rgb_bgr=color)
+
+        if cmd_vis is not None:
+            from common.viser_display import JOINT_NAMES_BY_MOTOR_INDEX
+
+            cmd_vis.update_cfg({name: float(cmd[k][i])
+                                for i, name in enumerate(JOINT_NAMES_BY_MOTOR_INDEX)})
+        if err is not None:
+            e = np.degrees(np.abs(err[k]))
+            j = int(e.argmax())
+            err_label.value = f"{JOINT_NAMES[j]} {e[j]:.1f} deg"
+        if temp is not None:
+            t = np.asarray(temp[k])
+            temp_label.value = (f"p {t[4].max():.0f}/{t[10].max():.0f}  "
+                                f"r {t[5].max():.0f}/{t[11].max():.0f} C")
 
         panels = {}
         for s in sensors:
