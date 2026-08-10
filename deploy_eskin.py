@@ -401,7 +401,8 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
 
         from policy.sonic_reference import build_reference
 
-        return SonicRunner(config, build_reference(config, mode, gated=gated))
+        return SonicRunner(config, build_reference(config, mode, gated=gated,
+                                                   idle_hold=idle_hold))
 
     from policy.policy_runner import PolicyRunner
 

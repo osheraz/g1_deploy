@@ -189,7 +189,7 @@ class MotionReferenceWindow:
 # planner, whose ONNX is ~774 MB and therefore is not vendored here.
 
 
-def build_reference(config, mode: str, *, gated: bool = True):
+def build_reference(config, mode: str, *, gated: bool = True, idle_hold: bool = False):
     """Build a motion, dynamic-PICO, or forced-PLANNER/G1 reference."""
     if mode == "motion":
         return MotionReferenceWindow(
@@ -211,6 +211,7 @@ def build_reference(config, mode: str, *, gated: bool = True):
             client,
             gated=gated,
             force_g1=(mode == "planner"),
+            idle_hold=idle_hold,
         )
     raise SystemExit(
         f"unknown sonic mode {mode!r}; expected 'motion', 'pico', or 'planner'"
