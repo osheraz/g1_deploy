@@ -160,8 +160,28 @@ def build_encoder_obs(mode, dof_fut, dvel_fut, rootq_fut, rootz_fut,
     # 12. joint_pos_multi_future_wrist_for_smpl (60): 10 smpl frames x 6 wrist DOF pos
     t12 = np.asarray(wrist_dof_smpl, dtype=np.float64).reshape(N, -1)
 
-    # deploy encoder order: z + current-frame anchor BEFORE multi-future anchor
-    obs = np.concatenate([t1, t2, t3, t9, t8, t4, t5, t6, t7, t10, t11, t12], axis=1).astype(np.float32)
+    # Deploy encoder order: z + current-frame anchor BEFORE multi-future
+    # anchor. The official C++ gatherer clears all 1762 values, then populates
+    # only observations required by the selected encoder branch. Preserve the
+    # fixed flat layout while zeroing every non-selected term.
+    parts = [t1, t2, t3, t9, t8, t4, t5, t6, t7, t10, t11, t12]
+    required_parts = {
+        # encoder_mode, full joint position/velocity future, future anchor ori
+        "g1": {0, 1, 5},
+        # encoder_mode, current anchor ori, lower-body future, VR3 pos/orientation
+        "teleop": {0, 4, 6, 7, 8},
+        # encoder_mode, SMPL joints/orientation, wrist joint future
+        "smpl": {0, 9, 10, 11},
+    }
+    if mode not in required_parts:
+        raise ValueError(
+            f"unsupported SONIC encoder mode {mode!r}; expected one of "
+            f"{sorted(required_parts)}"
+        )
+    keep = required_parts[mode]
+    masked_parts = [part if i in keep else np.zeros_like(part)
+                    for i, part in enumerate(parts)]
+    obs = np.concatenate(masked_parts, axis=1).astype(np.float32)
     assert obs.shape[1] == 1762, obs.shape
     return obs
 

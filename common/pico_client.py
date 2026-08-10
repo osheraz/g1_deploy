@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from enum import IntEnum
 from typing import Optional
 
@@ -48,6 +49,12 @@ TOPIC = b"planner"
 
 _DTYPE = {"i32": np.int32, "f32": np.float32, "f64": np.float64,
           "u8": np.uint8, "i64": np.int64}
+DEFAULT_VR_ORIENTATION = np.array(
+    [[0.7295, 0.3145, 0.5533, -0.2506],
+     [0.7320, -0.2639, 0.5395, 0.3217],
+     [0.9991, 0.0110, 0.0402, -0.0002]],
+    dtype=np.float64,
+)
 
 
 class LocomotionMode(IntEnum):
@@ -80,7 +87,11 @@ def decode_planner_message(msg: bytes) -> dict:
     if not msg.startswith(TOPIC):
         raise ValueError(f"not a planner message: {msg[:16]!r}")
     body = msg[len(TOPIC):]
+    if len(body) < HEADER_SIZE:
+        raise ValueError(f"planner message is shorter than its {HEADER_SIZE}-byte header")
     header = json.loads(body[:HEADER_SIZE].rstrip(b"\x00").decode("utf-8"))
+    if not isinstance(header.get("fields"), list):
+        raise ValueError("planner header has no fields list")
     payload = body[HEADER_SIZE:]
 
     out, off = {}, 0
@@ -90,15 +101,30 @@ def decode_planner_message(msg: bytes) -> dict:
         )
         n = int(np.prod(f["shape"]))
         nbytes = n * dt.itemsize
+        if off + nbytes > len(payload):
+            raise ValueError(
+                f"planner payload ends inside field {f['name']!r}: "
+                f"need {off + nbytes}, have {len(payload)} bytes"
+            )
         out[f["name"]] = np.frombuffer(payload[off:off + nbytes], dtype=dt).reshape(
             f["shape"]
         ).copy()
         off += nbytes
+    if off != len(payload):
+        raise ValueError(f"planner payload has {len(payload) - off} trailing bytes")
+    required = {"mode", "movement", "facing", "speed", "height"}
+    missing = sorted(required - out.keys())
+    if missing:
+        raise ValueError(f"planner message is missing required fields: {missing}")
     return out
 
 
 class PicoClient(threading.Thread):
     """Latest teleop command from the PICO publisher."""
+
+    # Official PICO's YawAccumulator sends planner-world vectors.  Reference
+    # providers must not rotate these by the current pelvis yaw a second time.
+    navigation_frame = "world"
 
     def __init__(self, server_address: str = "127.0.0.1", port: int = DEFAULT_PORT):
         super().__init__(daemon=True)
@@ -116,6 +142,7 @@ class PicoClient(threading.Thread):
         self.frame_count = 0
         self.latest: Optional[dict] = None
         self.latest_seq = 0
+        self._latest_monotonic: Optional[float] = None
 
     def run(self) -> None:
         while self.running:
@@ -133,16 +160,28 @@ class PicoClient(threading.Thread):
                 self.latest = fields
                 self.frame_count += 1
                 self.latest_seq += 1
+                self._latest_monotonic = time.monotonic()
 
     def stop(self) -> None:
+        if self.socket is None:
+            return
         self.running = False
-        self.join(timeout=2.0)
-        self.socket.close()
+        if self.is_alive():
+            self.join(timeout=2.0)
+        self.socket.close(linger=0)
         self.context.term()
+        self.socket = None
+        self.context = None
 
     def snapshot(self) -> Optional[dict]:
         with self._lock:
             return None if self.latest is None else dict(self.latest)
+
+    def age_s(self) -> float:
+        """Monotonic age of the latest complete planner message."""
+        with self._lock:
+            timestamp = self._latest_monotonic
+        return float("inf") if timestamp is None else time.monotonic() - timestamp
 
     # -- convenience accessors, all None when that field was not sent --
 
@@ -171,10 +210,22 @@ class PicoClient(threading.Thread):
     def vr_3point(self) -> Optional[tuple]:
         """``(pos (3,3), quat_wxyz (3,4))`` or None if not streamed."""
         s = self.snapshot()
-        if s is None or "vr_position" not in s or "vr_orientation" not in s:
+        # Official ZMQManager enables encoder mode 1 when vr_position is
+        # present. Orientation is optional and falls back to its calibrated
+        # comfort quaternions.
+        if s is None or "vr_position" not in s:
             return None
-        return (s["vr_position"].reshape(3, 3).astype(np.float64),
-                s["vr_orientation"].reshape(3, 4).astype(np.float64))
+        try:
+            position = s["vr_position"].reshape(3, 3).astype(np.float64)
+        except ValueError:
+            return None
+        orientation = DEFAULT_VR_ORIENTATION.copy()
+        if "vr_orientation" in s:
+            try:
+                orientation = s["vr_orientation"].reshape(3, 4).astype(np.float64)
+            except ValueError:
+                pass
+        return position, orientation
 
 
 def main():

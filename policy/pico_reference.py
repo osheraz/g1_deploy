@@ -1,282 +1,439 @@
-"""Live PICO teleop reference window for the SONIC tracker.
+"""Official-style live PICO/planner reference window for SONIC.
 
-Transport: the `planner` ZMQ topic, decoded by ``common/pico_client.py``.
-Planner:   ``sonic/planner/kinematic.py`` SonicKinematicPlanner.
-Window:    assembled as in ``teleop_planner_runner._build_g()``.
-
-Command mapping, ZMQ topic -> planner:
-
-    mode      -> update(mode=...)             LocomotionMode, incl. carrying
-    speed     -> update(target_vel=...)
-    height    -> update(height=...)
-    movement  -> update(movement_direction=)  base navigation
-    facing    -> update(facing_direction=)
-
-The planner ONNX is ~774 MB, so it loads from the checkout named by
-``sonic_repo`` rather than being vendored.
+The PICO wire protocol supplies planner-world movement/facing vectors and,
+only in VR3PT mode, calibrated pelvis-local [left wrist, right wrist, head]
+targets. Encoder mode follows fresh ``vr_position`` presence exactly as the
+official ZMQ manager does; orientation is optional and uses the official
+comfort-quaternion fallback.
 """
 from __future__ import annotations
 
 import atexit
-import sys
 import threading
 import time
-from pathlib import Path
 
 import numpy as np
 
-# Future window: 10 frames, stride 5 -- sonic/constants.py FUTURE_FRAMES/STRIDE.
+from policy.sonic import robot_g1
+from policy.sonic.planner_onnx import SonicKinematicPlanner
+from policy.sonic.rotation_np import heading_quat, quat_inv, quat_mul
+
+
 FUTURE_FRAMES = 10
 FUTURE_STRIDE = 5
-NUM_BODIES = 14          # len(robot_g1.BODY_NAMES)
+NUM_BODIES = len(robot_g1.BODY_NAMES)
+PLANNER_TICK_CONTROL_STEPS = 5       # 10 Hz planner on a 50 Hz control loop
+PLANNER_TIMEOUT_S = 1.0
 
-# official_gated replan policy, values from teleop_planner_runner.yaml
-REPLAN_MIN_TICKS = 5         # 0.1 s between replans
-REPLAN_PERIOD_TICKS = 50     # 1 s periodic while moving
-SPEED_EPS = 0.05
-DIR_EPS = np.radians(5.0)
+STATIC_MODES = frozenset((0, 4, 5, 6, 7, 9))
+BOXING_MODES = frozenset((11, 12, 13, 15, 16))
+RUN_MODE = 3
+CRAWLING_MODE = 8
+LOWER_BODY_IL_IDX = np.array(
+    [0, 1, 3, 4, 6, 7, 9, 10, 13, 14, 17, 18], dtype=np.int64
+)
+IDLE_ADAPT_TRIGGER = 0.10
+IDLE_ADAPT_STOP = 0.05
+IDLE_RECOVER_TRIGGER = 0.045
 
 
-def _direction_changed(cur, prev) -> bool:
-    cur = np.asarray(cur, np.float32)[:2]
-    prev = np.asarray(prev, np.float32)[:2]
-    cn, pn = float(np.linalg.norm(cur)), float(np.linalg.norm(prev))
-    if cn < 1e-6 and pn < 1e-6:
-        return False
-    if cn < 1e-6 or pn < 1e-6:
-        return True
-    dot = float(np.dot(cur / cn, prev / pn))
-    return float(np.arccos(np.clip(dot, -1.0, 1.0))) > DIR_EPS
+def _normalize_direction(value) -> np.ndarray:
+    v = np.asarray(value, dtype=np.float32).reshape(3)
+    n = float(np.linalg.norm(v))
+    return v / n if n > 1e-8 else np.zeros(3, dtype=np.float32)
+
+
+def _same_vector(a, b) -> bool:
+    return bool(np.array_equal(np.asarray(a), np.asarray(b)))
 
 
 class PicoReferenceWindow:
-    """Live 3-point teleop: planner-generated window + VR endpoint targets."""
+    """Planner trajectory plus optional calibrated VR three-point targets."""
 
-    def __init__(self, config, pico_client, robot=None, threaded=True, gated=True):
-        repo = config.sonic_repo
-        if not repo:
-            raise SystemExit(
-                "PICO mode needs the SONIC research checkout for the kinematic\n"
-                "planner (its ONNX is ~774 MB and is not vendored here).\n"
-                "Set `sonic_repo:` in the config, e.g. ~/tactile."
-            )
-        repo = Path(repo).expanduser()
-        if str(repo) not in sys.path:
-            sys.path.insert(0, str(repo))
+    def __init__(
+        self,
+        config,
+        pico_client,
+        robot=None,
+        threaded=True,
+        gated=True,
+        force_g1=False,
+    ):
+        planner_onnx = config.sonic_planner_onnx
+        if not planner_onnx:
+            raise SystemExit("PICO mode requires `sonic_planner_onnx` in the config")
 
-        from sonic.planner.kinematic import SonicKinematicPlanner
-        from policy.sonic import robot_g1
-
-        self.robot_g1 = robot_g1
         self.client = pico_client
         self.robot = robot
         self.config = config
-
-        planner_onnx = config.sonic_planner_onnx
-        kwargs = {"model_path": Path(planner_onnx).expanduser()} if planner_onnx else {}
-        self.planner = SonicKinematicPlanner(**kwargs)
+        self.force_g1 = bool(force_g1)
+        self.planner = SonicKinematicPlanner(
+            planner_onnx,
+            version=getattr(config, "sonic_planner_version", None),
+            default_height=getattr(config, "sonic_planner_default_height", 0.788740),
+        )
 
         self.initialized = False
         self.done = False
-        self.sonic_mode = "teleop"   # g1 mode ignores the 3-point targets
-        self._last_seq = -1
-        self._last_cmd = None
-        # official deploy runs the planner in its own thread (10 Hz); the
-        # 50 Hz control loop must never block on the ~60 ms replan
-        # threaded matches the official deploy (planner thread, 50 Hz control
-        # never blocks). Synchronous is for faster-than-wall-clock headless sim.
-        self.threaded = threaded
-        self.gated = gated       # official_gated: replan on change / 1 Hz moving
+        self._vr_active = False
+        self._vr_input_present = False
+        self._stale = False
+        self._stale_logged = False
+        self._last_world_nav = {
+            "movement": np.zeros(3, np.float32),
+            "facing": np.array([1.0, 0.0, 0.0], np.float32),
+            "speed": -1.0,
+            "height": -1.0,
+        }
+        self._last_cmd = (0, self._last_world_nav.copy())
+
+        # Official deployment uses a 10 Hz planner thread and a 50 Hz control
+        # thread.  Synchronous mode is retained for faster-than-wall-clock sim.
+        self.threaded = bool(threaded)
+        self.gated = bool(gated)
         self._ticks = 0
-        self._last_replan_tick = -REPLAN_PERIOD_TICKS
+        self._last_planner_tick = -PLANNER_TICK_CONTROL_STEPS
+        self._replan_interval_s = 0.0
         self._lock = threading.Lock()
         self._replan_thread = None
         self._stop = False
-        atexit.register(self.stop)      # onnxruntime crashes if a run spans exit
-        print(f"SONIC reference: live PICO teleop, planner from {repo}")
+        self._heading_alignment = np.array([1.0, 0.0, 0.0, 0.0])
+        self._idle_readapt_original = np.zeros(robot_g1.NUM_DOF, np.float64)
+        self._idle_readapt_stored = False
+        self._idle_readapt_state = "idle"
+        self._fatal_error: RuntimeError | None = None
+        atexit.register(self.stop)
+        profile = "PLANNER/G1-only" if self.force_g1 else "dynamic PICO"
+        print(
+            f"SONIC reference: official-style PICO planner {self.planner.model_path} "
+            f"({profile})"
+        )
 
-    # -- lifecycle -------------------------------------------------------
+    @property
+    def sonic_mode(self) -> str:
+        return "teleop" if self._vr_active and not self.force_g1 else "g1"
 
     def initialize_from_robot(self, base_quat_wxyz, dof_pos_23) -> None:
-        """Seed the planner from the robot's current state.
+        """Initialize planner joints and official heading alignment from hardware."""
+        q_il = np.zeros(robot_g1.NUM_DOF, dtype=np.float32)
+        q_il[robot_g1.IL_FROM_OUR23] = np.asarray(dof_pos_23, dtype=np.float32)
+        base_q = np.asarray(base_quat_wxyz, dtype=np.float64).reshape(4)
+        self.planner.initialize(base_q, robot_g1.il_to_mj(q_il))
 
-        Planner works in 29-DoF MuJoCo order; the robot reports 23, so absent
-        joints come from the default pose.
-        """
-        rg = self.robot_g1
-        # Absent joints (MISSING_IL) default to 0, which is their value in the
-        # 29-dof default pose.
-        q_il = np.zeros(rg.NUM_DOF, dtype=np.float32)
-        q_il[rg.IL_FROM_OUR23] = np.asarray(dof_pos_23, dtype=np.float32)
-        self.planner.initialize(
-            base_quat_wxyz=np.asarray(base_quat_wxyz, dtype=np.float32),
-            joint_positions_mj=rg.il_to_mj(q_il),
+        # C++ generates in a normalized +X planner frame and maps its reference
+        # heading onto the measured base heading in the encoder gatherer.
+        initial_ref = self.planner.current_motion.root_quat_wxyz[0]
+        self._heading_alignment = quat_mul(
+            heading_quat(base_q), quat_inv(heading_quat(initial_ref))
         )
+        base_heading = heading_quat(base_q)
+        yaw_deg = np.degrees(2.0 * np.arctan2(base_heading[3], base_heading[0]))
         self.initialized = True
+        print(
+            "SONIC planner calibrated from measured robot state: "
+            f"23 physical joints -> 29 slots, pelvis heading={yaw_deg:+.1f}deg, "
+            f"encoder={'G1 (forced)' if self.force_g1 else 'message-selected'}"
+        )
         if self.threaded and self._replan_thread is None:
             self._replan_thread = threading.Thread(
-                target=self._replan_loop, daemon=True
+                target=self._replan_loop, name="sonic-planner", daemon=True
             )
             self._replan_thread.start()
 
     def reset(self) -> None:
         self.initialized = False
-        self._last_seq = -1
+        self._vr_active = False
+        self._vr_input_present = False
+        self._stale = False
 
     def step(self) -> None:
-        """Advance the planner one control step (50 Hz)."""
+        """Advance the installed 50 Hz trajectory after one policy command."""
         if self.initialized:
             self._ticks += 1
             with self._lock:
                 self.planner.advance(1)
+                self._idle_readapt_at_horizon()
 
-    # -- replan thread ---------------------------------------------------
+    def _idle_readapt_at_horizon(self) -> None:
+        """Mirror the official lower-body end-of-IDLE adaptation state machine."""
+        motion = self.planner.current_motion
+        if (
+            self.robot is None
+            or motion is None
+            or self.planner.current_frame != motion.timesteps - 1
+            or self._last_cmd[0] != 0
+        ):
+            return
+
+        measured_il = np.zeros(robot_g1.NUM_DOF, np.float64)
+        measured_il[robot_g1.IL_FROM_OUR23] = np.asarray(
+            self.robot.qj, np.float64
+        ).reshape(23)
+        target = motion.joint_pos_il[-1]
+        if not self._idle_readapt_stored:
+            self._idle_readapt_original[LOWER_BODY_IL_IDX] = target[LOWER_BODY_IL_IDX]
+            self._idle_readapt_stored = True
+            self._idle_readapt_state = "idle"
+
+        avg_error = float(np.mean(np.abs(
+            target[LOWER_BODY_IL_IDX] - measured_il[LOWER_BODY_IL_IDX]
+        )))
+        if self._idle_readapt_state == "idle":
+            if avg_error > IDLE_ADAPT_TRIGGER:
+                self._idle_readapt_state = "adapting"
+            elif avg_error < IDLE_RECOVER_TRIGGER:
+                self._idle_readapt_state = "recovering"
+        elif self._idle_readapt_state == "adapting":
+            if avg_error < IDLE_ADAPT_STOP:
+                self._idle_readapt_state = "idle"
+        elif self._idle_readapt_state == "recovering":
+            if avg_error > IDLE_ADAPT_TRIGGER:
+                self._idle_readapt_state = "adapting"
+
+        if self._idle_readapt_state == "adapting":
+            target[LOWER_BODY_IL_IDX] = (
+                0.98 * target[LOWER_BODY_IL_IDX]
+                + 0.02 * measured_il[LOWER_BODY_IL_IDX]
+            )
+        elif self._idle_readapt_state == "recovering":
+            target[LOWER_BODY_IL_IDX] = (
+                0.98 * target[LOWER_BODY_IL_IDX]
+                + 0.02 * self._idle_readapt_original[LOWER_BODY_IL_IDX]
+            )
 
     def stop(self) -> None:
         self._stop = True
         if self._replan_thread is not None:
             self._replan_thread.join(timeout=1.0)
+        stop = getattr(self.client, "stop", None)
+        if callable(stop):
+            stop()
 
     def _replan_loop(self) -> None:
         while not self._stop:
             self._maybe_replan()
-            time.sleep(0.01)
+            time.sleep(0.002)
 
-    def _maybe_replan(self) -> None:
-        if self.client.latest_seq == self._last_seq:
-            return
-        self._last_seq = self.client.latest_seq
-        nav = self.client.nav_command()
+    def _client_age_s(self) -> float:
+        age = getattr(self.client, "age_s", None)
+        if callable(age):
+            return float(age())
+        return 0.0
+
+    def _fresh_vr(self):
+        if self._client_age_s() >= PLANNER_TIMEOUT_S:
+            return None
+        return self.client.vr_3point()
+
+    def _update_encoder_mode(self) -> None:
+        self._vr_input_present = self._fresh_vr() is not None
+        self._vr_active = self._vr_input_present and not self.force_g1
+
+    def _to_planner_world(self, nav: dict) -> dict:
+        """Convert only explicitly local stand-ins; real PICO is already world-frame."""
+        movement = np.asarray(nav["movement"], np.float32).reshape(3)
+        facing = np.asarray(nav["facing"], np.float32).reshape(3)
+        if getattr(self.client, "navigation_frame", "world") == "local":
+            with self._lock:
+                q = self.planner.current_motion.root_quat_wxyz[
+                    min(self.planner.current_frame, self.planner.current_motion.timesteps - 1)
+                ]
+            w, x, y, z = np.asarray(q, np.float64)
+            yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+            c, s = np.cos(yaw), np.sin(yaw)
+
+            def rotate(v):
+                return np.array(
+                    [c * v[0] - s * v[1], s * v[0] + c * v[1], v[2]],
+                    dtype=np.float32,
+                )
+
+            movement, facing = rotate(movement), rotate(facing)
+        return {
+            "movement": _normalize_direction(movement),
+            "facing": _normalize_direction(facing),
+            "speed": float(nav["speed"]),
+            "height": float(nav["height"]),
+        }
+
+    def _current_command(self) -> tuple[int, dict]:
+        age = self._client_age_s()
+        if age >= PLANNER_TIMEOUT_S:
+            self._stale = True
+            if not self._stale_logged:
+                print(f"[PICO] planner input stale ({age:.3f}s): transitioning to IDLE")
+                self._stale_logged = True
+            return 0, {
+                "movement": np.zeros(3, np.float32),
+                "facing": self._last_world_nav["facing"].copy(),
+                "speed": -1.0,
+                "height": -1.0,
+            }
+
         mode = self.client.mode()
-        if nav is None or mode is None:
-            return
-        if self.gated and not self._should_replan(int(mode), nav):
-            return
-        self._last_cmd = (int(mode), nav)
-        self._last_replan_tick = self._ticks
-        try:
-            self._replan(int(mode), nav)
-        except RuntimeError as e:       # late blend etc: skip, retry next
-            print(f"replan skipped: {e}")
+        nav = self.client.nav_command()
+        if mode is None or nav is None:
+            return self._last_cmd
+        self._stale = False
+        self._stale_logged = False
+        world = self._to_planner_world(nav)
+        if int(mode) in STATIC_MODES:
+            world["speed"] = -1.0
+        if int(mode) in (4, 5, 6, 7, 8, 14) and world["height"] < 0.2:
+            world["height"] = 0.2
+        self._last_world_nav = {k: v.copy() if isinstance(v, np.ndarray) else v
+                                for k, v in world.items()}
+        return int(mode), world
+
+    @staticmethod
+    def _period_for_mode(mode: int) -> float:
+        if mode == RUN_MODE:
+            return 0.1
+        if mode == CRAWLING_MODE:
+            return 0.2
+        if mode in BOXING_MODES:
+            return 1.0
+        return 1.0
 
     def _should_replan(self, mode: int, nav: dict) -> bool:
-        """teleop_planner_runner official_gated, minus modes we don't use."""
-        if self._last_cmd is None:
-            return True
-        lmode, lnav = self._last_cmd
-        if mode != lmode:
-            return True
-        elapsed = self._ticks - self._last_replan_tick
-        if elapsed < REPLAN_MIN_TICKS:
-            return False
-        if float(nav["height"]) != float(lnav["height"]):
-            return True
-        if _direction_changed(nav["facing"], lnav["facing"]):
-            return True
-        if abs(float(nav["speed"]) - float(lnav["speed"])) > SPEED_EPS:
-            return True
-        if _direction_changed(nav["movement"], lnav["movement"]):
-            return True
-        return elapsed >= REPLAN_PERIOD_TICKS and float(nav["speed"]) != 0.0
+        last_mode, last_nav = self._last_cmd
+        period = self._period_for_mode(mode)
+        self._replan_interval_s += 0.1
+        time_to_replan = self._replan_interval_s + 1e-9 >= period
+        if time_to_replan:
+            self._replan_interval_s = 0.0
 
-    def _replan(self, mode: int, nav: dict) -> None:
-        """planner.update(), split so the ONNX inference runs unlocked."""
-        p = self.planner
+        if not self.gated:
+            return True
+        if mode != last_mode:
+            return True
+        if not _same_vector(nav["facing"], last_nav["facing"]):
+            return True
+        if nav["height"] != last_nav["height"]:
+            return True
+        if mode not in STATIC_MODES:
+            if nav["speed"] != last_nav["speed"]:
+                return True
+            if not _same_vector(nav["movement"], last_nav["movement"]):
+                return True
+            if time_to_replan and nav["speed"] != 0.0:
+                return True
+        return False
+
+    def _maybe_replan(self) -> None:
+        if not self.initialized or self._fatal_error is not None:
+            return
+        if self._ticks - self._last_planner_tick < PLANNER_TICK_CONTROL_STEPS:
+            return
+        self._last_planner_tick = self._ticks
+        mode, nav = self._current_command()
+        if not self._should_replan(mode, nav):
+            return
+
+        # Copy the four-frame context under lock; inference must not block the
+        # 50 Hz reference gather/advance path.
         with self._lock:
-            gen_frame = int(p.current_frame + p.motion_look_ahead_steps)
-            context = p._context_from_motion(p.current_motion, gen_frame)
-            q = p.current_motion.root_quat_wxyz[
-                min(p.current_frame, p.current_motion.timesteps - 1)]
-
-        # commands are pelvis-relative; the planner wants WORLD xy (see the
-        # official clip_controller: movement_direction_world_xy)
-        w, x, y, z = np.asarray(q, np.float64).reshape(4)
-        yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-        c, s = np.cos(yaw), np.sin(yaw)
-
-        def to_world(v):
-            v = np.asarray(v, dtype=np.float32)
-            return np.array([c * v[0] - s * v[1], s * v[0] + c * v[1], v[2]],
-                            dtype=np.float32)
-
-        generated, _ = p._run_planner(
-            context,
-            mode=mode,
-            target_vel=float(nav["speed"]),
-            height=float(nav["height"]),
-            movement_direction=to_world(nav["movement"]),
-            facing_direction=to_world(nav["facing"]),
-        )
-        with self._lock:
-            p.current_motion = p._blend_generated_motion(
-                p.current_motion, generated,
-                gen_frame=gen_frame, current_frame=p.current_frame,
+            gen_frame, context = self.planner.prepare_replan()
+        try:
+            generated = self.planner.infer_replan(
+                context,
+                mode=mode,
+                target_vel=nav["speed"],
+                height=nav["height"],
+                movement_direction=nav["movement"][None],
+                facing_direction=nav["facing"][None],
             )
-            p.current_frame = 0
+            with self._lock:
+                self.planner.install_replan(generated, gen_frame)
+                self._idle_readapt_stored = False
+            self._last_cmd = (
+                mode,
+                {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in nav.items()},
+            )
+        except Exception as exc:
+            # Official C++ disables the planner after an inference/update
+            # failure. Surface it to the 50 Hz loop so deploy_eskin's finally
+            # path sends damping instead of silently walking a stale plan.
+            self._fatal_error = RuntimeError(f"SONIC planner update failed: {exc}")
+            print(f"[PICO] fatal planner error: {exc}")
 
     def window(self) -> dict:
         if not self.initialized:
-            raise RuntimeError(
-                "PicoReferenceWindow.initialize_from_robot() must be called "
-                "with the robot's current state before the first window()"
-            )
+            raise RuntimeError("initialize_from_robot() is required before window()")
+        if self._fatal_error is not None:
+            raise self._fatal_error
         if not self.threaded:
             self._maybe_replan()
+        # Read VR exactly once. Mode selection and targets must come from the
+        # same message snapshot; otherwise a VR3 transition could produce one
+        # teleop-encoder tick without VR targets.
+        vr = self._fresh_vr()
+        self._vr_input_present = vr is not None
+        self._vr_active = self._vr_input_present and not self.force_g1
         with self._lock:
             plan = self.planner.gather(FUTURE_FRAMES, FUTURE_STRIDE)
 
-        root_pos_cur = np.asarray(plan["root_pos_cur"], dtype=np.float32)
-        root_quat_cur = np.asarray(plan["root_quat_cur"], dtype=np.float32)
-
-        # Body poses zero except the root.
+        rootq_fut = quat_mul(self._heading_alignment[None], plan["rootq_fut"])
+        rootq_cur = quat_mul(self._heading_alignment, plan["root_quat_cur"])
         body_pos = np.zeros((1, NUM_BODIES, 3), dtype=np.float32)
         body_quat = np.zeros((1, NUM_BODIES, 4), dtype=np.float32)
         body_quat[..., 0] = 1.0
-        body_pos[0, 0] = root_pos_cur
-        body_quat[0, 0] = root_quat_cur
+        body_pos[0, 0] = plan["root_pos_cur"]
+        body_quat[0, 0] = rootq_cur
 
-        g = {
-            "dof_fut": np.asarray(plan["dof_fut"])[None],
-            "dvel_fut": np.asarray(plan["dvel_fut"])[None],
-            "rootq_fut": np.asarray(plan["rootq_fut"])[None],
-            "rootz_fut": np.asarray(plan["rootz_fut"])[None],
+        result = {
+            "dof_fut": np.asarray(plan["dof_fut"], np.float32)[None],
+            "dvel_fut": np.asarray(plan["dvel_fut"], np.float32)[None],
+            "rootq_fut": np.asarray(rootq_fut, np.float32)[None],
+            "rootz_fut": np.asarray(plan["rootz_fut"], np.float32)[None],
             "body_pos_cur": body_pos,
             "body_quat_cur": body_quat,
-            "rootz_cur": np.asarray(plan["rootz_cur"], dtype=np.float32).reshape(1),
-            "wrist_dof_smpl": np.zeros((1, FUTURE_FRAMES, 6), dtype=np.float32),
+            "rootz_cur": np.asarray(plan["rootz_cur"], np.float32).reshape(1),
+            "wrist_dof_smpl": np.zeros((1, FUTURE_FRAMES, 6), np.float32),
         }
-
-        # Live endpoints are already pelvis-local.
-        vr = self.client.vr_3point()
-        if vr is not None:
+        if self._vr_active and vr is not None:
             pos, quat = vr
-            targets = (pos.reshape(1, 3, 3).astype(np.float32),
-                       quat.reshape(1, 3, 4).astype(np.float32))
-            g["vr_targets"] = targets
-            g["vr_targets_encoder"] = targets
-            g["vr_targets_local"] = True
-        return g
-
-    # -- passthrough for recording --------------------------------------
+            targets = (
+                np.asarray(pos, np.float32).reshape(1, 3, 3),
+                np.asarray(quat, np.float32).reshape(1, 3, 4),
+            )
+            result["vr_targets_encoder"] = targets
+            result["vr_targets_local"] = True
+        return result
 
     def teleop_fields(self) -> dict:
-        """Flat arrays for the episode log: mode, nav, hands, VR endpoints."""
-        out: dict[str, np.ndarray] = {}
+        """Fixed-shape fields so every recorded control row has the same schema."""
         mode = self.client.mode()
-        if mode is not None:
-            out["teleop_mode"] = np.int32(mode)
         nav = self.client.nav_command()
-        if nav is not None:
-            out["teleop_movement"] = np.asarray(nav["movement"], np.float32)
-            out["teleop_facing"] = np.asarray(nav["facing"], np.float32)
-            out["teleop_speed"] = np.float32(nav["speed"])
-            out["teleop_height"] = np.float32(nav["height"])
-        hands = self.client.hands()
-        if hands is not None:
-            out["teleop_left_hand"] = np.asarray(hands["left"], np.float32)
-            out["teleop_right_hand"] = np.asarray(hands["right"], np.float32)
-        vr = self.client.vr_3point()
-        if vr is not None:
-            out["teleop_vr_pos"] = vr[0].astype(np.float32)
-            out["teleop_vr_quat_wxyz"] = vr[1].astype(np.float32)
-        return out
+        vr = self._fresh_vr()
+        if nav is None:
+            movement = facing = np.full(3, np.nan, np.float32)
+            speed = height = np.float32(np.nan)
+        else:
+            movement = np.asarray(nav["movement"], np.float32)
+            facing = np.asarray(nav["facing"], np.float32)
+            speed, height = np.float32(nav["speed"]), np.float32(nav["height"])
+        if vr is None:
+            vr_pos = np.full((3, 3), np.nan, np.float32)
+            vr_quat = np.full((3, 4), np.nan, np.float32)
+        else:
+            vr_pos = np.asarray(vr[0], np.float32).reshape(3, 3)
+            vr_quat = np.asarray(vr[1], np.float32).reshape(3, 4)
+        return {
+            "teleop_mode": np.int32(-1 if mode is None else mode),
+            "teleop_movement": movement,
+            "teleop_facing": facing,
+            "teleop_speed": speed,
+            "teleop_height": height,
+            "teleop_vr_pos": vr_pos,
+            "teleop_vr_quat_wxyz": vr_quat,
+            "teleop_vr_valid": np.bool_(vr is not None),
+            "teleop_vr_ignored_by_planner_profile": np.bool_(
+                self.force_g1 and vr is not None
+            ),
+            "teleop_age_s": np.float32(self._client_age_s()),
+            "teleop_stale": np.bool_(self._stale),
+            "sonic_encoder_mode": np.int32(1 if self._vr_active else 0),
+            "planner_inference_ms": np.float32(self.planner.last_inference_ms),
+            "planner_total_ms": np.float32(self.planner.last_total_ms),
+        }

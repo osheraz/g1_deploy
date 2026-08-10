@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from typing import Union
 import time
 import numpy as np
@@ -43,6 +44,11 @@ class RobotInterface:
 
         self.qj = np.zeros(config.num_actions, dtype=np.float32)
         self.dqj = np.zeros(config.num_actions, dtype=np.float32)
+        self.last_target_unclipped = config.default_angles_23.copy()
+        self.last_target_dof_pos = config.default_angles_23.copy()
+        self.last_target_saturated = np.zeros(config.num_actions, dtype=bool)
+        self._low_state_monotonic = 0.0
+        self._state_lock = threading.Lock()
 
         if config.msg_type == "hg":
             self._init_hg()
@@ -89,22 +95,39 @@ class RobotInterface:
             init_cmd_go(self.low_cmd, weak_motor=self.config.weak_motor)
 
     def _low_state_hg_handler(self, msg: LowStateHG):
-        self.low_state = msg
-        self.mode_machine_ = self.low_state.mode_machine
-        self.remote_controller.set(self.low_state.wireless_remote)
+        with self._state_lock:
+            self.low_state = msg
+            self._low_state_monotonic = time.monotonic()
+            self.mode_machine_ = msg.mode_machine
+        self.remote_controller.set(msg.wireless_remote)
 
     def _low_state_go_handler(self, msg: LowStateGo):
-        self.low_state = msg
-        self.remote_controller.set(self.low_state.wireless_remote)
+        with self._state_lock:
+            self.low_state = msg
+            self._low_state_monotonic = time.monotonic()
+        self.remote_controller.set(msg.wireless_remote)
 
     def send_cmd(self):
         self.low_cmd.crc = CRC().Crc(self.low_cmd)
         self.lowcmd_publisher_.Write(self.low_cmd)
 
     def wait_for_low_state(self):
-        while self.low_state.tick == 0:
+        while self.low_state_snapshot().tick == 0:
             time.sleep(self.config.control_dt)
         print("Successfully connected to the robot.")
+
+    def low_state_snapshot(self):
+        """Return one coherent SDK message reference for a control-step read."""
+        with self._state_lock:
+            return self.low_state
+
+    def low_state_snapshot_with_age(self):
+        """Return one message and its monotonic age from the same lock scope."""
+        with self._state_lock:
+            state = self.low_state
+            timestamp = self._low_state_monotonic
+        age = float("inf") if timestamp <= 0.0 else time.monotonic() - timestamp
+        return state, age
 
     # -------- modes (same as before) --------
 
@@ -127,21 +150,35 @@ class RobotInterface:
 
         dof_size = len(dof_idx)
 
+        state = self.low_state_snapshot()
         init_dof_pos = np.zeros(dof_size, dtype=np.float32)
-        for i in range(dof_size):
-            init_dof_pos[i] = self.low_state.motor_state[i].q
+        for i, motor_idx in enumerate(dof_idx):
+            init_dof_pos[i] = state.motor_state[motor_idx].q
 
         for i in range(num_step):
+            state, age = self.low_state_snapshot_with_age()
+            if age > self.config.max_low_state_age_s:
+                raise RuntimeError(
+                    f"LowState became stale while moving to default ({age:.3f}s)"
+                )
+            max_dq = max(
+                abs(float(state.motor_state[motor_idx].dq)) for motor_idx in dof_idx
+            )
+            if max_dq > self.config.max_joint_velocity:
+                raise RuntimeError(
+                    f"measured joint velocity {max_dq:.2f}rad/s while moving to "
+                    f"default exceeds {self.config.max_joint_velocity:.2f}rad/s"
+                )
             alpha = i / num_step
-            for j in range(dof_size):
-                target_pos = default_pos[j]
-                self.low_cmd.motor_cmd[j].q = (
+            for j, motor_idx in enumerate(dof_idx):
+                target_pos = default_pos[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].q = (
                     init_dof_pos[j] * (1 - alpha) + target_pos * alpha
                 )
-                self.low_cmd.motor_cmd[j].qd = 0.0
-                self.low_cmd.motor_cmd[j].kp = kps[j]
-                self.low_cmd.motor_cmd[j].kd = kds[j]
-                self.low_cmd.motor_cmd[j].tau = 0.0
+                self.low_cmd.motor_cmd[motor_idx].qd = 0.0
+                self.low_cmd.motor_cmd[motor_idx].kp = kps[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].kd = kds[motor_idx]
+                self.low_cmd.motor_cmd[motor_idx].tau = 0.0
             self.send_cmd()
             time.sleep(self.config.control_dt)
 
@@ -149,6 +186,11 @@ class RobotInterface:
         print("Enter default pos state.")
         print("Waiting for the Button A signal...")
         while self.remote_controller.button[KeyMap.A] != 1:
+            _, age = self.low_state_snapshot_with_age()
+            if age > self.config.max_low_state_age_s:
+                raise RuntimeError(
+                    f"LowState became stale in default-pose hold ({age:.3f}s)"
+                )
             for i in range(len(self.config.default_angles)):
                 cmd = self.low_cmd.motor_cmd[i]
                 cmd.q = self.config.default_angles[i]
@@ -163,19 +205,63 @@ class RobotInterface:
 
     # -------- state / features --------
 
-    def update_joint_state(self):
+    def update_joint_state(self, state=None):
+        state = self.low_state_snapshot() if state is None else state
         for i, motor_idx in enumerate(self.config.action_joint2motor_idx):
-            self.qj[i] = self.low_state.motor_state[motor_idx].q
-            self.dqj[i] = self.low_state.motor_state[motor_idx].dq
+            self.qj[i] = state.motor_state[motor_idx].q
+            self.dqj[i] = state.motor_state[motor_idx].dq
 
-    def get_imu(self):
-        quat = self.low_state.imu_state.quaternion
-        ang_vel = np.array(self.low_state.imu_state.gyroscope, dtype=np.float32)
+    @property
+    def low_state_age_s(self) -> float:
+        with self._state_lock:
+            timestamp = self._low_state_monotonic
+        if timestamp <= 0.0:
+            return float("inf")
+        return time.monotonic() - timestamp
+
+    @property
+    def low_state_tick(self) -> int:
+        return int(getattr(self.low_state_snapshot(), "tick", -1))
+
+    def motor_state_arrays(self, count: int = 29, state=None) -> dict[str, np.ndarray]:
+        """Raw motor-order state for diagnostics; absent fields use sentinels."""
+        state = self.low_state_snapshot() if state is None else state
+        states = state.motor_state
+        q = np.array([states[i].q for i in range(count)], np.float32)
+        dq = np.array([states[i].dq for i in range(count)], np.float32)
+        temperature = np.full((count, 2), np.nan, np.float32)
+        motor_error = np.full(count, -1, np.int32)
+        tau_est = np.full(count, np.nan, np.float32)
+        for i in range(count):
+            motor = states[i]
+            raw_temp = np.asarray(
+                getattr(motor, "temperature", np.nan), dtype=np.float32
+            ).reshape(-1)
+            temperature[i, :min(2, raw_temp.size)] = raw_temp[:2]
+            motor_error[i] = int(getattr(
+                motor, "motorstate", getattr(motor, "lost", -1)
+            ))
+            tau_est[i] = float(getattr(motor, "tau_est", np.nan))
+        return {
+            "q": q,
+            "dq": dq,
+            "temperature": temperature,
+            "motor_error": motor_error,
+            "tau_est": tau_est,
+        }
+
+    def commanded_q_29(self) -> np.ndarray:
+        return np.array([self.low_cmd.motor_cmd[i].q for i in range(29)], np.float32)
+
+    def get_imu(self, state=None):
+        state = self.low_state_snapshot() if state is None else state
+        quat = state.imu_state.quaternion
+        ang_vel = np.array(state.imu_state.gyroscope, dtype=np.float32)
 
         if self.config.imu_type == "torso":
             waist_idx = self.config.fixed_joint2motor_idx[0]
-            waist_yaw = self.low_state.motor_state[waist_idx].q
-            waist_yaw_omega = self.low_state.motor_state[waist_idx].dq
+            waist_yaw = state.motor_state[waist_idx].q
+            waist_yaw_omega = state.motor_state[waist_idx].dq
             quat, ang_vel = transform_imu_data(
                 waist_yaw=waist_yaw,
                 waist_yaw_omega=waist_yaw_omega,
@@ -184,11 +270,11 @@ class RobotInterface:
             )
         return quat, ang_vel
 
-    def get_base_features_scaled(self):
+    def get_base_features_scaled(self, imu=None):
 
         qj = self.qj.copy()
         dqj = self.dqj.copy()
-        quat, ang_vel = self.get_imu()
+        quat, ang_vel = self.get_imu() if imu is None else imu
 
         projected_gravity = get_gravity_orientation(quat)
         dof_pos = (qj - self.config.default_angles_23) * self.config.dof_pos_scale
@@ -199,9 +285,11 @@ class RobotInterface:
 
     def apply_target_dof_pos(self, target_dof_pos: np.ndarray):
         # hardware joint limits: last line of defense for every mode
-        target_dof_pos = np.clip(
-            target_dof_pos, self.config.dof_lower, self.config.dof_upper
-        )
+        unclipped = np.asarray(target_dof_pos, dtype=np.float32).copy()
+        target_dof_pos = np.clip(unclipped, self.config.dof_lower, self.config.dof_upper)
+        self.last_target_unclipped = unclipped
+        self.last_target_dof_pos = target_dof_pos.copy()
+        self.last_target_saturated = np.not_equal(unclipped, target_dof_pos)
         for i, motor_idx in enumerate(self.config.action_joint2motor_idx):
             cmd = self.low_cmd.motor_cmd[motor_idx]
             cmd.q = target_dof_pos[i]
@@ -219,3 +307,4 @@ class RobotInterface:
             cmd.tau = 0.0
 
         self.send_cmd()
+        return target_dof_pos.copy()

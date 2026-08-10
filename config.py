@@ -48,6 +48,8 @@ class Config:
 
         self.viser_display = config.get("viser_display", False)
         self.control_dt = config["control_dt"]
+        self.max_low_state_age_s = config.get("max_low_state_age_s", 0.1)
+        self.max_joint_velocity = config.get("max_joint_velocity", 35.0)
         self.msg_type = config["msg_type"]
         self.imu_type = config["imu_type"]
 
@@ -123,15 +125,31 @@ class Config:
         self.use_depth_obs = config["use_depth_obs"]
 
         self.policy_type = config.get("policy_type", "actor")
-        self.sonic_encoder = config.get("sonic_encoder", None)
-        self.sonic_decoder = config.get("sonic_decoder", None)
+        self.sonic_encoder = (
+            _resolve_path(config["sonic_encoder"], config_dir=REMOTE_ROOT)
+            if config.get("sonic_encoder") else None
+        )
+        self.sonic_decoder = (
+            _resolve_path(config["sonic_decoder"], config_dir=REMOTE_ROOT)
+            if config.get("sonic_decoder") else None
+        )
+        self.sonic_model_variant = config.get("sonic_model_variant", "default")
         self.sonic_mode = config.get("sonic_mode", "g1")
-        self.sonic_repo = config.get("sonic_repo", None)
-        self.sonic_planner_onnx = config.get("sonic_planner_onnx", None)
+        self.sonic_planner_onnx = (
+            _resolve_path(config["sonic_planner_onnx"], config_dir=REMOTE_ROOT)
+            if config.get("sonic_planner_onnx") else None
+        )
+        self.sonic_planner_default_height = config.get(
+            "sonic_planner_default_height", 0.788740
+        )
+        self.sonic_planner_version = config.get("sonic_planner_version", None)
         self.pico_server_ip = config.get("pico_server_ip", "127.0.0.1")
         self.pico_server_port = config.get("pico_server_port", 5560)
-        self.sonic_motion_clip = config.get(
-            "sonic_motion_clip", "policy/sonic/motion_clip.npz")
+        self.pico_feedback_port = config.get("pico_feedback_port", 5558)
+        self.sonic_motion_clip = _resolve_path(
+            config.get("sonic_motion_clip", "policy/sonic/motion_clip.npz"),
+            config_dir=REMOTE_ROOT,
+        )
         self.sonic_motion_loop = config.get("sonic_motion_loop", True)
         self.phantom_23dof = config.get("phantom_23dof", True)
         self.phantom_hold_ref_dof = config.get("phantom_hold_ref_dof", True)

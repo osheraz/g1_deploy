@@ -21,7 +21,8 @@ whereas clip replay works today.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Protocol
+import time
 
 import numpy as np
 
@@ -56,19 +57,34 @@ class SonicRunner:
         import onnxruntime as ort
 
         from policy.sonic import obs as sonic_obs, robot_g1
-        from policy.sonic.history import (
-            action_state_from_decoded,
-            clear_action_state_rows,
-        )
-
         self.robot_g1 = robot_g1
         self.obs = sonic_obs
-        self._action_state_from_decoded = action_state_from_decoded
-        self._clear_action_state_rows = clear_action_state_rows
 
         self.config = config
         self.reference = reference
         self.mode = reference.sonic_mode
+        if config.sonic_model_variant != "default":
+            raise ValueError(
+                "g1_deploy currently validates only sonic_model_variant: default; "
+                f"got {config.sonic_model_variant!r}"
+            )
+        if int(config.num_actions) != len(robot_g1.IL_FROM_OUR23):
+            raise ValueError(
+                "this SONIC runner is the explicit 23-DoF adapter; "
+                f"num_actions={config.num_actions}, expected 23"
+            )
+        if not bool(config.phantom_23dof):
+            raise ValueError(
+                "23-DoF SONIC deployment requires phantom_23dof: true; "
+                "the flag cannot be disabled without a separate 29-DoF runner"
+            )
+        for name in ("default_angles_23", "action_scale", "dof_lower", "dof_upper"):
+            value = np.asarray(getattr(config, name))
+            if value.shape != (23,) or not np.isfinite(value).all():
+                raise ValueError(
+                    f"SONIC config {name} must be one finite value per physical "
+                    f"joint; got shape {value.shape}"
+                )
 
         # Tiny MLPs: single-threaded is faster than the pool and avoids
         # setaffinity churn in the control loop.
@@ -79,20 +95,50 @@ class SonicRunner:
         enc = Path(config.sonic_encoder or vendored / "model_encoder.onnx")
         dec = Path(config.sonic_decoder or vendored / "model_decoder.onnx")
 
+        available = set(ort.get_available_providers())
+        providers = [
+            name for name in (
+                "TensorrtExecutionProvider",
+                "CUDAExecutionProvider",
+                "CPUExecutionProvider",
+            )
+            if name in available
+        ]
+        if not providers:
+            raise RuntimeError(
+                f"ONNX Runtime exposes no supported provider; "
+                f"available={sorted(available)}"
+            )
+
         self._enc = ort.InferenceSession(str(enc.expanduser()),
                                          sess_options=so,
-                                         providers=["CPUExecutionProvider"])
+                                         providers=providers)
         self._dec = ort.InferenceSession(str(dec.expanduser()),
                                          sess_options=so,
-                                         providers=["CPUExecutionProvider"])
+                                         providers=providers)
         self._enc_io = (self._enc.get_inputs()[0].name, self._enc.get_outputs()[0].name)
         self._dec_io = (self._dec.get_inputs()[0].name, self._dec.get_outputs()[0].name)
+        self.encoder_providers = tuple(self._enc.get_providers())
+        self.decoder_providers = tuple(self._dec.get_providers())
 
+        enc_in = tuple(self._enc.get_inputs()[0].shape)
+        enc_out = tuple(self._enc.get_outputs()[0].shape)
+        dec_in = tuple(self._dec.get_inputs()[0].shape)
+        dec_out = tuple(self._dec.get_outputs()[0].shape)
+        expected = ((1, 1762), (1, 64), (1, 994), (1, 29))
+        actual = (enc_in, enc_out, dec_in, dec_out)
+        if actual != expected:
+            raise ValueError(
+                "this wrapper implements the official Default SONIC observation "
+                f"layout {expected}, but the selected ONNX pair reports {actual}. "
+                "Do not mix Default, low_latency, or sonic_v1_1 model/config files; "
+                "the low-latency encoder requires its distinct 1247-D step1 builder."
+            )
         n_dof = robot_g1.NUM_DOF  # 29, IsaacLab order
 
-        # The released decoder is 29-DoF; this robot exposes 23. Absent joints
-        # are held at their default and masked out of the action history, the
-        # same "phantom" handling sonic/tracker.py uses.
+        # The released decoder is 29-DoF; this robot exposes 23.  Missing joints
+        # are omitted only when applying the command.  The official controller
+        # feeds the raw 29-D decoder output back as last_action history.
         self.default_23 = np.asarray(config.default_angles_23, np.float64)
         self.default_il = np.zeros(n_dof)
         self.default_il[robot_g1.IL_FROM_OUR23] = self.default_23
@@ -103,9 +149,7 @@ class SonicRunner:
             self.hold_idx if config.phantom_hold_ref_dof else None
         )
 
-        self._last_decoded_action_il = np.zeros((1, n_dof))
         self._last_act_il = np.zeros((1, n_dof))
-        self._reset = np.ones(1, dtype=bool)
 
         self._h_angvel = np.zeros((1, self.HISTORY, 3))
         self._h_jpos = np.zeros((1, self.HISTORY, n_dof))
@@ -116,16 +160,29 @@ class SonicRunner:
         self.act_count = 0
         self.action = np.zeros(config.num_actions, np.float32)
         self.action_ema = config.action_ema
+        self.last_action_il_raw = np.zeros(n_dof, np.float32)
+        self.last_action_23_raw = np.zeros(config.num_actions, np.float32)
+        self.last_token = np.zeros(64, np.float32)
+        self.last_encoder_obs = np.zeros(1762, np.float32)
+        self.last_decoder_obs = np.zeros(994, np.float32)
+        self.last_encoder_ms = np.nan
+        self.last_decoder_ms = np.nan
+        self.last_policy_ms = np.nan
 
         print(f"SONIC: encoder={enc}")
         print(f"       decoder={dec}")
+        print(f"       encoder providers={self.encoder_providers}")
+        print(f"       decoder providers={self.decoder_providers}")
 
     def reset(self) -> None:
-        """Warm-fill the history rings on the next tick."""
-        self._reset[:] = True
-        self._clear_action_state_rows(
-            self._last_decoded_action_il, self._last_act_il, np.array([0])
-        )
+        """Clear history; official StateLogger zero-pads unavailable past rows."""
+        self._last_act_il.fill(0.0)
+        for history in (
+            self._h_angvel, self._h_jpos, self._h_jvel,
+            self._h_lastact, self._h_grav,
+        ):
+            history.fill(0.0)
+        self.action.fill(0.0)
 
     def _encode(self, x):
         name_in, name_out = self._enc_io
@@ -156,7 +213,11 @@ class SonicRunner:
         Extra keyword arguments are accepted and ignored so this is a drop-in
         for ``PolicyRunner.compute_action`` where the caller passes depth etc.
         """
+        policy_start = time.perf_counter()
         g = self.reference.window()
+        # Encoder mode is dynamic for PICO: fresh VR3 fields select teleop;
+        # navigation-only and one-second-stale input select G1.
+        self.mode = self.reference.sonic_mode
 
         base_quat = np.asarray(base_quat_wxyz, np.float64).reshape(1, 4)
         vr_targets = g.get("vr_targets_encoder", g.get("vr_targets"))
@@ -167,7 +228,9 @@ class SonicRunner:
             hold_idx=self.encoder_hold_idx,
             vr_targets_local=bool(g.get("vr_targets_local", False)),
         )
+        encoder_start = time.perf_counter()
         token = self._encode(enc_obs)
+        self.last_encoder_ms = (time.perf_counter() - encoder_start) * 1e3
 
         ang_vel = np.asarray(base_ang_vel_body, np.float64).reshape(1, 3)
         jpos_rel, jvel = self._proprio_il(
@@ -176,24 +239,47 @@ class SonicRunner:
         )
         grav = self.obs.gravity_dir(base_quat)
 
-        rm = self._reset
         for h, v in ((self._h_angvel, ang_vel), (self._h_jpos, jpos_rel),
                      (self._h_jvel, jvel), (self._h_lastact, self._last_act_il),
                      (self._h_grav, grav)):
-            h[~rm] = np.concatenate([h[~rm, 1:], v[~rm, None]], axis=1)
-            h[rm] = v[rm, None]
-        self._reset[:] = False
+            h[:, :-1] = h[:, 1:]
+            h[:, -1] = v
 
         history = {"ang_vel": self._h_angvel, "joint_pos_rel": self._h_jpos,
                    "joint_vel": self._h_jvel, "last_action": self._h_lastact,
                    "gravity": self._h_grav}
-        action_il = self._decode(self.obs.build_decoder_obs(token, history))
+        decoder_obs = self.obs.build_decoder_obs(token, history)
+        decoder_start = time.perf_counter()
+        action_il = self._decode(decoder_obs)
+        self.last_decoder_ms = (time.perf_counter() - decoder_start) * 1e3
 
-        self._last_decoded_action_il, self._last_act_il = (
-            self._action_state_from_decoded(action_il, self.hold_idx)
-        )
+        # Preserve all six unavailable outputs in recurrent history. They are
+        # latent policy state even though the physical 23-DoF robot cannot
+        # apply them.
+        self._last_act_il = np.asarray(action_il, np.float64).copy()
 
         act = action_il[0, self.robot_g1.IL_FROM_OUR23].astype(np.float32)
         self.action = self.action_ema * act + (1.0 - self.action_ema) * self.action
+        self.last_action_il_raw = action_il[0].astype(np.float32).copy()
+        self.last_action_23_raw = act.copy()
+        self.last_token = token[0].astype(np.float32).copy()
+        self.last_encoder_obs = enc_obs[0].astype(np.float32).copy()
+        self.last_decoder_obs = decoder_obs[0].astype(np.float32).copy()
+        self.last_policy_ms = (time.perf_counter() - policy_start) * 1e3
         self.act_count += 1
         return self.action
+
+    def diagnostic_fields(self) -> dict[str, np.ndarray]:
+        """Fixed-shape, per-control-step data for deployment episode logs."""
+        return {
+            "sonic_action_il_raw": self.last_action_il_raw.copy(),
+            "sonic_action_23_raw": self.last_action_23_raw.copy(),
+            "sonic_missing_action_raw": self.last_action_il_raw[self.hold_idx].copy(),
+            "sonic_token": self.last_token.copy(),
+            "sonic_encoder_obs": self.last_encoder_obs.copy(),
+            "sonic_decoder_obs": self.last_decoder_obs.copy(),
+            "encoder_inference_ms": np.float32(self.last_encoder_ms),
+            "decoder_inference_ms": np.float32(self.last_decoder_ms),
+            "policy_total_ms": np.float32(self.last_policy_ms),
+            "sonic_encoder_mode": np.int32(1 if self.mode == "teleop" else 0),
+        }

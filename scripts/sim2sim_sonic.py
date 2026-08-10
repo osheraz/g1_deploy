@@ -93,8 +93,9 @@ def main():
     ap.add_argument("--remote", action="store_true",
                     help="--pico joystick: real Unitree remote via DDS "
                          "(robot on and reachable; nothing publishes lowcmd)")
-    ap.add_argument("--blend", action="store_true",
-                    help="ease the first second toward policy targets, as deploy --blend")
+    ap.add_argument("--blend", action=argparse.BooleanOptionalAction, default=True,
+                    help="same one-second raised-cosine handover as deployment "
+                         "(use --no-blend only for official parity diagnostics)")
     ap.add_argument("--replan-ungated", action="store_true",
                     help="replan on every command instead of official_gated, as deploy")
     ap.add_argument("--steps", type=int, default=None, help="default: whole clip")
@@ -250,6 +251,7 @@ def main():
 
     qlog = []
     errs, heights, tilts, fell = [], [], [], False
+    handover_origin = d.qpos[qadr].astype(np.float32).copy()
     for step in range(n_steps):
         if viewer is not None and not viewer.is_running():
             print("viewer closed")
@@ -275,8 +277,10 @@ def main():
                   f"gx={proj_g[0]:+.2f} gy={proj_g[1]:+.2f} dof_err={de:.3f}", flush=True)
 
         target = DEFAULT if args.zero_action else action * ACTION_SCALE + DEFAULT
-        if args.blend and step < 50:        # same easing as deploy --blend
-            target = 0.5 * target + 0.5 * q
+        if args.blend and step < 50:
+            phase = step / 49.0
+            alpha = 0.5 - 0.5 * np.cos(np.pi * phase)
+            target = alpha * target + (1.0 - alpha) * handover_origin
         d.ctrl[pd_act] = np.clip(target, cfg.dof_lower, cfg.dof_upper)
         if len(hold_act):
             d.ctrl[hold_act] = hold_tgt

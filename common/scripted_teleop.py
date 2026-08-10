@@ -30,6 +30,9 @@ class TeleopBase:
     10 Hz matches the official deploy's planner thread."""
 
     def __init__(self, publish_hz: float = 10.0):
+        # Scripted and Unitree-remote commands are defined in the current
+        # pelvis frame. PicoClient overrides this with official world framing.
+        self.navigation_frame = "local"
         self.publish_hz = publish_hz
         self.latest_seq = 0
         self.t = 0.0
@@ -89,6 +92,7 @@ class ScriptedTeleop(TeleopBase):
         if self.test in ("vr3", "both", "carry"):
             osc = 0.08 * np.sin(2 * np.pi * self.wrist_hz * self.t)
             pos = self.raised_wrists(0.18, self.wrist_amp, osc)
-        else:
-            pos = REST_VR.copy()
-        return pos, REST_QUATS.copy()
+            return pos, REST_QUATS.copy()
+        # Navigation-only and idle tests intentionally omit VR fields, matching
+        # official PLANNER mode and therefore selecting the G1 encoder.
+        return None

@@ -65,6 +65,43 @@ class MotionReferenceWindow:
         self.dof_vel_il = d["dof_vel_il"].astype(np.float64)
         self.body_pos_il = d["body_pos_il"].astype(np.float64)
         self.body_quat_wxyz_il = d["body_quat_wxyz_il"].astype(np.float64)
+        expected_shapes = {
+            "dof_il": (29,),
+            "dof_vel_il": (29,),
+            "body_pos_il": (14, 3),
+            "body_quat_wxyz_il": (14, 4),
+        }
+        arrays = {
+            "dof_il": self.dof_il,
+            "dof_vel_il": self.dof_vel_il,
+            "body_pos_il": self.body_pos_il,
+            "body_quat_wxyz_il": self.body_quat_wxyz_il,
+        }
+        lengths = set()
+        for name, array in arrays.items():
+            if array.ndim < 1 or tuple(array.shape[1:]) != expected_shapes[name]:
+                raise SystemExit(
+                    f"{path}: {name} has shape {array.shape}; expected "
+                    f"(T,{','.join(map(str, expected_shapes[name]))})"
+                )
+            lengths.add(array.shape[0])
+        if len(lengths) != 1 or not lengths or next(iter(lengths)) < 2:
+            raise SystemExit(
+                f"{path}: motion arrays must have one common length of at least 2; "
+                f"got {sorted(lengths)}"
+            )
+        if "fps" in d.files and not np.allclose(d["fps"], 50.0):
+            raise SystemExit(f"{path} must be resampled to 50 Hz; fps={d['fps']}")
+        if not all(np.isfinite(x).all() for x in (
+            self.dof_il, self.dof_vel_il,
+            self.body_pos_il, self.body_quat_wxyz_il,
+        )):
+            raise SystemExit(f"{path} contains NaN or infinity")
+        quat_norm = np.linalg.norm(self.body_quat_wxyz_il, axis=-1)
+        if not np.allclose(quat_norm, 1.0, atol=2e-3, rtol=2e-3):
+            raise SystemExit(f"{path} contains non-unit body quaternions")
+        self._body_pos_source = self.body_pos_il.copy()
+        self._body_quat_source = self.body_quat_wxyz_il.copy()
         self.T = len(self.dof_il)
         self.loop = loop
         self.frame = 0
@@ -73,6 +110,13 @@ class MotionReferenceWindow:
         self.sonic_mode = "g1"        # clip tracking
         print(f"SONIC reference: motion clip {path.name}, {self.T} frames "
               f"({self.T / 50.0:.1f}s @50fps){' looping' if loop else ''}")
+
+    @property
+    def initial_joint_pose_23(self) -> np.ndarray:
+        """Frame-0 physical pose used by the real deployment handoff."""
+        from policy.sonic import robot_g1
+
+        return self.dof_il[0, robot_g1.IL_FROM_OUR23].astype(np.float32).copy()
 
     def reset(self) -> None:
         self.frame = 0
@@ -94,6 +138,9 @@ class MotionReferenceWindow:
         clips carry a baked-in world yaw. Without this the policy spins the
         robot to the clip's yaw on the first step.
         """
+        # Always restart from the file data so reset/reinitialize is idempotent.
+        self.body_pos_il = self._body_pos_source.copy()
+        self.body_quat_wxyz_il = self._body_quat_source.copy()
         d = _yaw(base_quat_wxyz) - _yaw(self.body_quat_wxyz_il[0, 0])
         c, s = np.cos(d), np.sin(d)
         off = np.array([np.cos(d / 2), 0.0, 0.0, np.sin(d / 2)])
@@ -142,14 +189,14 @@ class MotionReferenceWindow:
 # planner, whose ONNX is ~774 MB and therefore is not vendored here.
 
 
-def build_reference(config, mode: str):
-    """``mode`` is 'motion' or 'pico'."""
+def build_reference(config, mode: str, *, gated: bool = True):
+    """Build a motion, dynamic-PICO, or forced-PLANNER/G1 reference."""
     if mode == "motion":
         return MotionReferenceWindow(
             config.sonic_motion_clip,
             loop=config.sonic_motion_loop,
         )
-    if mode == "pico":
+    if mode in ("pico", "planner"):
         from common.pico_client import PicoClient
         from policy.pico_reference import PicoReferenceWindow
 
@@ -159,5 +206,12 @@ def build_reference(config, mode: str):
         )
         client.start()
         print(f"teleop:  tcp://{client.server_address}:{client.port}")
-        return PicoReferenceWindow(config, client)
-    raise SystemExit(f"unknown sonic mode {mode!r}; expected 'motion' or 'pico'")
+        return PicoReferenceWindow(
+            config,
+            client,
+            gated=gated,
+            force_g1=(mode == "planner"),
+        )
+    raise SystemExit(
+        f"unknown sonic mode {mode!r}; expected 'motion', 'pico', or 'planner'"
+    )

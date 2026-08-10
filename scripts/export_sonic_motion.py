@@ -60,19 +60,56 @@ BODY_NAMES = [
 FPS_OUT = 50.0
 
 
+def _sample_grid(n_src: int, fps_src: float, fps_out: float):
+    """Official C++ grid: floor(duration*out_fps), sampled from t=0."""
+    n_out = max(int(np.floor(n_src / fps_src * fps_out)), 1)
+    src_f = np.arange(n_out, dtype=np.float64) / fps_out * fps_src
+    f0 = np.minimum(np.floor(src_f).astype(np.int64), n_src - 1)
+    f1 = np.minimum(f0 + 1, n_src - 1)
+    return f0, f1, src_f - np.floor(src_f)
+
+
 def _resample(arr: np.ndarray, fps_src: float, fps_out: float) -> np.ndarray:
-    """Linear resample along axis 0. Quaternions are renormalised by the caller."""
+    """Linear position resampling on the same grid as the official planner."""
     n_src = arr.shape[0]
     if abs(fps_src - fps_out) < 1e-6 or n_src < 2:
         return arr.copy()
-    n_out = max(int(round(n_src * fps_out / fps_src)), 1)
-    src = np.arange(n_src, dtype=np.float64)
-    dst = np.linspace(0.0, n_src - 1, n_out)
-    out = np.empty((n_out,) + arr.shape[1:], dtype=np.float64)
-    flat_in = arr.reshape(n_src, -1).astype(np.float64)
-    flat_out = out.reshape(n_out, -1)
-    for c in range(flat_in.shape[1]):
-        flat_out[:, c] = np.interp(dst, src, flat_in[:, c])
+    f0, f1, w = _sample_grid(n_src, fps_src, fps_out)
+    shape = (len(w),) + (1,) * (arr.ndim - 1)
+    return (1.0 - w.reshape(shape)) * arr[f0] + w.reshape(shape) * arr[f1]
+
+
+def _resample_quat(arr: np.ndarray, fps_src: float, fps_out: float) -> np.ndarray:
+    """Shortest-path WXYZ SLERP, matching ``quat_slerp_d`` in C++."""
+    n_src = arr.shape[0]
+    if abs(fps_src - fps_out) < 1e-6 or n_src < 2:
+        out = arr.copy()
+        return out / np.maximum(np.linalg.norm(out, axis=-1, keepdims=True), 1e-8)
+    f0, f1, w = _sample_grid(n_src, fps_src, fps_out)
+    q0 = arr[f0].astype(np.float64)
+    q1 = arr[f1].astype(np.float64)
+    q0 /= np.maximum(np.linalg.norm(q0, axis=-1, keepdims=True), 1e-8)
+    q1 /= np.maximum(np.linalg.norm(q1, axis=-1, keepdims=True), 1e-8)
+    dot = np.sum(q0 * q1, axis=-1, keepdims=True)
+    q1 = np.where(dot < 0.0, -q1, q1)
+    dot = np.abs(dot)
+    theta = np.arccos(np.clip(dot, -1.0, 1.0))
+    sin_theta = np.sin(theta)
+    amount = w.reshape((len(w),) + (1,) * (arr.ndim - 1))
+    curved = (
+        np.sin((1.0 - amount) * theta) / np.where(sin_theta < 1e-8, 1.0, sin_theta) * q0
+        + np.sin(amount * theta) / np.where(sin_theta < 1e-8, 1.0, sin_theta) * q1
+    )
+    linear = (1.0 - amount) * q0 + amount * q1
+    out = np.where(dot > 0.9995, linear, curved)
+    return out / np.maximum(np.linalg.norm(out, axis=-1, keepdims=True), 1e-8)
+
+
+def _finite_difference(values: np.ndarray, fps: float) -> np.ndarray:
+    out = np.zeros_like(values, dtype=np.float64)
+    if len(values) > 1:
+        out[:-1] = np.diff(values, axis=0) * fps
+        out[-1] = out[-2]
     return out
 
 
@@ -112,16 +149,16 @@ def main() -> None:
     dof_idx = np.array([MJ_DOF.index(n) for n in IL_DOF])
 
     dof = d["dps"].numpy()[s:e][:, dof_idx]                 # (T,29) IsaacLab order
-    dvel = d["dvs"].numpy()[s:e][:, dof_idx]
+    # Source velocities are intentionally not interpolated. The official
+    # planner recomputes them from the resampled 50 Hz joint positions.
     bpos = d["gts"].numpy()[s:e][:, body_idx]               # (T,14,3)
     brot_xyzw = d["grs"].numpy()[s:e][:, body_idx]          # (T,14,4)
     bquat = np.concatenate([brot_xyzw[..., 3:4], brot_xyzw[..., :3]], axis=-1)
 
     dof = _resample(dof, fps_src, FPS_OUT)
-    dvel = _resample(dvel, fps_src, FPS_OUT)
+    dvel = _finite_difference(dof, FPS_OUT)
     bpos = _resample(bpos, fps_src, FPS_OUT)
-    bquat = _resample(bquat, fps_src, FPS_OUT)
-    bquat /= np.maximum(np.linalg.norm(bquat, axis=-1, keepdims=True), 1e-8)
+    bquat = _resample_quat(bquat, fps_src, FPS_OUT)
 
     if args.freeze:
         n = max(1, int(args.freeze * FPS_OUT))

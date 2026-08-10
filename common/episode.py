@@ -119,11 +119,17 @@ class Recorder:
         pressed = button[self.button]
         if pressed and not self._prev:
             if self.episode is None:
-                self.episode = EpisodeWriter(self.root, self.index, self.meta)
-                print(f"\n[rec] START episode_{self.index:03d}")
+                self.start()
             else:
                 self.stop()
         self._prev = pressed
+
+    def start(self) -> None:
+        """Start a new episode unless one is already active."""
+        if self.episode is not None:
+            return
+        self.episode = EpisodeWriter(self.root, self.index, self.meta)
+        print(f"\n[rec] START episode_{self.index:03d}")
 
     def push(self, sample: dict, color_jpg=None, depth_png=None,
              new_frame: bool = True) -> None:

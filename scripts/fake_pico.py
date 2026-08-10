@@ -25,11 +25,15 @@ TOPIC = b"planner"
 
 IDLE, SLOW_WALK = 0, 1
 
-# Neutral 3-point targets in the pelvis frame: head up, wrists forward/out.
-REST_POS = np.array([[0.00, 0.00, 0.55],
-                     [0.25, 0.25, 0.10],
-                     [0.25, -0.25, 0.10]], np.float32)
-REST_QUAT = np.tile(np.array([1.0, 0.0, 0.0, 0.0], np.float32), (3, 1))
+# Official endpoint order is [left wrist, right wrist, virtual head], all in
+# the pelvis frame. These are the same neutral values used by scripted_teleop.
+LEFT_WRIST, RIGHT_WRIST, HEAD = 0, 1, 2
+REST_POS = np.array([[0.0903, 0.1615, -0.2411],
+                     [0.1280, -0.1522, -0.2461],
+                     [0.0241, -0.0081, 0.4028]], np.float32)
+REST_QUAT = np.array([[0.7295, 0.3145, 0.5533, -0.2506],
+                      [0.7320, -0.2639, 0.5395, 0.3217],
+                      [0.9991, 0.0110, 0.0402, -0.0002]], np.float32)
 
 
 def build(mode, movement, facing, speed, height, vr_pos=None, vr_quat=None):
@@ -89,7 +93,9 @@ def main():
                 vr_pos = REST_POS.copy()
                 vr_quat = REST_QUAT.copy()
                 # raise and lower the right wrist, 0.2 m, 0.25 Hz
-                vr_pos[2, 2] += 0.20 * (0.5 - 0.5 * np.cos(2 * np.pi * 0.25 * t))
+                vr_pos[RIGHT_WRIST, 2] += 0.20 * (
+                    0.5 - 0.5 * np.cos(2 * np.pi * 0.25 * t)
+                )
 
             sock.send(build(mode, movement, facing, speed, -1.0, vr_pos, vr_quat))
             print(f"\r t={t:5.1f}s mode={mode} speed={speed:+.2f} "

@@ -17,7 +17,9 @@ environment, camera, stream checks, first run.
 - [4. Cameras](tutorials/04_cameras.md) — viewing RGB and depth
 - [5. Run](tutorials/05_run.md) — stream check, then the policy
 - [6. Tactile](tutorials/06_tactile.md) — e-skin over ZMQ
-- [PICO teleop](tutorials/PICO_TELEOP.md) — VR teleop
+- [PICO teleop and PLANNER/G1](tutorials/PICO_TELEOP.md) — VR teleop and
+  planner-controlled locomotion
+- [SONIC parity changes and risk ledger](DEPLOYMENT_PARITY_CHANGES.md) — 23-DoF adaptation, logging, validation gates
 - [WiFi hotspot](tutorials/wifi_hotspot.md) — robot with no wired internet
 
 ## Run
@@ -32,6 +34,21 @@ Policy — **moves the robot on launch**:
 
 ```bash
 python deploy_g1.py --net enp132s0 --config g1_23dof.yaml --log TEST.npz
+```
+
+SONIC planner-only G1-encoder profile — **moves the robot** after the normal
+start gate; run the official PICO manager in PLANNER mode first:
+
+```bash
+python deploy_eskin.py --config g1_23dof_sonic.yaml --mode planner \
+  --net enp132s0 --auto-record --no-camera --no-tactile
+```
+
+After a diagnostic episode, inspect timing, tracking, pelvis tilt, target
+saturation, and unavailable 29-DoF waist demand:
+
+```bash
+python scripts/analyze_sonic_episode.py episodes/episode_001
 ```
 
 ## Layout
