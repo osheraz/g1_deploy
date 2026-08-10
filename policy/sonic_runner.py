@@ -95,10 +95,15 @@ class SonicRunner:
         enc = Path(config.sonic_encoder or vendored / "model_encoder.onnx")
         dec = Path(config.sonic_decoder or vendored / "model_decoder.onnx")
 
+        # cuDNN from the venv's nvidia wheels; no TensorRT EP (its bridge
+        # cannot convert these graphs -- see planner_onnx)
+        try:
+            ort.preload_dlls()
+        except Exception:
+            pass
         available = set(ort.get_available_providers())
         providers = [
             name for name in (
-                "TensorrtExecutionProvider",
                 "CUDAExecutionProvider",
                 "CPUExecutionProvider",
             )
