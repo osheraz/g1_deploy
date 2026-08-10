@@ -87,9 +87,16 @@ def main():
     ap.add_argument("--pico", choices=["nav", "vr3", "both", "idle", "carry", "joystick"],
                     default=None,
                     help="drive the planner with a scripted teleop command")
+    ap.add_argument("--planner", action="store_true",
+                    help="force the G1 encoder, exactly deploy --mode planner")
+    ap.add_argument("--idle-hold", action="store_true",
+                    help="IDLE holds the default pose instead of the planner's "
+                         "stepping idle plan, as deploy --idle-hold")
     ap.add_argument("--speed", type=float, default=0.2, help="--pico nav: m/s")
     ap.add_argument("--axes", default=None,
                     help="--pico joystick: fixed 'lx,ly,rx' instead of the keyboard")
+    ap.add_argument("--axes-until", type=int, default=None,
+                    help="release the stick (axes to 0) after N steps")
     ap.add_argument("--remote", action="store_true",
                     help="--pico joystick: real Unitree remote via DDS "
                          "(robot on and reachable; nothing publishes lowcmd)")
@@ -182,12 +189,15 @@ def main():
                 sub = ChannelSubscriber(cfg.lowstate_topic, LowState_)
                 sub.Init(lambda msg: remote.set(msg.wireless_remote), 10)
                 print("remote: reading Unitree sticks from rt/lowstate")
+                last_remote = (0.0, 0.0, 0.0)
         else:
             teleop = ScriptedTeleop(args.pico, speed=args.speed)
         # wall-paced viewing uses the deploy's planner thread; headless sim
         # outruns the wall clock, so it replans synchronously instead
         ref = PicoReferenceWindow(cfg, teleop, threaded=args.realtime,
-                                  gated=not args.replan_ungated)
+                                  gated=not args.replan_ungated,
+                                  force_g1=args.planner,
+                                  idle_hold=args.idle_hold)
         runner = SonicRunner(cfg, ref)
         ref_dof = None
         d.qpos[:3] = [0.0, 0.0, 0.793]
@@ -220,12 +230,14 @@ def main():
     key_cb = None
     if args.pico == "joystick":
         # tap to set, X stops: W/S fwd/back, A/D strafe, Q/E turn
-        KEYS = {ord("W"): (0, -1, 0), ord("S"): (0, 1, 0),
-                ord("A"): (-1, 0, 0), ord("D"): (1, 0, 0),
-                ord("Q"): (0, 0, -1), ord("E"): (0, 0, 1)}
+        # GLFW arrows: they don't collide with the viewer's letter shortcuts
+        UP, DOWN, RIGHT, LEFT = 265, 264, 262, 263
+        KEYS = {UP: (0, -1, 0), DOWN: (0, 1, 0),
+                LEFT: (-1, 0, 0), RIGHT: (1, 0, 0),
+                ord("["): (0, 0, -1), ord("]"): (0, 0, 1)}
 
         def key_cb(key):
-            if key == ord("X"):
+            if key == ord("0"):
                 teleop.set_axes(0, 0, 0)
             elif key in KEYS:
                 dlx, dly, drx = KEYS[key]
@@ -241,7 +253,7 @@ def main():
 
         viewer = _mj_viewer.launch_passive(m, d, key_callback=key_cb)
         if key_cb is not None:
-            print("keys: W/S fwd/back  A/D strafe  Q/E turn  X stop")
+            print("keys: arrows move  [ ] turn  0 stop")
         viewer.cam.distance = 3.0
         viewer.cam.elevation = -15
         print("viewer open -- close the window to stop")
@@ -289,7 +301,12 @@ def main():
 
         if teleop is not None:
             if args.remote:
-                teleop.set_axes(remote.lx, remote.ly, remote.rx)
+                cur = (remote.lx, remote.ly, remote.rx)
+                if cur != last_remote:      # dead/idle remote must not clobber keys
+                    last_remote = cur
+                    teleop.set_axes(*cur)
+            if args.axes_until is not None and step == args.axes_until:
+                teleop.set_axes(0, 0, 0)
             teleop.tick(args.control_dt)
 
         if viewer is not None:

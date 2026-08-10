@@ -369,7 +369,8 @@ class EskinController:
         )
 
 
-def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = True):
+def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = True,
+                        idle_hold: bool = False):
     """SONIC encoder/decoder driven by `mode`, the actor runner, or nothing."""
     if mode == "record":
         return None            # hold position and only record
@@ -394,6 +395,7 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
                     client,
                     gated=gated,
                     force_g1=(mode == "planner"),
+                    idle_hold=idle_hold,
                 ),
             )
 
@@ -435,6 +437,9 @@ def main() -> None:
     ap.add_argument("--replan-ungated", action="store_true",
                     help="--mode pico/planner: replan on every command instead of "
                          "official gating")
+    ap.add_argument("--idle-hold", action="store_true",
+                    help="--mode pico/planner: IDLE holds the default pose instead "
+                         "of the planner's idle plan (which contains stepping)")
     ap.add_argument("--net", default="enp132s0")
     ap.add_argument("--auto-record", action="store_true",
                     help="start experiment logging as soon as control begins")
@@ -497,7 +502,8 @@ def main() -> None:
               f"{config.tactile_sensor_order}")
 
     policy_runner = build_policy_runner(config, args.mode, args.teleop,
-                                        gated=not args.replan_ungated)
+                                        gated=not args.replan_ungated,
+                                        idle_hold=args.idle_hold)
 
     feedback = None
     if args.mode == "pico" and not args.no_feedback:

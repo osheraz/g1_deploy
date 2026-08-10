@@ -357,9 +357,13 @@ class SonicKinematicPlanner:
             motion.timesteps - 1,
         )
         cur = min(self.current_frame, motion.timesteps - 1)
+        # frames clamped past the plan end are a hold: their velocity is zero,
+        # otherwise an exhausted idle plan commands perpetual motion
+        dvel = motion.joint_vel_il[idx].copy()
+        dvel[idx >= motion.timesteps - 1] = 0.0
         return {
             "dof_fut": motion.joint_pos_il[idx],
-            "dvel_fut": motion.joint_vel_il[idx],
+            "dvel_fut": dvel,
             "rootq_fut": motion.root_quat_wxyz[idx],
             "rootz_fut": motion.root_pos[idx, 2],
             "root_pos_cur": motion.root_pos[cur],

@@ -9,6 +9,7 @@ comfort-quaternion fallback.
 from __future__ import annotations
 
 import atexit
+import os
 import threading
 import time
 
@@ -58,7 +59,9 @@ class PicoReferenceWindow:
         threaded=True,
         gated=True,
         force_g1=False,
+        idle_hold=False,
     ):
+        self.idle_hold = bool(idle_hold)
         planner_onnx = config.sonic_planner_onnx
         if not planner_onnx:
             raise SystemExit("PICO mode requires `sonic_planner_onnx` in the config")
@@ -119,6 +122,17 @@ class PicoReferenceWindow:
         q_il[robot_g1.IL_FROM_OUR23] = np.asarray(dof_pos_23, dtype=np.float32)
         base_q = np.asarray(base_quat_wxyz, dtype=np.float64).reshape(4)
         self.planner.initialize(base_q, robot_g1.il_to_mj(q_il))
+
+        # The V2 planner's IDLE plan contains stepping (stance transition), so
+        # tracking it makes the robot walk on its own. idle_hold replaces the
+        # initial idle plan with a constant hold of the measured pose; sim gate:
+        # planner idle plan = 2.7m drift / 20s, hold = 0.01m.
+        if self.idle_hold or os.environ.get("SONIC_FLAT_IDLE"):
+            m = self.planner.current_motion
+            m.joint_pos_il[:] = q_il[None]
+            m.joint_vel_il[:] = 0.0
+            m.root_pos[:, :2] = 0.0
+            m.root_quat_wxyz[:] = m.root_quat_wxyz[0]
 
         # C++ generates in a normalized +X planner frame and maps its reference
         # heading onto the measured base heading in the encoder gatherer.
@@ -208,6 +222,21 @@ class PicoReferenceWindow:
         stop = getattr(self.client, "stop", None)
         if callable(stop):
             stop()
+
+    def _install_idle_hold(self) -> None:
+        """IDLE = hold the configured default pose (the validated neutral
+        reference) instead of the planner's stepping idle plan."""
+        m = self.planner.current_motion
+        cur = min(self.planner.current_frame, m.timesteps - 1)
+        default_il = np.zeros(robot_g1.NUM_DOF, np.float64)
+        default_il[robot_g1.IL_FROM_OUR23] = np.asarray(
+            self.config.default_angles_23, np.float64
+        )
+        m.joint_pos_il[:] = default_il[None]
+        m.joint_vel_il[:] = 0.0
+        m.root_pos[:] = m.root_pos[cur]
+        m.root_quat_wxyz[:] = m.root_quat_wxyz[cur]
+        self.planner.current_frame = 0
 
     def _replan_loop(self) -> None:
         while not self._stop:
@@ -328,6 +357,15 @@ class PicoReferenceWindow:
         self._last_planner_tick = self._ticks
         mode, nav = self._current_command()
         if not self._should_replan(mode, nav):
+            return
+
+        if self.idle_hold and mode == 0:
+            with self._lock:
+                self._install_idle_hold()
+            self._last_cmd = (
+                mode,
+                {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in nav.items()},
+            )
             return
 
         # Copy the four-frame context under lock; inference must not block the
