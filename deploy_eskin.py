@@ -73,6 +73,12 @@ class EskinRobot(RobotInterface):
         self._rewriter_thread.join(timeout=1.0)
 
 
+# Ankles are forced by ground contact; the settle gate weighs their error
+# 1/ANKLE_SETTLE_SCALE (5 deg limit -> effectively 20 deg on ankles).
+ANKLE_IDX = np.array([4, 5, 10, 11])
+ANKLE_SETTLE_SCALE = 4.0
+
+
 class EskinController:
     def __init__(self, config, robot, policy_runner, camera, tactile, recorder,
                  feedback=None):
@@ -279,9 +285,9 @@ class EskinController:
                 )
             self.robot.apply_target_dof_pos(target)
             if i >= tail_start:
-                tail_error_deg.append(float(np.degrees(
-                    np.max(np.abs(target - self.robot.qj))
-                )))
+                err = np.abs(target - self.robot.qj)
+                err[ANKLE_IDX] /= ANKLE_SETTLE_SCALE   # ground forces the ankles
+                tail_error_deg.append(float(np.degrees(err.max())))
                 tail_velocity.append(speed)
             time.sleep(self.config.control_dt)
 
