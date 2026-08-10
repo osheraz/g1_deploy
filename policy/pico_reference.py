@@ -352,7 +352,9 @@ class PicoReferenceWindow:
         if nav["height"] != last_nav["height"]:
             return True
         if mode not in STATIC_MODES:
-            if nav["speed"] != last_nav["speed"]:
+            # official planner_command_speed_epsilon; exact compare replans on
+            # every stick wobble in the stick-scaled modes
+            if abs(nav["speed"] - last_nav["speed"]) > 0.05:
                 return True
             if not _same_vector(nav["movement"], last_nav["movement"]):
                 return True

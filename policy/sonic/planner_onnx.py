@@ -96,6 +96,12 @@ class SonicKinematicPlanner:
     ):
         import onnxruntime as ort
 
+        # load CUDA/cuDNN from the venv's nvidia wheels (no system cuDNN)
+        try:
+            ort.preload_dlls()
+        except Exception:
+            pass
+
         self.model_path = Path(model_path).expanduser().resolve()
         if not self.model_path.exists():
             raise FileNotFoundError(f"SONIC planner model not found: {self.model_path}")
@@ -115,9 +121,11 @@ class SonicKinematicPlanner:
         opts.intra_op_num_threads = 1
         opts.inter_op_num_threads = 1
         available = set(ort.get_available_providers())
+        # No TensorrtExecutionProvider: ORT's TRT bridge fails to convert this
+        # graph (IShuffleLayer type error); the official C++ uses TRT's own
+        # parser. CUDA EP runs the same tensors.
         providers = [
             name for name in (
-                "TensorrtExecutionProvider",
                 "CUDAExecutionProvider",
                 "CPUExecutionProvider",
             )
