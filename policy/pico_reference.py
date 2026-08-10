@@ -44,8 +44,17 @@ def _normalize_direction(value) -> np.ndarray:
     return v / n if n > 1e-8 else np.zeros(3, dtype=np.float32)
 
 
-def _same_vector(a, b) -> bool:
-    return bool(np.array_equal(np.asarray(a), np.asarray(b)))
+def _same_vector(a, b, eps_deg: float = 5.0) -> bool:
+    """Directions within the official 5-degree replan epsilon."""
+    a2 = np.asarray(a, np.float64)[:2]
+    b2 = np.asarray(b, np.float64)[:2]
+    na, nb = np.linalg.norm(a2), np.linalg.norm(b2)
+    if na < 1e-6 and nb < 1e-6:
+        return True
+    if na < 1e-6 or nb < 1e-6:
+        return False
+    dot = float(np.clip(np.dot(a2 / na, b2 / nb), -1.0, 1.0))
+    return np.degrees(np.arccos(dot)) <= eps_deg
 
 
 class PicoReferenceWindow:
@@ -62,6 +71,7 @@ class PicoReferenceWindow:
         idle_hold=False,
     ):
         self.idle_hold = bool(idle_hold)
+        self._idle_holding = False
         planner_onnx = config.sonic_planner_onnx
         if not planner_onnx:
             raise SystemExit("PICO mode requires `sonic_planner_onnx` in the config")
@@ -133,6 +143,7 @@ class PicoReferenceWindow:
             m.joint_vel_il[:] = 0.0
             m.root_pos[:, :2] = 0.0
             m.root_quat_wxyz[:] = m.root_quat_wxyz[0]
+            self._idle_holding = True
 
         # C++ generates in a normalized +X planner frame and maps its reference
         # heading onto the measured base heading in the encoder gatherer.
@@ -356,16 +367,26 @@ class PicoReferenceWindow:
             return
         self._last_planner_tick = self._ticks
         mode, nav = self._current_command()
-        if not self._should_replan(mode, nav):
-            return
 
+        # idle-hold: stand on the default pose, but let facing changes fall
+        # through to a real turn-in-place replan; re-hold when the turn ends
         if self.idle_hold and mode == 0:
-            with self._lock:
-                self._install_idle_hold()
-            self._last_cmd = (
-                mode,
-                {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in nav.items()},
-            )
+            last_mode, last_nav = self._last_cmd
+            if _same_vector(nav["facing"], last_nav["facing"]):
+                with self._lock:
+                    m = self.planner.current_motion
+                    exhausted = self.planner.current_frame >= m.timesteps - 1
+                    if last_mode != 0 or (exhausted and not self._idle_holding):
+                        self._install_idle_hold()
+                        self._idle_holding = True
+                self._last_cmd = (
+                    0,
+                    {k: v.copy() if isinstance(v, np.ndarray) else v
+                     for k, v in nav.items()},
+                )
+                return
+
+        if not self._should_replan(mode, nav):
             return
 
         # Copy the four-frame context under lock; inference must not block the
@@ -384,6 +405,7 @@ class PicoReferenceWindow:
             with self._lock:
                 self.planner.install_replan(generated, gen_frame)
                 self._idle_readapt_stored = False
+                self._idle_holding = False
             self._last_cmd = (
                 mode,
                 {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in nav.items()},

@@ -92,6 +92,8 @@ def main():
     ap.add_argument("--idle-hold", action="store_true",
                     help="IDLE holds the default pose instead of the planner's "
                          "stepping idle plan, as deploy --idle-hold")
+    ap.add_argument("--slow", action="store_true",
+                    help="joystick SLOW_WALK instead of WALK, as deploy --slow")
     ap.add_argument("--speed", type=float, default=0.2, help="--pico nav: m/s")
     ap.add_argument("--axes", default=None,
                     help="--pico joystick: fixed 'lx,ly,rx' instead of the keyboard")
@@ -175,7 +177,10 @@ def main():
         if args.pico == "joystick":
             from common.joystick_teleop import JoystickTeleop
 
-            teleop = JoystickTeleop()      # class default, same as the deploy
+            from common.pico_client import LocomotionMode
+            teleop = JoystickTeleop(
+                locomotion_mode=LocomotionMode.SLOW_WALK if args.slow
+                else LocomotionMode.WALK)
             if args.axes:
                 teleop.set_axes(*map(float, args.axes.split(",")))
             if args.remote:

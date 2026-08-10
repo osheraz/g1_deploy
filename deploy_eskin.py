@@ -370,7 +370,7 @@ class EskinController:
 
 
 def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = True,
-                        idle_hold: bool = False):
+                        idle_hold: bool = False, slow: bool = False):
     """SONIC encoder/decoder driven by `mode`, the actor runner, or nothing."""
     if mode == "record":
         return None            # hold position and only record
@@ -382,8 +382,11 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
 
             if teleop == "joystick":
                 from common.joystick_teleop import JoystickTeleop
+                from common.pico_client import LocomotionMode
 
-                client = JoystickTeleop()
+                client = JoystickTeleop(
+                    locomotion_mode=LocomotionMode.SLOW_WALK if slow
+                    else LocomotionMode.WALK)
             else:
                 from common.scripted_teleop import ScriptedTeleop
 
@@ -441,6 +444,9 @@ def main() -> None:
     ap.add_argument("--idle-hold", action="store_true",
                     help="--mode pico/planner: IDLE holds the default pose instead "
                          "of the planner's idle plan (which contains stepping)")
+    ap.add_argument("--slow", action="store_true",
+                    help="--teleop joystick: SLOW_WALK (0.1-0.6 m/s stick-scaled) "
+                         "instead of WALK (~0.9 m/s planner default)")
     ap.add_argument("--net", default="enp132s0")
     ap.add_argument("--auto-record", action="store_true",
                     help="start experiment logging as soon as control begins")
@@ -504,7 +510,7 @@ def main() -> None:
 
     policy_runner = build_policy_runner(config, args.mode, args.teleop,
                                         gated=not args.replan_ungated,
-                                        idle_hold=args.idle_hold)
+                                        idle_hold=args.idle_hold, slow=args.slow)
 
     feedback = None
     if args.mode == "pico" and not args.no_feedback:
