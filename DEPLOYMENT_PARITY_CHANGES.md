@@ -1,412 +1,318 @@
-# SONIC 23-DoF deployment parity changes
+# SONIC deployment refactor and 23-DoF parity ledger
 
 Date: 2026-08-10
 
-This is the change and risk ledger for adapting the released 29-DoF SONIC
-planner/encoder/decoder to the physical 23-DoF G1. It is not a safety
-certification. All first executions must be supported/tethered with an
-independent damping/deadman path.
+This is the canonical change record for `g1_deploy`. It describes the Python
+runtime, its relationship to NVIDIA's released 29-DoF SONIC implementation,
+and the remaining gates for a 23-DoF G1. It is not a safety certification.
+First robot runs still require physical support, a tether, a reachable
+independent damping/deadman path, and conservative current/temperature limits.
 
-## Upstream provenance
+## Reviewed baseline
 
-- NVIDIA reference: `NVlabs/GR00T-WholeBodyControl` commit
+- Official reference: `NVlabs/GR00T-WholeBodyControl` at
   `1983e88888217f6c69283cf3a9d1af01e87f07af`.
-- Local deployment upstream: `osheraz/g1_deploy` commit
-  `6d3d36c0ff3200cba03135cf96df887d79295567` before these edits.
-- Both local commit IDs exactly matched GitHub `main` on 2026-08-10.
-- The local encoder, decoder, and observation-config files are byte-for-byte
-  identical to the official `policy/release` files; the actual ONNX inputs are
-  `obs_dict[1,1762]` and `obs_dict[1,994]`.
-- GitHub contains no `sonic.planner.kinematic.SonicKinematicPlanner`. The old
-  local import therefore depended on an unreleased/ambient research checkout.
-  `policy/sonic/planner_onnx.py` now provides a pinned, auditable wrapper based
-  on the official C++ planner and its documented ONNX contract.
-- The official dormant ONNX C++ backend enables token counts 6--11, while the
-  executable actually constructs `LocalMotionPlannerTensorRT`, whose active
-  mask enables only 9--11. The local wrapper deliberately follows that
-  production TensorRT mask even when ONNX Runtime is its execution engine.
+- Local branch before this refactor:
+  `agent/sonic-23dof-parity-planner` at `1ab9aa6`.
+- The official Python sources, production C++ deploy, observation YAML files,
+  planner wrapper, model card, PICO manager, packed ZMQ protocol, and Unitree
+  CRC code were reviewed together. C++ is the production reference where it
+  differs from unused or training-only Python paths.
 
-## Applied changes
+The released planner, encoder, and decoder remain 29-DoF. The physical
+23-DoF adapter does not change their tensor dimensions or pretend that the
+missing joints exist.
 
-### Planner parity
+## Runtime structure
 
-`policy/sonic/planner_onnx.py` now implements:
+The refactor separates three independent choices:
 
-- V0/V1/V2 named ONNX input and output validation.
-- Four frames of 30 Hz MuJoCo-qpos context.
-- The official two-control-frame planning lookahead.
-- The production V2 allowed-token mask from
-  `localmotion_kplanner_tensorrt.hpp`.
-- 30 Hz to 50 Hz interpolation using linear position/joint interpolation and
-  shortest-path quaternion SLERP.
-- Joint velocity recomputation from resampled positions.
-- The official eight-frame replan blend, including inference-latency-aware
-  placement of the generated trajectory.
-- The official end-of-IDLE lower-body readaptation state machine (0.10/0.05/
-  0.045 rad thresholds and a 2% per-tick measured/nominal blend).
-- Initial normalized planner heading plus encoder-side alignment to the
-  measured robot heading.
-- Planner inference and total latency diagnostics.
+1. `policy/sonic/model_profile.py` defines an atomic released model family:
+   `default`, `low_latency`, or `sonic_v1_1`.
+2. `policy/sonic/robot_profile.py` defines the physical embodiment:
+   `g1_23dof` or `g1_29dof`.
+3. `policy/sonic/inference_backend.py` selects direct TensorRT or ONNX Runtime.
 
-ONNX Runtime provider order is TensorRT, CUDA, then CPU. The release executable
-uses the direct TensorRT backend; a CPU-only provider is for parity/debugging,
-not presumed adequate for live locomotion. Encoder and decoder sessions now use
-the same provider preference instead of being hard-pinned to CPU, and all three
-sessions print the providers actually selected.
+`policy/sonic/robot_g1.py` now contains only the official 29-joint order. All
+29-to-23 projection, absent-joint masking, and physical motor selection live in
+`robot_profile.py`. This keeps the released model math reviewable and makes the
+29/23 switch explicit in YAML:
 
-`policy/pico_reference.py` now evaluates replanning at 10 Hz, with the official
-mode-dependent periodic intervals and change rules. A planner failure is
-surfaced to `deploy_eskin.py`, whose cleanup path sends damping; a failed
-planner is not silently allowed to continue walking a stale trajectory.
-
-### PICO encoder mode and stale input
-
-Encoder mode is selected dynamically:
-
-- Fresh valid `vr_position`: teleop encoder mode 1; a missing orientation uses
-  the official comfort-quaternion fallback.
-- Fresh navigation without VR3: G1 encoder mode 0.
-- No fresh complete planner message for one second: IDLE command, zero movement,
-  last facing preserved, G1 encoder mode 0.
-
-VR fields are sampled once per control tick and that same sample determines
-both encoder mode and VR targets, preventing a transition tick from selecting
-the teleop encoder without corresponding targets.
-
-If every fresh message always contains valid `vr_position` three-point data,
-fixing the active encoder to teleop would produce the same mode during normal
-streaming.
-It was still unsafe at startup/disconnect and invalidated navigation-only tests,
-so mode selection is now dynamic.
-
-`common/pico_client.py` timestamps only fully decoded messages and rejects
-short/trailing/missing-field payloads. `common/scripted_teleop.py` now omits VR3
-fields for `nav` and `idle`, making those genuine mode-0 tests.
-
-### Navigation coordinate frame
-
-The official PICO manager integrates the right stick into a persistent yaw:
-
-```text
-facing_world = [cos(accumulated_yaw), sin(accumulated_yaw)]
-movement_world = R(facing_world) @ movement_local
+```yaml
+sonic_model_variant: low_latency
+sonic_robot_profile: g1_23dof   # or g1_29dof
+sonic_inference_backend: auto   # tensorrt, onnxruntime, or auto
 ```
 
-Both published vectors are already in planner-world coordinates. The former
-local implementation rotated them by the planner root yaw again. At a 90°
-heading, for example, an intended world `+Y` forward command became world `-X`.
+`configs/g1_29dof_sonic.yaml` inherits the common SONIC configuration and only
+overrides embodiment-dependent arrays. `SonicRunner` validates motor order,
+fixed-joint order, dimensions, defaults, limits, finite values, and all ONNX
+input/output shapes at startup.
 
-`PicoClient.navigation_frame` is now `world`, so real PICO vectors pass through
-unchanged. The scripted and Unitree-remote stand-ins explicitly declare
-`local`, and only those are rotated once.
+## Selected checkpoint: official Low-Latency SONIC
 
-### Recurrent decoder history
+The default hardware configuration now uses the official Low-Latency row from
+the SONIC model card as an atomic set:
 
-The raw 29-D decoder output is now the next step's `last_action`, matching the
-official C++ code and SONIC training/evaluation runner. The six absent joint
-outputs are removed only from physical application, not recurrent history.
+| file | contract | SHA-256 |
+| --- | --- | --- |
+| `policy/low_latency/model_encoder.onnx` | `(1,1247) -> (1,64)` | `60be43157f57d812f38bdbb740a5de5d5d070e8840d9edc16f02a91a6d06255b` |
+| `policy/low_latency/model_decoder.onnx` | `(1,994) -> (1,29)` | `c4ac2e74045e7cbfb568f15e6bf47ea7ce023df7a94322af50be223e0a628bab` |
+| `policy/low_latency/observation_config.yaml` | G1/teleop step 1; four SMPL frames | `582b9a273a3d69fbf49ae59b39295a3be2b4a295e195ef4cf674b5e2571c90ab` |
 
-This is the correct way to remain closer to the learned SONIC distribution.
-It does **not** make the 23-DoF mechanics equivalent: large waist-roll/pitch
-outputs still indicate that the policy wants stabilization authority the robot
-does not possess. Those six raw outputs are now logged for this reason.
+The ONNX files are Git LFS objects. Never swap only one file or reuse an
+observation layout from another model family. Startup shape checks catch many,
+but not all, mixed-checkpoint errors.
 
-Startup proprio/action history is zero-padded, matching the official
-`StateLogger`, rather than repeating the first live sample ten times.
+Low-Latency shortens the command horizon. It does not remove Ethernet, DDS,
+host scheduling, Python, or planner latency. Those still need live measurement.
 
-### Mode-specific encoder buffer
+## Encoder and recurrent-state parity
 
-`policy/sonic/obs.py` retains the fixed 1762-D model layout but zeroes every
-term outside the selected official encoder branch:
+`policy/sonic/obs.py` implements all three released flat layouts:
 
-- G1: mode, full 29-joint position/velocity future, future anchor orientation.
-- Teleop: mode, lower-body future, VR3 position/orientation, current anchor
-  orientation.
-- SMPL: mode, SMPL joints/orientations, wrist future.
+- Default: 1762 encoder values.
+- Low-Latency: 1247 encoder values.
+- SONIC v1.1: 1751 encoder values with heading-normalized orientation.
 
-### VR3 measured-posture calibration
+The encoder buffer is zero-initialized and only terms required by the selected
+encoder are filled, matching the official C++ gatherer. A missing required
+term fails closed; it no longer falls through to another encoder.
 
-`common/robot_feedback.py` publishes official-compatible
-`[g1_debug][msgpack]` feedback at the 50 Hz control rate. `body_q_measured` is
-the actual 23-joint LowState posture expanded to the 29-joint MuJoCo layout;
-waist roll/pitch and four wrist pitch/yaw joints are zero.
+For the 23-DoF profile:
 
-The official PICO manager already recalibrates wrist FK from this field when
-entering `PLANNER_VR_3PT`. Because local tactile occupies port 5557, feedback
-uses port 5558. The PICO process must be launched with:
+- physical positions and velocities fill their 23 correct IsaacLab slots;
+- nonexistent waist roll/pitch and wrist pitch/yaw proprioception are zero;
+- references to those axes are zero when
+  `sonic_mask_missing_reference: true`;
+- decoder output remains raw 29-D in recurrent `last_action` history;
+- only physical command application gathers the 23 present actions.
+
+Keeping all 29 decoder outputs in history is the official behavior and keeps
+the recurrent input closest to the training distribution. Replacing the six
+missing history values with zero, measured pelvis angles, or other fabricated
+values would be a new model intervention. It would not restore the missing
+actuators.
+
+## Supported input modes
+
+The Python path now subscribes to the official `command`, `planner`, and `pose`
+topics on port 5556 and decodes their 1280-byte self-describing headers.
+
+| CLI mode | Reference source | Encoder behavior |
+| --- | --- | --- |
+| `motion` | finite 50 Hz `.npz` clip | G1 |
+| `planner` | kinematic planner; upper and lower body from planner | forced G1 |
+| `pico` in PLANNER | planner topic without VR3 fields | G1 |
+| `pico` in VR3PT | planner topic with complete VR3 targets | teleop |
+| `pico` in STREAMED_MOTION | fresh complete pose window | SMPL |
+| `smpl` | official STREAMED_MOTION command plus fresh pose required | forced fail-closed SMPL |
+
+Important mode behavior:
+
+- Teleop is selected only when a fresh, valid three-point position is present.
+  Orientation is optional and uses the official comfort-quaternion fallback.
+- `--mode planner` remains G1 even if stray VR fields arrive.
+- `--mode smpl` refuses to run unless `command.planner == false` and a complete,
+  fresh SMPL window is available.
+- An incomplete streamed pose never silently becomes G1.
+- A planner message older than one second transitions to IDLE, zero movement,
+  and G1 while preserving the last facing direction.
+
+### Navigation frame correction
+
+The official PICO manager accumulates right-stick yaw and publishes both
+movement and facing in one persistent planner-session world frame. The local
+runtime used to rotate those vectors by live robot/planner yaw a second time.
+Real PICO vectors now pass through unchanged. Only explicitly local scripted
+inputs are rotated once.
+
+### VR3 calibration feedback
+
+`common/robot_feedback.py` publishes the official `g1_debug` msgpack feedback
+on port 5558. `body_q_measured` is the measured physical posture expanded into
+29 MuJoCo motor slots, with the six absent axes set to zero. The official PICO
+manager uses this value to recalibrate wrist FK when entering VR3PT.
+
+Start feedback before entering VR3PT. If VR3PT was already active, leave and
+re-enter it. The PICO process must report recalibration from measured posture;
+its zero-posture fallback is not acceptable for a hardware trial.
+
+## Planner wrapper and jitter mitigation
+
+`policy/sonic/planner_onnx.py` mirrors the official V0/V1/V2 ONNX contract,
+four-frame context, two-control-frame lookahead, production V2 token mask,
+30-to-50 Hz resampling, quaternion SLERP, and eight-frame replan crossfade.
+
+One concrete jitter source was fixed: the old blend independently mixed joint
+position and joint velocity. When blend weight changes, that velocity omits
+the derivative of the crossfade itself, so the encoder sees mutually
+inconsistent q/dq references. The runtime now blends q and recomputes dq from
+the final 50 Hz trajectory. The C++ wrapper received the same fix.
+
+This does not guarantee a smooth kinematic plan. Other likely jitter sources
+remain:
+
+- noisy stick, VR, or facing values triggering frequent replans;
+- 10 Hz planner completion jitter and a result arriving too near its horizon;
+- stochastic planner output, even with a fixed seed when context changes;
+- discontinuity caused by an out-of-distribution 23-DoF measured posture;
+- GPU/host scheduling stalls;
+- real joint tracking lag converting a smooth reference into noisy feedback.
+
+Keep official replan gating enabled. First compare planner `q`, derived `dq`,
+replan times, and raw operator commands offline. Do not add a low-pass filter to
+decoder actions blindly: it changes recurrent policy dynamics and adds phase
+lag. If smoothing is needed after measurement, filter operator commands before
+replanning or constrain replan rate/deadband, then validate in simulation.
+
+`--idle-hold` is the recommended first test. The V2 planner's generated IDLE
+trajectory can include a stance transition/stepping motion; a constant measured
+hold avoids treating that as an operator command during initial bring-up.
+
+## Motion mode and real-world initialization
+
+The simulator can set the full robot state directly to clip frame 0. Hardware
+cannot. Motion mode therefore:
+
+1. moves to the configured official default posture;
+2. refuses a frame-0 gap above 20 degrees;
+3. ramps to frame 0 over three seconds;
+4. holds for one second and requires at most 5 degrees joint error and
+   0.5 rad/s speed in the tail;
+5. aligns the clip's initial yaw to measured pelvis yaw;
+6. resets SONIC history and uses a one-second raised-cosine handover;
+7. plays once by default and returns to default before damping.
+
+Start with `motion_neutral_default.npz`, a six-second exact neutral hold with
+zero velocity and zero pelvis tilt. It verifies ordering, gains, defaults,
+logging, timing, and handover without asking for locomotion.
+
+`motion_walk11_neutral_start.npz` is only a later simulation candidate. Its
+first frame is neutral and source pelvis tilt stays below about 7.5 degrees,
+but the source later asks for substantial nonexistent waist pitch. It is not a
+safe zero-shot 23-DoF walking recommendation. `motion_walk_straight.npz` also
+starts neutral but reaches about 12 degrees source pelvis tilt and is not the
+first hardware clip.
+
+Motion mode is SONIC reference tracking. It does not directly replay joint
+positions open-loop. Direct walking trajectory replay was intentionally not
+added as a hardware controller.
+
+## Python TensorRT and ONNX Runtime
+
+`policy/sonic/inference_backend.py` provides:
+
+- direct TensorRT 10 engine construction and execution using CUDA PyTorch
+  buffers and `execute_async_v3`;
+- per-model serialized engine caches keyed by model metadata, TensorRT/CUDA,
+  GPU name/compute capability, precision, and input shape;
+- incompatible-cache rebuild;
+- ONNX Runtime CUDA/CPU execution for debugging and golden traces;
+- `auto` fallback with an explicit warning.
+
+TensorRT is an optional environment because its wheel, CUDA, driver, and
+PyTorch versions must match the deployment PC. Install with the project extra
+only after selecting a compatible stack:
 
 ```bash
---zmq_feedback_host 127.0.0.1 --zmq_feedback_port 5558
+pip install -e '.[tensorrt]'
 ```
 
-This avoids applying a second calibration to already-calibrated VR targets in
-the controller. A custom PICO publisher that does not implement the official
-recalibration routine will not gain calibration merely by receiving this
-feedback.
+For a real run, set `sonic_inference_backend: tensorrt` rather than relying on
+silent fallback, build the engines off-robot, and verify the printed provider.
+FP16 remains disabled until a numerical trace proves acceptable parity.
 
-### Experiment logging
+## Logging and safety changes
 
-Press X or pass `--auto-record`. Each 50 Hz row in `state.npz` now contains:
+`deploy_eskin.py --auto-record` records one coherent 50 Hz LowState snapshot
+per row, including:
 
-- `command_q_23`: exact post-limit joint positions put into LowCmd.
-- `command_q_23_unclipped` and `command_saturated_23`.
-- `measured_q_23`, `measured_dq_23`, and `tracking_error_q_23`.
-- Raw motor-order command/measured q and dq for all 29 message slots.
-- Both motor temperature channels, motor-state/error code, and estimated torque
-  when provided by the SDK.
-- Raw 29-D and selected 23-D SONIC action, including the six unavailable
-  actions separately. `sonic_missing_action_raw` is ordered as waist roll,
-  waist pitch, left wrist pitch, right wrist pitch, left wrist yaw, right wrist
-  yaw; the IL indices and names are also stored in `meta.json`.
-- Full 1762-D encoder input, 64-D token, full 994-D decoder input, and
-  encoder/decoder/policy/planner inference time.
-- LowState age/tick, PICO age/staleness/mode, loop period and compute time.
-- Main command-send and 500 Hz repeat counters.
-- Existing IMU, tactile, camera, and command data.
+- exact post-limit command and measured physical q/dq;
+- full 29-slot command/measured motor arrays;
+- tracking error, saturation, raw 29-D decoder action, and missing-axis demand;
+- encoder input, token, decoder input, and encoder/decoder/planner timing;
+- pelvis quaternion and explicit roll/pitch/yaw;
+- LowState age/tick/CRC rejection count and loop/compute timing;
+- both motor temperatures, fault state, estimated torque;
+- PICO mode, age, stale state, VR targets, and planner timing;
+- command writer and 500 Hz rewriter counts.
 
-Joint, IMU, raw-motor, and tick fields for a row are read from one locked
-LowState message snapshot, rather than mixing callback updates within a row.
+Run `scripts/analyze_sonic_episode.py EPISODE` after every staged trial.
 
-The 500 Hz writer repeats the same snapshot and is therefore counted rather
-than storing 25 duplicate rows per policy step.
-Full tensor logging is intentionally diagnostic-heavy (about 0.55 MB/s before
-other fields); keep first validation episodes short.
+Safety checks now fail to damping on stale LowState, command-writer timeout,
+absolute joint speed, motor temperature, motor fault, pelvis tilt, tracking
+error, excessive command step/rate, NaN/invalid quaternion, or planner failure.
+The watchdog's damping publication bypasses its own normal-command latch, so a
+latched watchdog cannot block emergency damping. Joint targets are clamped to
+the configured physical limits.
 
-The DDS `--net` option is now passed to `ChannelFactoryInitialize`; it was
-previously parsed and ignored. All non-keyboard exceptions now enter a common
-cleanup path that stops reference threads and sends repeated damping before the
-500 Hz writer exits. LowState older than 100 ms or an absolute measured joint
-velocity above the official 35 rad/s threshold also raises into that damping
-path instead of letting an invalid state drive new commands. The same checks
-now remain active during the initial default-pose move, the wait-for-start
-hold, motion-frame alignment, and the normal return ramp.
+The thresholds are conservative starting values, not certified limits:
 
-Example conservative logging invocation:
+| check | configured threshold |
+| --- | --- |
+| LowState age | 100 ms |
+| command age | 100 ms |
+| absolute joint speed | 35 rad/s |
+| motor temperature | 75 C |
+| pelvis roll/pitch norm | 0.65 rad |
+| joint tracking error | 0.45 rad |
+| target rate | 12 rad/s |
 
-```bash
-python deploy_eskin.py --mode motion --auto-record --no-camera --no-tactile \
-  --clip policy/sonic/motion_neutral_default.npz --no-loop \
-  --net enp132s0 --duration 6
-```
+The actual deployment SDK's CRC, motor temperature shape, and fault fields
+must be verified during a read-only/neutral test before locomotion. Do not
+disable these checks merely to get past an unexplained abort.
 
-### Motion preparation and initialization
+## Validation completed on this host
 
-`scripts/export_sonic_motion.py` now uses the official sampling grid,
-quaternion SLERP, and recomputes 50 Hz velocity rather than independently
-interpolating stored velocity.
+- `pyzmq 27.1.0` and `msgpack 1.2.1` are installed and import successfully.
+- All Python files compile.
+- Sixteen parity/unit tests pass via `python tests/test_sonic_parity.py`.
+- The 23- and 29-DoF configurations instantiate with 23/6 and 29/0
+  physical/fixed joints respectively.
+- The official low-latency encoder, decoder, and V2 planner pass ONNX checking.
+- Actual CPU ONNX Runtime smoke tests produced finite encoder, decoder, and
+  integrated 23-DoF outputs. Encoder plus decoder took about 5 ms on this host;
+  that is not a deployment-PC latency qualification.
+- The actual planner produced finite trajectories. After the q/dq crossfade
+  fix, derived velocity exactly matched finite-difference joint position in the
+  checked replan trace.
+- Shell launchers pass `bash -n`.
 
-`scripts/prepare_sonic_motion.py` generated:
+Not validated here: direct TensorRT (no CUDA/TensorRT GPU environment), C++
+build (required CUDA/TensorRT/Unitree toolchain absent), MuJoCo closed-loop
+dynamics, PICO hardware, DDS on the robot network, or any physical robot move.
 
-1. `policy/sonic/motion_neutral_default.npz`: six seconds, exact configured
-   default q, zero dq, zero pelvis tilt. This is the selected first test.
-2. `policy/sonic/motion_walk11_neutral_start.npz`: 15.7 seconds, a three-second
-   quintic reference transition from the exact default pose into `walk11`.
-   Among the available walking clips under 10° pelvis tilt, `walk11` has the
-   smallest unprepared frame-0 present-joint gap (31.4°); maximum source pelvis
-   tilt is 7.4°. This is a later test only.
+## Required gates before 23-DoF locomotion
 
-Motion mode now:
+1. Install the deployment PC's Unitree SDK, CUDA/TensorRT stack, and Git LFS
+   files; build engines before connecting motor commands.
+2. Verify incoming HG LowState CRC, temperatures, motor fault codes, joint
+   order, IMU WXYZ convention, and 50/500 Hz rates read-only.
+3. Run record-only default hold, then neutral SONIC motion with support and no
+   camera/tactile load. Inspect every safety and timing field.
+4. Run the same input/state trace through Python ONNX Runtime, Python TensorRT,
+   and official-derived C++ and compare encoder input, token, decoder input,
+   raw 29 action, and physical target.
+5. Run 29-DoF and 23-DoF MuJoCo A/B with identical planner commands. Quantify
+   pelvis tilt, tracking, saturation, missing waist demand, and planner jitter.
+6. Validate PLANNER/G1 with `--idle-hold` and zero movement before slow walking.
+7. Validate VR feedback and wrist recalibration before moving arms.
+8. Inspect ankle temperatures continuously. Official issue #174 reports severe
+   ankle-roll heating even in idle; this robot's own prior asymmetric ankle
+   heating makes that a separate stop condition.
 
-1. Moves to configured default.
-2. Compares measured q to clip frame 0.
-3. Refuses gaps above 20°.
-4. Ramps to frame 0 before initializing policy/history.
-5. Holds frame 0 for one second and refuses activation unless the last quarter
-   of the hold remains within 5° maximum joint error and 0.5 rad/s maximum
-   absolute joint velocity.
-6. Aligns clip yaw to measured robot yaw.
-7. Plays once by default and returns to default on normal completion.
+## Fundamental unresolved risk
 
-The selected clips start at the configured default, so MuJoCo's clip-frame-0
-initialization and the real robot handoff represent the same joint state. A
-one-second continuous raised-cosine policy handoff is enabled by default: its
-first command is exactly the measured pose and its 50th command is exactly the
-policy target. The official C++ controller switches abruptly after its default
-pose hold; use `--no-blend` only for off-robot parity/debugging. The applied
-`policy_handover_alpha` is included in every experiment row.
-`scripts/sim2sim_sonic.py` now uses the identical handoff and default, replacing
-its older fixed 50% mixture.
+The strongest remaining failure hypothesis is embodiment mismatch, not Python
+alone. A 23-DoF pelvis IMU supplies floating-base roll/pitch through SONIC's
+gravity/orientation observations, but it cannot measure nonexistent waist
+roll/pitch joints or create their stabilizing torque. Synthesizing waist joint
+angles from pelvis orientation would give the model false proprioception.
 
-`--mode motion` remains SONIC reference tracking; it does not bypass the
-encoder/decoder and directly replay q. An open-loop direct walking replay was
-not added because it is not the official SONIC pipeline and is unsafe as an
-unsupported locomotion controller.
-
-### Official checkpoint selection
-
-The configured encoder/decoder checksums exactly match the official **Default
-SONIC** deployment pair. This is intentional for motion tracking and the
-PLANNER/G1 use case. The official model card calls Default SONIC the
-general-purpose planning-compatible model.
-
-The newer **Low-latency teleoperation** model is not a faster implementation of
-the same tensors. It shortens reference lookahead and changes the encoder from
-the default 1762-D `step5` layout to a 1247-D `step1` layout. It is intended for
-responsive streamed SMPL/VR/VLA control and requires its encoder, decoder, and
-observation configuration together. The local runner now validates the Default
-SONIC ONNX shapes and `sonic_model_variant: default`, so swapping only a file
-fails at startup instead of silently building the wrong observations.
-
-For current PLANNER/G1 debugging, keep Default SONIC. Low-latency is a separate
-future integration for VR3 responsiveness; it does not address missing 23-DoF
-waist authority or Ethernet/DDS latency.
-
-Official references:
-
-- [SONIC model card](https://github.com/NVlabs/GR00T-WholeBodyControl#model-card)
-- [Low-latency observation configuration](https://github.com/NVlabs/GR00T-WholeBodyControl/blob/main/gear_sonic_deploy/policy/release/observation_config_low_latency.yaml)
-
-### Explicit PLANNER / G1 mode
-
-`deploy_eskin.py --mode planner` is now the local counterpart of the official
-PICO mode table's PLANNER state:
-
-- kinematic planner supplies both lower and upper-body reference motion;
-- encoder mode is forced to G1 even if incoming messages accidentally contain
-  VR fields;
-- PICO movement/facing vectors remain in their already-global planner-session
-  frame;
-- the planner starts from measured 23-joint LowState posture expanded to 29
-  slots and aligns normalized planner heading to measured pelvis-IMU heading;
-- the official one-second stale-input transition still produces IDLE;
-- the Unitree-remote stand-in emits no VR fields and mirrors the official PICO
-  persistent-yaw, deadzone, and walk/run speed math.
-
-Use `--mode pico` for intentional dynamic PLANNER/VR3 switching. Robot-feedback
-wrist recalibration applies only when entering VR3, not to PLANNER/G1.
-
-### Pelvis proprioception and the 23-DoF limit
-
-The 23-DoF G1 still senses the floating pelvis orientation through its pelvis
-IMU. SONIC already consumes roll/pitch information as body-frame gravity in
-the 10-frame decoder history, and the encoder consumes measured-base versus
-reference-pelvis orientation. The logger now exposes explicit
-`pelvis_roll_rad`, `pelvis_pitch_rad`, and `pelvis_yaw_rad` in addition to the
-quaternion and gravity vector.
-
-This is not the same as sensing the missing `waist_roll`/`waist_pitch` joints.
-Those mechanical joints do not exist on the consumer robot. Synthesizing their
-angles from pelvis IMU and putting them in the 29-joint proprio slots would tell
-SONIC that nonexistent actuators moved and would not restore their torque.
-Adding new proprio dimensions is also impossible without changing and
-retraining the fixed-shape model.
-
-Official issue [#168](https://github.com/NVlabs/GR00T-WholeBodyControl/issues/168)
-reports the same 23-DoF transfer: zeroing all six unavailable outputs did not
-produce stable sim2sim, and the reporter found waist-pitch locking particularly
-damaging to the 29-DoF balance prior. As of this audit, it has no maintainer
-resolution or demonstrated zero-shot 23-DoF success. This is the strongest
-evidence that embodiment mismatch remains the primary suspect.
-
-### Offboard latency and C++ decision gate
-
-An RTX4090 only accelerates inference; it does not fix Ethernet/DDS delay,
-LowState age, Linux scheduling jitter, packet loss, or the 500 Hz command
-publisher. A full C++ rewrite should therefore follow measurement rather than
-precede it. The official direct TensorRT/CUDA-graph stack is the lower-jitter
-production target, but Python/ONNX Runtime is not automatically the cause when
-encoder+decoder compute fits comfortably within the 20 ms control period and
-the planner remains asynchronous at 10 Hz.
-
-`scripts/analyze_sonic_episode.py` reports p50/p95/p99/max for loop period,
-control compute, state age, policy/encoder/decoder/planner time and PICO age,
-then correlates these with joint tracking, pelvis tilt, saturation and missing
-waist/wrist action demand. It deliberately does not claim true one-way network
-latency: robot and PC clocks are not synchronized in the current packet path.
-
-On the actual RTX4090 deployment PC, first confirm printed and logged execution
-providers, then run record-only and neutral-policy episodes before locomotion.
-If inference is fast but loop/LowState timing is late, prioritize CPU isolation,
-real-time scheduling, wired DDS configuration and synchronized timestamping.
-If those remain unacceptable, port the real-time controller to the official
-C++ stack. If all timing is healthy but tilt/tracking diverges with large
-unavailable waist demand, C++ will not fix the 23-versus-29-DoF mechanics.
-
-## Validation performed without hardware
-
-- Both upstream repositories were verified against current GitHub `main`.
-- All Python sources pass AST parsing and bytecode compilation.
-- Mode-mask tests confirmed zeros in every non-selected 1762-D region.
-- Fifteen parity unit tests pass with the deployment transport dependencies,
-  including the official planner wire decoder, missing-orientation fallback,
-  one-second idle transition, navigation frames, forced PLANNER/G1 behavior,
-  planner blending, episode analysis, and exact 23-to-29 feedback joint
-  placement.
-- Planner resampling/context/blending math was exercised on synthetic finite
-  trajectories.
-- A disposable ONNX Runtime 1.24.3 CPU smoke test executed the actual official
-  files: encoder `(1,1762)->(1,64)` and decoder `(1,994)->(1,29)` were finite;
-  100-run median/p99 latency with the deployment's one-thread settings was
-  0.758/0.873 ms and 0.573/0.655 ms respectively on this host.
-- The actual V2 planner initialized and replanned a SLOW_WALK command into 73
-  finite 50 Hz frames. CPU inference measured 47.1 ms initialization and 46.6
-  ms replan on this host. These are compatibility smoke-test numbers, not the
-  deployment computer's latency qualification.
-- The explicit PLANNER/G1 profile was instantiated with the actual planner,
-  encoder, and decoder ONNX files. One finite control action was produced with
-  mode `g1` and exact `(1762,)`/`(994,)` logged observation shapes. This host
-  exposed CPUExecutionProvider only; it is an integration smoke test, not the
-  required RTX4090 provider/timing qualification.
-- A first-control-tick CPU probe with the exact finalized observation mask,
-  zero-padded official history, and neutral reference produced a maximum raw
-  present-joint action of 0.73. After per-joint scaling, the largest unblended
-  target displacement was 18.4 degrees. This is why the safer handoff is the
-  default even though it intentionally differs from official C++.
-- An offline reference-state oracle trace (measured state forced to each
-  reference frame; not a closed-loop stability result) ranked the prepared
-  `walk11` clip better than the other locomotion candidates. Its raw present
-  action p95/max was 1.74/2.73 and 11.8% of reference frames requested at least
-  one target outside the hardware limits. `walk20` requested saturation in
-  42.6% of frames, `walk_fwd2` in 27.0%, and `m19` in 99.6%. `walk11` is still
-  a high-risk later-stage test, not a hardware approval.
-- Generated clip audit:
-  - neutral: frame-0 present-joint gap below `2e-6` degrees, tilt 0°, dq 0;
-  - prepared walk: same frame-0 gap, maximum tilt 7.424°, finite dq.
-
-MuJoCo, Unitree SDK/DDS, PICO XR, and live hardware execution were not available
-on this host. Run the deployment's managed environment and staged hardware
-gates below before locomotion.
-
-## Remaining risks and required gates
-
-1. **23-DoF dynamics are out of distribution.** Raw action history fixes a
-   semantic error but cannot restore missing waist roll/pitch authority or the
-   29-DoF torso/wrist inertia. Fine-tuning/distillation with the actual 23-DoF
-   model may still be required.
-2. **`phantom_hold_ref_dof` is unresolved.** Holding missing reference joints
-   at zero removes trained waist motion; retaining it presents an impossible
-   target. Compare both in 23-DoF simulation and inspect missing-joint actions.
-3. **Runtime latency must be measured.** The official stack uses TensorRT/CUDA
-   graphs. Confirm the wrapper printed an accelerated provider. Abort hardware
-   testing if p99 policy compute approaches 20 ms or planner generation
-   outruns its usable horizon; do not assume the CPU fallback is adequate.
-4. **No live C++/Python numerical parity trace yet.** Replay identical context,
-   commands, state history and references through both implementations and
-   compare planner trajectory, 1762-D encoder input, token, 994-D decoder input,
-   and raw 29-D action.
-5. **Hardware watchdog parity is incomplete.** A 100 ms LowState timeout and
-   the official 35 rad/s measured-dq limit now transition to damping, but the
-   Python layer still needs validated CRC rejection, temperature hysteresis,
-   motor error handling, absolute q/command-rate limits, IMU tilt limits, and
-   an independent process/hardware deadman.
-6. **VR feedback depends on the official manager.** Confirm the PICO console
-   prints measured-q wrist recalibration, not its zero-q fallback, every time
-   VR3PT is entered.
-7. **Prepared walking is not yet approved.** First pass neutral hold in 23-DoF
-   MuJoCo from deployment default, then supported hardware. Only then test the
-   prepared walk, once, at reduced workspace/energy with no looping.
-8. **No real experiment log was available for this audit.** Use the new log to
-   correlate instability with tracking error, missing-waist action magnitude,
-   saturation, state age, timing overruns, pelvis tilt, and temperature.
-
-## Recommended gate order
-
-1. Offline C++/Python tensor parity.
-2. 23-DoF MuJoCo neutral clip, initialized from configured default.
-3. Supported hardware `--mode record --auto-record` default-pose hold.
-4. Supported hardware neutral SONIC clip, finite six seconds.
-5. PICO idle/navigation-only with no VR fields; verify encoder mode 0.
-6. Enter VR3PT; verify measured-q recalibration and encoder mode 1 before arm
-   motion.
-7. Supported, finite prepared walk only after all logged timing/tracking gates
-   pass.
+Official issue #168 reports that zeroing the same six joints did not yield
+stable 23-DoF transfer and that locking waist pitch damaged the learned balance
+prior. No demonstrated zero-shot fix is available. Stable locomotion may
+require 23-DoF simulation fine-tuning, distillation, residual control, or a
+policy trained with locked/removed waist axes. C++ and TensorRT can reduce
+latency and jitter; they cannot restore missing mechanical authority.

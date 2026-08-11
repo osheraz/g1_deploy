@@ -34,13 +34,37 @@ def _resolve_path(value: str, *, config_dir: Path) -> str:
     return str((config_dir / path).resolve())
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _load_config(path: Path, seen=()) -> dict:
+    path = path.resolve()
+    if path in seen:
+        raise ValueError(f"cyclic config inheritance: {path}")
+    with path.open("r") as stream:
+        config = yaml.load(stream, Loader=yaml.FullLoader) or {}
+    parent = config.pop("extends", None)
+    if parent is None:
+        return config
+    parent_path = Path(parent).expanduser()
+    if not parent_path.is_absolute():
+        parent_path = path.parent / parent_path
+    return _deep_merge(_load_config(parent_path, seen + (path,)), config)
+
+
 class Config:
     def __init__(self, file_path) -> None:
         config_path = _resolve_config_path(file_path)
         config_dir = config_path.parent
 
-        with config_path.open("r") as f:
-            config = yaml.load(f, Loader=yaml.FullLoader)
+        config = _load_config(config_path)
 
         self.config_path = config_path
         self.config_dir = config_dir
@@ -50,6 +74,12 @@ class Config:
         self.control_dt = config["control_dt"]
         self.max_low_state_age_s = config.get("max_low_state_age_s", 0.1)
         self.max_joint_velocity = config.get("max_joint_velocity", 35.0)
+        self.max_motor_temperature_c = config.get("max_motor_temperature_c", 75.0)
+        self.max_pelvis_tilt_rad = config.get("max_pelvis_tilt_rad", 0.65)
+        self.max_tracking_error_rad = config.get("max_tracking_error_rad", 0.45)
+        self.max_command_rate_rad_s = config.get("max_command_rate_rad_s", 12.0)
+        self.max_command_age_s = config.get("max_command_age_s", 0.10)
+        self.validate_low_state_crc = config.get("validate_low_state_crc", True)
         self.msg_type = config["msg_type"]
         self.imu_type = config["imu_type"]
 
@@ -71,7 +101,13 @@ class Config:
         self.kps = np.array(config["kps"])
         self.kds = np.array(config["kds"])
         self.default_angles = np.array(config["default_angles"], dtype=np.float32)
-        self.default_angles_23 = np.array(config["default_angles_23"], dtype=np.float32)
+        physical_default = config.get("physical_default_angles", config.get("default_angles_23"))
+        if physical_default is None:
+            raise ValueError("config requires physical_default_angles (legacy: default_angles_23)")
+        self.physical_default_angles = np.array(physical_default, dtype=np.float32)
+        # Compatibility for the fall-recovery code. New SONIC code uses the
+        # embodiment-neutral physical_default_angles name.
+        self.default_angles_23 = self.physical_default_angles
         self.dof_lower = np.array(config["dof_lower"], dtype=np.float32)
         self.dof_upper = np.array(config["dof_upper"], dtype=np.float32)
 
@@ -134,6 +170,18 @@ class Config:
             if config.get("sonic_decoder") else None
         )
         self.sonic_model_variant = config.get("sonic_model_variant", "default")
+        self.sonic_robot_profile = config.get(
+            "sonic_robot_profile", f"g1_{int(config['num_actions'])}dof"
+        )
+        self.sonic_inference_backend = config.get("sonic_inference_backend", "auto")
+        self.sonic_planner_backend = config.get(
+            "sonic_planner_backend", self.sonic_inference_backend
+        )
+        self.sonic_tensorrt_fp16 = config.get("sonic_tensorrt_fp16", False)
+        self.sonic_engine_cache_dir = _resolve_path(
+            config.get("sonic_engine_cache_dir", "~/.cache/e_skin/sonic"),
+            config_dir=REMOTE_ROOT,
+        )
         self.sonic_mode = config.get("sonic_mode", "g1")
         self.sonic_planner_onnx = (
             _resolve_path(config["sonic_planner_onnx"], config_dir=REMOTE_ROOT)
@@ -144,15 +192,20 @@ class Config:
         )
         self.sonic_planner_version = config.get("sonic_planner_version", None)
         self.pico_server_ip = config.get("pico_server_ip", "127.0.0.1")
-        self.pico_server_port = config.get("pico_server_port", 5560)
+        self.pico_server_port = config.get("pico_server_port", 5556)
         self.pico_feedback_port = config.get("pico_feedback_port", 5558)
         self.sonic_motion_clip = _resolve_path(
             config.get("sonic_motion_clip", "policy/sonic/motion_clip.npz"),
             config_dir=REMOTE_ROOT,
         )
         self.sonic_motion_loop = config.get("sonic_motion_loop", True)
-        self.phantom_23dof = config.get("phantom_23dof", True)
-        self.phantom_hold_ref_dof = config.get("phantom_hold_ref_dof", True)
+        self.sonic_mask_missing_reference = config.get(
+            "sonic_mask_missing_reference",
+            config.get("phantom_hold_ref_dof", True),
+        )
+        # Compatibility only; embodiment selection is now explicit above.
+        self.phantom_23dof = self.sonic_robot_profile == "g1_23dof"
+        self.phantom_hold_ref_dof = self.sonic_mask_missing_reference
 
         self.use_tactile = config.get("use_tactile", False)
         self.tactile_sensor_order = config.get(

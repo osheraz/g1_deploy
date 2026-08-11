@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from policy.sonic import obs, robot_g1  # noqa: E402
+from policy.sonic.model_profile import MODEL_PROFILES  # noqa: E402
+from policy.sonic.robot_profile import G1_23DOF, G1_29DOF  # noqa: E402
 from policy.sonic.planner_onnx import (  # noqa: E402
     PlannerMotion,
     SonicKinematicPlanner,
@@ -31,6 +33,12 @@ class EncoderMaskTest(unittest.TestCase):
         self.body_quat[..., 0] = 1.0
 
     def build(self, mode):
+        kwargs = {}
+        if mode == "smpl":
+            kwargs = {
+                "smpl_joints_fut": np.ones((1, 10, 24, 3)),
+                "smpl_rootq_fut": self.rootq.copy(),
+            }
         return obs.build_encoder_obs(
             mode,
             self.q,
@@ -42,6 +50,7 @@ class EncoderMaskTest(unittest.TestCase):
             np.ones(1),
             np.array([[1.0, 0.0, 0.0, 0.0]]),
             np.ones((1, 10, 6)),
+            **kwargs,
         )
 
     def test_g1_only_populates_official_terms(self):
@@ -64,11 +73,40 @@ class EncoderMaskTest(unittest.TestCase):
         self.assertFalse(x[:, 4:922].any())
         self.assertTrue(x[:, 1702:].any())
 
+    def test_all_released_model_shapes_and_23dof_wrist_mask(self):
+        for name, profile in MODEL_PROFILES.items():
+            sf = profile.smpl_future_frames
+            x = obs.build_encoder_obs(
+                "smpl",
+                self.q,
+                self.dq,
+                self.rootq,
+                np.ones((1, 10)),
+                self.body_pos,
+                self.body_quat,
+                np.ones(1),
+                np.array([[1.0, 0.0, 0.0, 0.0]]),
+                np.ones((1, sf, 6)),
+                hold_idx=G1_23DOF.missing_isaaclab,
+                model_profile=profile,
+                smpl_joints_fut=np.ones((1, sf, 24, 3)),
+                smpl_rootq_fut=self.rootq[:, :sf],
+            )
+            self.assertEqual(x.shape, (1, profile.encoder_input_dim), name)
+            np.testing.assert_array_equal(x[0, -sf * 6:].reshape(sf, 6)[:, 2:], 0.0)
+
 
 class PlannerMathTest(unittest.TestCase):
     def test_joint_order_round_trip(self):
         il = np.arange(29)
         np.testing.assert_array_equal(robot_g1.mj_to_il(robot_g1.il_to_mj(il)), il)
+        np.testing.assert_array_equal(
+            G1_29DOF.isaaclab_to_physical(G1_29DOF.physical_to_isaaclab(il)), il
+        )
+        physical23 = np.arange(23)
+        projected = G1_23DOF.physical_to_isaaclab(physical23)
+        np.testing.assert_array_equal(G1_23DOF.isaaclab_to_physical(projected), physical23)
+        np.testing.assert_array_equal(projected[G1_23DOF.missing_isaaclab], 0)
 
     def test_resample_context_and_blend(self):
         qpos = np.zeros((30, 36), dtype=np.float64)
@@ -98,7 +136,7 @@ class PlannerMathTest(unittest.TestCase):
         measured_il = np.zeros(29)
         measured_il[LOWER_BODY_IL_IDX] = 0.2
         robot = type("Robot", (), {})()
-        robot.qj = measured_il[robot_g1.IL_FROM_OUR23]
+        robot.qj = G1_23DOF.isaaclab_to_physical(measured_il)
         planner = type("Planner", (), {})()
         planner.current_motion = motion
         planner.current_frame = 1
@@ -110,6 +148,7 @@ class PlannerMathTest(unittest.TestCase):
         ref._idle_readapt_original = np.zeros(29)
         ref._idle_readapt_stored = False
         ref._idle_readapt_state = "idle"
+        ref.robot_profile = G1_23DOF
         ref._idle_readapt_at_horizon()
         np.testing.assert_allclose(
             motion.joint_pos_il[-1, LOWER_BODY_IL_IDX], 0.004, atol=1e-12
@@ -121,7 +160,9 @@ class PicoSemanticsTest(unittest.TestCase):
     def test_forced_planner_profile_stays_g1_when_vr_fields_arrive(self):
         ref = object.__new__(PicoReferenceWindow)
         ref.force_g1 = True
+        ref.force_smpl = False
         ref._vr_active = False
+        ref._smpl_active = False
         ref._vr_input_present = False
         ref.client = type(
             "Client",
@@ -138,6 +179,14 @@ class PicoSemanticsTest(unittest.TestCase):
         self.assertTrue(ref._vr_input_present)
         self.assertFalse(ref._vr_active)
         self.assertEqual(ref.sonic_mode, "g1")
+
+    def test_explicit_smpl_profile_reports_smpl_before_first_window(self):
+        ref = object.__new__(PicoReferenceWindow)
+        ref.force_g1 = False
+        ref.force_smpl = True
+        ref._smpl_active = False
+        ref._vr_active = False
+        self.assertEqual(ref.sonic_mode, "smpl")
 
     def test_unitree_joystick_standin_matches_planner_g1_semantics(self):
         try:
@@ -192,6 +241,7 @@ class PicoSemanticsTest(unittest.TestCase):
         client = object.__new__(PicoClient)
         client._lock = threading.Lock()
         client.latest = decoded
+        client._latest_by_topic = {b"planner": decoded}
         pos, quat = client.vr_3point()
         np.testing.assert_array_equal(pos, np.arange(9).reshape(3, 3))
         np.testing.assert_allclose(quat, DEFAULT_VR_ORIENTATION)
@@ -258,7 +308,7 @@ class PreparedClipTest(unittest.TestCase):
             0.2, -0.2, 0.0, 0.6, 0.0,
         ])
         np.testing.assert_allclose(
-            clip["dof_il"][0, robot_g1.IL_FROM_OUR23], expected, atol=1e-7
+            G1_23DOF.isaaclab_to_physical(clip["dof_il"][0]), expected, atol=1e-7
         )
         self.assertEqual(float(np.abs(clip["dof_vel_il"]).max()), 0.0)
 
@@ -268,7 +318,9 @@ class PreparedClipTest(unittest.TestCase):
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
         q23 = np.arange(23, dtype=np.float64)
-        q29 = RobotFeedbackPublisher.expand_23_to_mujoco(q23)
+        publisher = object.__new__(RobotFeedbackPublisher)
+        publisher.robot_profile = G1_23DOF
+        q29 = publisher.expand_to_mujoco(q23)
         present_mj = np.array([
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
             15, 16, 17, 18, 19, 22, 23, 24, 25, 26,
@@ -297,7 +349,7 @@ class EpisodeAnalysisTest(unittest.TestCase):
             )
             (ep / "meta.json").write_text(json.dumps({
                 "control_dt": 0.02,
-                "sonic_missing_action_order": list(robot_g1.MISSING_IL_NAMES),
+                "sonic_missing_action_order": list(G1_23DOF.missing_names),
             }))
             output = report(ep)
             self.assertIn("target 50.0 Hz", output)

@@ -141,7 +141,7 @@ default_angles: [-0.2, 0.0, 0.0, 0.42, -0.23, 0.0,    # Left leg
                  0.0, 0.0, 0.0]                     # Right wrist
 
 # TODO: make sure it that same
-default_angles_23: [-0.2, 0.0, 0.0, 0.42, -0.23, 0.0,    # Left leg
+physical_default_angles: [-0.2, 0.0, 0.0, 0.42, -0.23, 0.0,    # Left leg
                    -0.2, 0.0, 0.0, 0.42, -0.23, 0.0,     # Right leg
                    0.0,                                  # Waist
                    0.35, 0.16, 0.0, 0.87, 0.0,           # Left arm

@@ -142,7 +142,7 @@ class HighLevelController:
 
         
         target_dof_pos = (
-            action * self.config.action_scale + self.config.default_angles_23
+            action * self.config.action_scale + self.config.physical_default_angles
         )
 
         if self.policy_runner.act_count < 50:

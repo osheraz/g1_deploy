@@ -19,27 +19,10 @@ import mujoco
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config import Config
-from policy.sonic import robot_g1
 from policy.sonic_reference import MotionReferenceWindow
+from policy.sonic.robot_profile import MUJOCO_JOINT_NAMES, get_robot_profile
 from common.scripted_teleop import ScriptedTeleop
 from policy.sonic_runner import SonicRunner
-
-DOF_NAMES = [
-    "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
-    "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
-    "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
-    "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",
-    "waist_yaw_joint",
-    "left_shoulder_pitch_joint", "left_shoulder_roll_joint",
-    "left_shoulder_yaw_joint", "left_elbow_joint", "left_wrist_roll_joint",
-    "right_shoulder_pitch_joint", "right_shoulder_roll_joint",
-    "right_shoulder_yaw_joint", "right_elbow_joint", "right_wrist_roll_joint",
-]
-# The 6 joints the 23-dof policy does not drive; held at their default.
-HOLD = ["waist_roll_joint", "waist_pitch_joint",
-        "left_wrist_pitch_joint", "left_wrist_yaw_joint",
-        "right_wrist_pitch_joint", "right_wrist_yaw_joint"]
-
 
 def gravity_orientation(q_wxyz):
     qw, qx, qy, qz = q_wxyz
@@ -119,11 +102,13 @@ def main():
     args = ap.parse_args()
 
     cfg = Config(args.config)
-    DEFAULT = np.asarray(cfg.default_angles_23, np.float32)
+    profile = get_robot_profile(cfg.sonic_robot_profile)
+    dof_names = list(profile.physical_joint_names)
+    default = np.asarray(cfg.physical_default_angles, np.float32)
     idx = np.asarray(cfg.action_joint2motor_idx)
-    KP = np.asarray(cfg.kps, np.float32)[idx]      # motor-indexed -> the 23 actuated
-    KD = np.asarray(cfg.kds, np.float32)[idx]
-    ACTION_SCALE = np.asarray(cfg.action_scale, np.float32)
+    kp = np.asarray(cfg.kps, np.float32)[idx]
+    kd = np.asarray(cfg.kds, np.float32)[idx]
+    action_scale = np.asarray(cfg.action_scale, np.float32)
     if args.control_dt is None:
         args.control_dt = float(cfg.control_dt)
 
@@ -132,9 +117,15 @@ def main():
     d = mujoco.MjData(m)
     decim = max(1, round(args.control_dt / m.opt.timestep))
 
-    jid = {n: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n) for n in DOF_NAMES}
-    qadr = np.array([m.jnt_qposadr[jid[n]] for n in DOF_NAMES])
-    vadr = np.array([m.jnt_dofadr[jid[n]] for n in DOF_NAMES])
+    jid = {n: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n) for n in dof_names}
+    missing_model_joints = [name for name, joint_id in jid.items() if joint_id < 0]
+    if missing_model_joints:
+        raise SystemExit(
+            f"{args.mjcf} does not contain the {profile.name} physical joints: "
+            f"{missing_model_joints}"
+        )
+    qadr = np.array([m.jnt_qposadr[jid[n]] for n in dof_names])
+    vadr = np.array([m.jnt_dofadr[jid[n]] for n in dof_names])
 
     # affine position-actuator PD (ProtoMotions): force = kp*(ctrl-q) - kd*qd, integrated implicitly
     act_for_joint = {int(m.actuator_trnid[a, 0]): a for a in range(m.nu)}
@@ -151,16 +142,20 @@ def main():
             m.actuator_forcerange[a] = [-eff, eff]
             m.actuator_forcelimited[a] = 1
 
-    pd_act = np.array([act_for_joint[jid[n]] for n in DOF_NAMES])
-    for k, n in enumerate(DOF_NAMES):
+    try:
+        pd_act = np.array([act_for_joint[jid[n]] for n in dof_names])
+    except KeyError as exc:
+        raise SystemExit(f"physical joint has no MuJoCo actuator: joint id {exc.args[0]}") from exc
+    for k, n in enumerate(dof_names):
         j = jid[n]
         eff = float(m.jnt_actfrcrange[j, 1]) if m.jnt_actfrclimited[j] else 0.0
-        _set_pd(pd_act[k], float(KP[k]), float(KD[k]), eff)
+        _set_pd(pd_act[k], float(kp[k]), float(kd[k]), eff)
     # Undriven joints get the config's fixed_kps/fixed_kds, as on the robot.
     fkp = np.asarray(cfg.fixed_kps, np.float32)
     fkd = np.asarray(cfg.fixed_kds, np.float32)
     hold_act, hold_tgt = [], []
-    for k, n in enumerate(HOLD):
+    fixed_names = [MUJOCO_JOINT_NAMES[i] for i in cfg.fixed_joint2motor_idx]
+    for k, n in enumerate(fixed_names):
         j = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n)
         if j >= 0 and j in act_for_joint:
             _set_pd(act_for_joint[j], float(fkp[k]), float(fkd[k]), 0.0)
@@ -169,7 +164,6 @@ def main():
     hold_act = np.array(hold_act, dtype=int)
     hold_tgt = np.array(hold_tgt, np.float32)
 
-    IL = robot_g1.IL_FROM_OUR23
     teleop = None
     if args.pico:
         from policy.pico_reference import PicoReferenceWindow
@@ -207,18 +201,23 @@ def main():
         ref_dof = None
         d.qpos[:3] = [0.0, 0.0, 0.793]
         d.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]
-        d.qpos[qadr] = DEFAULT
+        d.qpos[qadr] = default
         mujoco.mj_forward(m, d)
         ref.initialize_from_robot(d.qpos[3:7].copy(), d.qpos[qadr].copy())
         # pico: run until the viewer closes; headless still needs a bound
         n_steps = args.steps or (10**9 if args.view else 500)
     else:
         clip_path = args.clip or cfg.sonic_motion_clip
-        ref = MotionReferenceWindow(clip_path, loop=False)
+        ref = MotionReferenceWindow(
+            clip_path,
+            loop=False,
+            model_profile=cfg.sonic_model_variant,
+            robot_profile=cfg.sonic_robot_profile,
+        )
         runner = SonicRunner(cfg, ref)
         clip = np.load(Path(clip_path).expanduser())
-        ref_dof = clip["dof_il"][:, IL]
-        ref_vel = clip["dof_vel_il"][:, IL]
+        ref_dof = profile.isaaclab_to_physical(clip["dof_il"])
+        ref_vel = profile.isaaclab_to_physical(clip["dof_vel_il"])
         root_pos = clip["body_pos_il"][:, 0]
         root_quat = clip["body_quat_wxyz_il"][:, 0]
 
@@ -293,7 +292,7 @@ def main():
             print(f"  t{step:3d} h={d.qpos[2]:.3f} gz={proj_g[2]:+.2f} "
                   f"gx={proj_g[0]:+.2f} gy={proj_g[1]:+.2f} dof_err={de:.3f}", flush=True)
 
-        target = DEFAULT if args.zero_action else action * ACTION_SCALE + DEFAULT
+        target = default if args.zero_action else action * action_scale + default
         if args.blend and step < 50:
             phase = step / 49.0
             alpha = 0.5 - 0.5 * np.cos(np.pi * phase)

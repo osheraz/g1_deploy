@@ -24,6 +24,17 @@ dependencies = [
     "yourdfpy>=0.0.56",
 ]
 
+[project.optional-dependencies]
+# Direct TensorRT execution is the production GPU path. TensorRT itself must
+# match the deployment machine's CUDA/driver installation.
+tensorrt = [
+    "torch>=2.7.0",
+    "tensorrt>=10.0.0",
+]
+test = [
+    "onnx>=1.18.0",
+]
+
 [tool.uv]
 managed = true
 

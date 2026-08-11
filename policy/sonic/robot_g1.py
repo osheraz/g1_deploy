@@ -26,19 +26,6 @@ BODY_NAMES = [
 ]
 ANCHOR_BODY = "pelvis"
 
-# 23-DOF phantom: our g1_23dof dof -> SONIC 29 IsaacLab idx; MISSING_IL 6 joints absent on robot (locked at default)
-IL_FROM_OUR23 = np.array([0, 3, 6, 9, 13, 17, 1, 4, 7, 10, 14, 18, 2, 11, 15, 19, 21, 23, 12, 16, 20, 22, 24])
-MISSING_IL = np.array([5, 8, 25, 26, 27, 28])  # waist_roll/pitch, L/R wrist_pitch, L/R wrist_yaw
-MISSING_IL_NAMES = (
-    "waist_roll",
-    "waist_pitch",
-    "left_wrist_pitch",
-    "right_wrist_pitch",
-    "left_wrist_yaw",
-    "right_wrist_yaw",
-)
-
-
 def mj_to_il(x):
     return np.asarray(x)[..., MUJOCO_TO_ISAACLAB_DOF]
 

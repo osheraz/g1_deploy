@@ -89,8 +89,12 @@ def report(path: Path) -> str:
             f">2 ticks: {np.mean(age > 2 * dt) * 100:.2f}%"
         )
 
-    if "tracking_error_q_23" in state:
-        error_deg = np.degrees(np.abs(np.asarray(state["tracking_error_q_23"])))
+    tracking_key = (
+        "tracking_error_q_physical" if "tracking_error_q_physical" in state
+        else "tracking_error_q_23"
+    )
+    if tracking_key in state:
+        error_deg = np.degrees(np.abs(np.asarray(state[tracking_key])))
         per_step_max = np.max(error_deg, axis=1)
         per_joint_p99 = np.percentile(error_deg, 99, axis=0)
         worst = np.argsort(per_joint_p99)[-5:][::-1]
@@ -105,8 +109,12 @@ def report(path: Path) -> str:
         lines.append(f"absolute pelvis roll:  {_stats(np.abs(np.degrees(rpy[:, 0])))} deg")
         lines.append(f"absolute pelvis pitch: {_stats(np.abs(np.degrees(rpy[:, 1])))} deg")
 
-    if "command_saturated_23" in state:
-        saturated = np.asarray(state["command_saturated_23"], bool)
+    saturation_key = (
+        "command_saturated_physical" if "command_saturated_physical" in state
+        else "command_saturated_23"
+    )
+    if saturation_key in state:
+        saturated = np.asarray(state[saturation_key], bool)
         lines.append(
             f"command saturation: {np.mean(np.any(saturated, axis=1)) * 100:.2f}% "
             "of rows have >=1 limited joint"

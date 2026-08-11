@@ -1,10 +1,7 @@
-"""Robot-frame navigation from the Unitree remote sticks.
+"""Official PICO-style persistent world-frame navigation from Unitree sticks.
 
-Headset-free stand-in for the PICO planner publisher; emits no VR three-point
-fields, so SONIC selects its G1 encoder. Commands are declared `local`
-(current pelvis frame) and rotated once by the live reference heading in
-PicoReferenceWindow -- forward on the stick is forward for the robot, wherever
-it faces. The real PICO app publishes world-frame and passes through untouched.
+This headset-free input emits no VR three-point fields, so SONIC selects G1.
+Its yaw accumulator and stick rotation mirror the PICO manager.
 """
 from __future__ import annotations
 
@@ -14,7 +11,7 @@ from common.pico_client import LocomotionMode
 from common.scripted_teleop import TeleopBase
 
 DEADZONE = 0.15
-MAX_TURN = 0.6      # rad of heading offset per replan at full right stick
+YAW_GAIN = 1.5
 
 
 class JoystickTeleop(TeleopBase):
@@ -24,11 +21,17 @@ class JoystickTeleop(TeleopBase):
         locomotion_mode: LocomotionMode = LocomotionMode.WALK,
     ):
         super().__init__(publish_hz)
-        self.navigation_frame = "local"
+        self.navigation_frame = "world"
         self.lx = 0.0     # right positive
         self.ly = 0.0     # forward positive
         self.rx = 0.0     # turn, right positive
         self.locomotion_mode = LocomotionMode(locomotion_mode)
+        self.yaw_rad = 0.0
+
+    def tick(self, dt: float) -> None:
+        super().tick(dt)
+        if abs(self.rx) >= DEADZONE:
+            self.yaw_rad += YAW_GAIN * (-self.rx) * float(dt)
 
     def set_axes(self, lx: float, ly: float, rx: float = 0.0) -> None:
         self.lx, self.ly, self.rx = float(lx), float(ly), float(rx)
@@ -37,16 +40,21 @@ class JoystickTeleop(TeleopBase):
         self.locomotion_mode = LocomotionMode(mode)
 
     def _command(self) -> tuple[np.ndarray, np.ndarray, float, int]:
-        turn = -self.rx * MAX_TURN if abs(self.rx) >= DEADZONE else 0.0
-        facing = np.array([np.cos(turn), np.sin(turn), 0.0], np.float32)
+        facing = np.array(
+            [np.cos(self.yaw_rad), np.sin(self.yaw_rad), 0.0], np.float32
+        )
 
         raw_mag = float(np.clip(np.hypot(self.lx, self.ly), 0.0, 1.0))
         if raw_mag < DEADZONE:
             return np.zeros(3, np.float32), facing, -1.0, int(LocomotionMode.IDLE)
 
         mag = min((raw_mag - DEADZONE) / (1.0 - DEADZONE), 1.0)
-        movement = np.array(
-            [self.ly, -self.lx, 0.0], np.float64) * (mag / raw_mag)
+        movement_local = np.array([-self.lx, self.ly], np.float64) * (mag / raw_mag)
+        rotation_facing = np.array(
+            [[-facing[1], facing[0]], [facing[0], facing[1]]], np.float64
+        )
+        movement_xy = rotation_facing @ movement_local
+        movement = np.array([movement_xy[0], movement_xy[1], 0.0], np.float64)
 
         if self.locomotion_mode == LocomotionMode.SLOW_WALK:
             speed = 0.1 + 0.5 * mag

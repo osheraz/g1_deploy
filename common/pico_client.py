@@ -44,11 +44,12 @@ import numpy as np
 import zmq
 
 HEADER_SIZE = 1280
-DEFAULT_PORT = 5560
+DEFAULT_PORT = 5556
 TOPIC = b"planner"
+TOPICS = (b"command", b"planner", b"pose")
 
 _DTYPE = {"i32": np.int32, "f32": np.float32, "f64": np.float64,
-          "u8": np.uint8, "i64": np.int64}
+          "u8": np.uint8, "i64": np.int64, "bool": np.bool_}
 DEFAULT_VR_ORIENTATION = np.array(
     [[0.7295, 0.3145, 0.5533, -0.2506],
      [0.7320, -0.2639, 0.5395, 0.3217],
@@ -82,16 +83,17 @@ class LocomotionMode(IntEnum):
     INJURED_WALK = 19
 
 
-def decode_planner_message(msg: bytes) -> dict:
-    """Split one `planner` message into ``{field_name: ndarray}``."""
-    if not msg.startswith(TOPIC):
-        raise ValueError(f"not a planner message: {msg[:16]!r}")
-    body = msg[len(TOPIC):]
+def decode_packed_message(msg: bytes, topic: bytes | str) -> dict:
+    """Decode the exact packed-array format used by all official topics."""
+    topic = topic.encode() if isinstance(topic, str) else topic
+    if not msg.startswith(topic):
+        raise ValueError(f"not a {topic.decode()} message: {msg[:16]!r}")
+    body = msg[len(topic):]
     if len(body) < HEADER_SIZE:
-        raise ValueError(f"planner message is shorter than its {HEADER_SIZE}-byte header")
+        raise ValueError(f"message is shorter than its {HEADER_SIZE}-byte header")
     header = json.loads(body[:HEADER_SIZE].rstrip(b"\x00").decode("utf-8"))
     if not isinstance(header.get("fields"), list):
-        raise ValueError("planner header has no fields list")
+        raise ValueError("packed header has no fields list")
     payload = body[HEADER_SIZE:]
 
     out, off = {}, 0
@@ -103,7 +105,7 @@ def decode_planner_message(msg: bytes) -> dict:
         nbytes = n * dt.itemsize
         if off + nbytes > len(payload):
             raise ValueError(
-                f"planner payload ends inside field {f['name']!r}: "
+                f"packed payload ends inside field {f['name']!r}: "
                 f"need {off + nbytes}, have {len(payload)} bytes"
             )
         out[f["name"]] = np.frombuffer(payload[off:off + nbytes], dtype=dt).reshape(
@@ -111,7 +113,13 @@ def decode_planner_message(msg: bytes) -> dict:
         ).copy()
         off += nbytes
     if off != len(payload):
-        raise ValueError(f"planner payload has {len(payload) - off} trailing bytes")
+        raise ValueError(f"packed payload has {len(payload) - off} trailing bytes")
+    return out
+
+
+def decode_planner_message(msg: bytes) -> dict:
+    """Split one ``planner`` message into ``{field_name: ndarray}``."""
+    out = decode_packed_message(msg, TOPIC)
     required = {"mode", "movement", "facing", "speed", "height"}
     missing = sorted(required - out.keys())
     if missing:
@@ -120,7 +128,7 @@ def decode_planner_message(msg: bytes) -> dict:
 
 
 class PicoClient(threading.Thread):
-    """Latest teleop command from the PICO publisher."""
+    """Official three-topic manager client (command, planner, and pose)."""
 
     # Official PICO's YawAccumulator sends planner-world vectors.  Reference
     # providers must not rotate these by the current pelvis yaw a second time.
@@ -134,13 +142,16 @@ class PicoClient(threading.Thread):
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.SUB)
         self.socket.connect(f"tcp://{server_address}:{port}")
-        self.socket.setsockopt(zmq.SUBSCRIBE, TOPIC)
+        for topic in TOPICS:
+            self.socket.setsockopt(zmq.SUBSCRIBE, topic)
         self.socket.setsockopt(zmq.RCVTIMEO, 500)
 
         self._lock = threading.Lock()
         self.running = True
         self.frame_count = 0
-        self.latest: Optional[dict] = None
+        self.latest: Optional[dict] = None  # compatibility: latest planner
+        self._latest_by_topic: dict[bytes, dict] = {}
+        self._time_by_topic: dict[bytes, float] = {}
         self.latest_seq = 0
         self._latest_monotonic: Optional[float] = None
 
@@ -152,15 +163,25 @@ class PicoClient(threading.Thread):
                 continue
             except zmq.ZMQError:
                 break
+            topic = next((t for t in TOPICS if msg.startswith(t)), None)
+            if topic is None:
+                continue
             try:
-                fields = decode_planner_message(msg)
+                fields = decode_packed_message(msg, topic)
+                if topic == TOPIC:
+                    required = {"mode", "movement", "facing", "speed", "height"}
+                    if not required.issubset(fields):
+                        continue
             except Exception:
                 continue
             with self._lock:
-                self.latest = fields
+                self._latest_by_topic[topic] = fields
+                self._time_by_topic[topic] = time.monotonic()
+                if topic == TOPIC:
+                    self.latest = fields
+                    self._latest_monotonic = self._time_by_topic[topic]
                 self.frame_count += 1
                 self.latest_seq += 1
-                self._latest_monotonic = time.monotonic()
 
     def stop(self) -> None:
         if self.socket is None:
@@ -173,15 +194,66 @@ class PicoClient(threading.Thread):
         self.socket = None
         self.context = None
 
-    def snapshot(self) -> Optional[dict]:
+    def snapshot(self, topic: bytes = TOPIC) -> Optional[dict]:
         with self._lock:
-            return None if self.latest is None else dict(self.latest)
+            latest = self._latest_by_topic.get(topic)
+            return None if latest is None else dict(latest)
 
     def age_s(self) -> float:
         """Monotonic age of the latest complete planner message."""
         with self._lock:
             timestamp = self._latest_monotonic
         return float("inf") if timestamp is None else time.monotonic() - timestamp
+
+    def topic_age_s(self, topic: bytes) -> float:
+        with self._lock:
+            timestamp = self._time_by_topic.get(topic)
+        return float("inf") if timestamp is None else time.monotonic() - timestamp
+
+    def streaming_motion_active(self) -> bool:
+        """Whether the latest official command selected STREAMED_MOTION."""
+        command = self.snapshot(b"command")
+        return bool(command is not None and not bool(command.get("planner", [1])[0]))
+
+    def control_request(self) -> tuple[bool, bool]:
+        command = self.snapshot(b"command")
+        if command is None:
+            return False, False
+        return bool(command.get("start", [0])[0]), bool(command.get("stop", [0])[0])
+
+    def smpl_reference(self, frames: int, max_age_s: float = 0.25) -> Optional[dict]:
+        """Latest validated SMPL window, only in official streamed-motion mode."""
+        if not self.streaming_motion_active() or self.topic_age_s(b"pose") > max_age_s:
+            return None
+        pose = self.snapshot(b"pose")
+        required = {"smpl_joints", "body_quat_w", "joint_pos", "frame_index"}
+        if pose is None or not required.issubset(pose):
+            return None
+        try:
+            joints = np.asarray(pose["smpl_joints"], np.float64).reshape(-1, 24, 3)
+            joint_pos = np.asarray(pose["joint_pos"], np.float64).reshape(-1, 29)
+            frame_index = np.asarray(pose["frame_index"], np.int64).reshape(-1)
+            body_q = np.asarray(pose["body_quat_w"], np.float64)
+            root_q = body_q[:, 0, :] if body_q.ndim == 3 else body_q.reshape(-1, 4)
+        except (TypeError, ValueError, IndexError):
+            return None
+        n = int(frames)
+        if min(len(joints), len(joint_pos), len(root_q), len(frame_index)) < n:
+            return None
+        joints, joint_pos, root_q, frame_index = (
+            x[-n:] for x in (joints, joint_pos, root_q, frame_index)
+        )
+        if not np.isfinite(joints).all() or not np.isfinite(joint_pos).all():
+            return None
+        norms = np.linalg.norm(root_q, axis=-1)
+        if not np.isfinite(root_q).all() or np.any(norms < 1e-6):
+            return None
+        return {
+            "smpl_joints_local": joints,
+            "root_quat_wxyz": root_q / norms[:, None],
+            "joint_pos_il": joint_pos,
+            "frame_index": frame_index,
+        }
 
     # -- convenience accessors, all None when that field was not sent --
 

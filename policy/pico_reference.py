@@ -16,12 +16,12 @@ import time
 import numpy as np
 
 from policy.sonic import robot_g1
+from policy.sonic.model_profile import get_model_profile
 from policy.sonic.planner_onnx import SonicKinematicPlanner
+from policy.sonic.robot_profile import get_robot_profile
 from policy.sonic.rotation_np import heading_quat, quat_inv, quat_mul
 
 
-FUTURE_FRAMES = 10
-FUTURE_STRIDE = 5
 NUM_BODIES = len(robot_g1.BODY_NAMES)
 PLANNER_TICK_CONTROL_STEPS = 5       # 10 Hz planner on a 50 Hz control loop
 PLANNER_TIMEOUT_S = 1.0
@@ -68,6 +68,7 @@ class PicoReferenceWindow:
         threaded=True,
         gated=True,
         force_g1=False,
+        force_smpl=False,
         idle_hold=False,
     ):
         self.idle_hold = bool(idle_hold)
@@ -80,15 +81,24 @@ class PicoReferenceWindow:
         self.robot = robot
         self.config = config
         self.force_g1 = bool(force_g1)
+        self.force_smpl = bool(force_smpl)
+        if self.force_g1 and self.force_smpl:
+            raise ValueError("G1 and SMPL encoder modes cannot both be forced")
+        self.model_profile = get_model_profile(config.sonic_model_variant)
+        self.robot_profile = get_robot_profile(config.sonic_robot_profile)
         self.planner = SonicKinematicPlanner(
             planner_onnx,
             version=getattr(config, "sonic_planner_version", None),
             default_height=getattr(config, "sonic_planner_default_height", 0.788740),
+            backend=getattr(config, "sonic_planner_backend", "auto"),
+            cache_dir=getattr(config, "sonic_engine_cache_dir", None),
+            fp16=bool(getattr(config, "sonic_tensorrt_fp16", False)),
         )
 
         self.initialized = False
         self.done = False
         self._vr_active = False
+        self._smpl_active = False
         self._vr_input_present = False
         self._stale = False
         self._stale_logged = False
@@ -116,7 +126,11 @@ class PicoReferenceWindow:
         self._idle_readapt_state = "idle"
         self._fatal_error: RuntimeError | None = None
         atexit.register(self.stop)
-        profile = "PLANNER/G1-only" if self.force_g1 else "dynamic PICO"
+        profile = (
+            "PLANNER/G1-only" if self.force_g1
+            else "STREAMED-MOTION/SMPL-only" if self.force_smpl
+            else "dynamic PICO"
+        )
         print(
             f"SONIC reference: official-style PICO planner {self.planner.model_path} "
             f"({profile})"
@@ -124,12 +138,15 @@ class PicoReferenceWindow:
 
     @property
     def sonic_mode(self) -> str:
+        if self.force_smpl or (self._smpl_active and not self.force_g1):
+            return "smpl"
         return "teleop" if self._vr_active and not self.force_g1 else "g1"
 
-    def initialize_from_robot(self, base_quat_wxyz, dof_pos_23) -> None:
+    def initialize_from_robot(self, base_quat_wxyz, dof_pos) -> None:
         """Initialize planner joints and official heading alignment from hardware."""
-        q_il = np.zeros(robot_g1.NUM_DOF, dtype=np.float32)
-        q_il[robot_g1.IL_FROM_OUR23] = np.asarray(dof_pos_23, dtype=np.float32)
+        q_il = self.robot_profile.physical_to_isaaclab(
+            np.asarray(dof_pos, dtype=np.float32), fill=0.0
+        )
         base_q = np.asarray(base_quat_wxyz, dtype=np.float64).reshape(4)
         self.planner.initialize(base_q, robot_g1.il_to_mj(q_il))
 
@@ -156,7 +173,8 @@ class PicoReferenceWindow:
         self.initialized = True
         print(
             "SONIC planner calibrated from measured robot state: "
-            f"23 physical joints -> 29 slots, pelvis heading={yaw_deg:+.1f}deg, "
+            f"{self.robot_profile.physical_dof} physical joints -> 29 slots, "
+            f"pelvis heading={yaw_deg:+.1f}deg, "
             f"encoder={'G1 (forced)' if self.force_g1 else 'message-selected'}"
         )
         if self.threaded and self._replan_thread is None:
@@ -168,6 +186,7 @@ class PicoReferenceWindow:
     def reset(self) -> None:
         self.initialized = False
         self._vr_active = False
+        self._smpl_active = False
         self._vr_input_present = False
         self._stale = False
 
@@ -190,10 +209,9 @@ class PicoReferenceWindow:
         ):
             return
 
-        measured_il = np.zeros(robot_g1.NUM_DOF, np.float64)
-        measured_il[robot_g1.IL_FROM_OUR23] = np.asarray(
-            self.robot.qj, np.float64
-        ).reshape(23)
+        measured_il = self.robot_profile.physical_to_isaaclab(
+            np.asarray(self.robot.qj, np.float64), fill=0.0
+        )
         target = motion.joint_pos_il[-1]
         if not self._idle_readapt_stored:
             self._idle_readapt_original[LOWER_BODY_IL_IDX] = target[LOWER_BODY_IL_IDX]
@@ -235,15 +253,16 @@ class PicoReferenceWindow:
             stop()
 
     def _install_idle_hold(self) -> None:
-        """IDLE = hold the configured default pose (the validated neutral
-        reference) instead of the planner's stepping idle plan."""
+        """IDLE = hold the measured posture, avoiding a second pose transient."""
         m = self.planner.current_motion
         cur = min(self.planner.current_frame, m.timesteps - 1)
-        default_il = np.zeros(robot_g1.NUM_DOF, np.float64)
-        default_il[robot_g1.IL_FROM_OUR23] = np.asarray(
-            self.config.default_angles_23, np.float64
-        )
-        m.joint_pos_il[:] = default_il[None]
+        if self.robot is not None:
+            hold_il = self.robot_profile.physical_to_isaaclab(
+                np.asarray(self.robot.qj, np.float64), fill=0.0
+            )
+        else:
+            hold_il = m.joint_pos_il[cur].copy()
+        m.joint_pos_il[:] = hold_il[None]
         m.joint_vel_il[:] = 0.0
         m.root_pos[:] = m.root_pos[cur]
         m.root_quat_wxyz[:] = m.root_quat_wxyz[cur]
@@ -264,6 +283,12 @@ class PicoReferenceWindow:
         if self._client_age_s() >= PLANNER_TIMEOUT_S:
             return None
         return self.client.vr_3point()
+
+    def _fresh_smpl(self):
+        get_reference = getattr(self.client, "smpl_reference", None)
+        if not callable(get_reference):
+            return None
+        return get_reference(self.model_profile.smpl_future_frames)
 
     def _update_encoder_mode(self) -> None:
         self._vr_input_present = self._fresh_vr() is not None
@@ -429,11 +454,27 @@ class PicoReferenceWindow:
         # Read VR exactly once. Mode selection and targets must come from the
         # same message snapshot; otherwise a VR3 transition could produce one
         # teleop-encoder tick without VR targets.
-        vr = self._fresh_vr()
+        smpl = self._fresh_smpl()
+        streaming_active = getattr(self.client, "streaming_motion_active", lambda: False)()
+        if self.force_smpl and not streaming_active:
+            raise RuntimeError(
+                "--mode smpl requires the official command topic to select "
+                "STREAMED_MOTION (planner=false)"
+            )
+        if (streaming_active or self.force_smpl) and smpl is None and not self.force_g1:
+            raise RuntimeError(
+                "PICO selected streamed-motion/SMPL mode but no complete fresh "
+                "pose window is available; refusing to fall through to G1"
+            )
+        vr = None if smpl is not None else self._fresh_vr()
+        self._smpl_active = smpl is not None and not self.force_g1
         self._vr_input_present = vr is not None
         self._vr_active = self._vr_input_present and not self.force_g1
         with self._lock:
-            plan = self.planner.gather(FUTURE_FRAMES, FUTURE_STRIDE)
+            plan = self.planner.gather(
+                self.model_profile.g1_future_frames,
+                self.model_profile.g1_future_stride,
+            )
 
         rootq_fut = quat_mul(self._heading_alignment[None], plan["rootq_fut"])
         rootq_cur = quat_mul(self._heading_alignment, plan["root_quat_cur"])
@@ -451,8 +492,20 @@ class PicoReferenceWindow:
             "body_pos_cur": body_pos,
             "body_quat_cur": body_quat,
             "rootz_cur": np.asarray(plan["rootz_cur"], np.float32).reshape(1),
-            "wrist_dof_smpl": np.zeros((1, FUTURE_FRAMES, 6), np.float32),
+            "wrist_dof_smpl": np.zeros(
+                (1, self.model_profile.smpl_future_frames, 6), np.float32
+            ),
         }
+        if self._smpl_active and smpl is not None:
+            result["smpl_joints_fut"] = np.asarray(
+                smpl["smpl_joints_local"], np.float32
+            )[None]
+            result["smpl_rootq_fut"] = np.asarray(
+                smpl["root_quat_wxyz"], np.float32
+            )[None]
+            result["wrist_dof_smpl"] = np.asarray(
+                smpl["joint_pos_il"], np.float32
+            )[:, [23, 24, 25, 26, 27, 28]][None]
         if self._vr_active and vr is not None:
             pos, quat = vr
             targets = (
@@ -495,7 +548,9 @@ class PicoReferenceWindow:
             ),
             "teleop_age_s": np.float32(self._client_age_s()),
             "teleop_stale": np.bool_(self._stale),
-            "sonic_encoder_mode": np.int32(1 if self._vr_active else 0),
+            "sonic_encoder_mode": np.int32(
+                2 if self._smpl_active else 1 if self._vr_active else 0
+            ),
             "planner_inference_ms": np.float32(self.planner.last_inference_ms),
             "planner_total_ms": np.float32(self.planner.last_total_ms),
         }

@@ -17,11 +17,6 @@ from pathlib import Path
 
 import numpy as np
 
-# Future window: 10 frames, stride 5 for the G1 terms; stride 1 for the smpl
-# wrist term. Same as sonic/motion/bank.py.
-G1_N, G1_STEP = 10, 5
-SMPL_N, SMPL_STEP = 10, 1
-
 # Wrist IsaacLab dof indices used by the smpl term (== obs.WRIST_IL_IDX).
 WRIST_IL_IDX = np.array([23, 24, 25, 26, 27, 28])
 
@@ -47,7 +42,12 @@ class MotionReferenceWindow:
     is not.
     """
 
-    def __init__(self, clip_path, loop: bool = True):
+    def __init__(self, clip_path, loop: bool = True, *, model_profile="default", robot_profile="g1_23dof"):
+        from policy.sonic.model_profile import get_model_profile
+        from policy.sonic.robot_profile import get_robot_profile
+
+        self.model_profile = get_model_profile(model_profile)
+        self.robot_profile = get_robot_profile(robot_profile)
         path = Path(clip_path).expanduser()
         if not path.exists():
             raise SystemExit(
@@ -112,11 +112,16 @@ class MotionReferenceWindow:
               f"({self.T / 50.0:.1f}s @50fps){' looping' if loop else ''}")
 
     @property
-    def initial_joint_pose_23(self) -> np.ndarray:
+    def initial_joint_pose(self) -> np.ndarray:
         """Frame-0 physical pose used by the real deployment handoff."""
-        from policy.sonic import robot_g1
+        return self.robot_profile.isaaclab_to_physical(
+            self.dof_il[0]
+        ).astype(np.float32).copy()
 
-        return self.dof_il[0, robot_g1.IL_FROM_OUR23].astype(np.float32).copy()
+    @property
+    def initial_joint_pose_23(self) -> np.ndarray:
+        """Compatibility alias for older deployment callers."""
+        return self.initial_joint_pose
 
     def reset(self) -> None:
         self.frame = 0
@@ -131,7 +136,7 @@ class MotionReferenceWindow:
                 self.frame = self.T - 1
                 self.done = True
 
-    def initialize_from_robot(self, base_quat_wxyz, dof_pos_23) -> None:
+    def initialize_from_robot(self, base_quat_wxyz, dof_pos) -> None:
         """Rotate the clip about z so its heading starts at the robot's.
 
         The encoder compares the robot quat against rootq_fut ABSOLUTELY, and
@@ -170,8 +175,14 @@ class MotionReferenceWindow:
         return np.clip(self.frame + np.arange(n) * step, 0, self.T - 1)
 
     def window(self) -> dict:
-        gi = self._idx(G1_N, G1_STEP)
-        si = self._idx(SMPL_N, SMPL_STEP)
+        gi = self._idx(
+            self.model_profile.g1_future_frames,
+            self.model_profile.g1_future_stride,
+        )
+        si = self._idx(
+            self.model_profile.smpl_future_frames,
+            self.model_profile.smpl_future_stride,
+        )
         ci = min(self.frame, self.T - 1)
         return {
             "dof_fut": self.dof_il[gi][None],                       # (1,10,29)
@@ -195,8 +206,10 @@ def build_reference(config, mode: str, *, gated: bool = True, idle_hold: bool = 
         return MotionReferenceWindow(
             config.sonic_motion_clip,
             loop=config.sonic_motion_loop,
+            model_profile=config.sonic_model_variant,
+            robot_profile=config.sonic_robot_profile,
         )
-    if mode in ("pico", "planner"):
+    if mode in ("pico", "planner", "smpl"):
         from common.pico_client import PicoClient
         from policy.pico_reference import PicoReferenceWindow
 
@@ -211,8 +224,9 @@ def build_reference(config, mode: str, *, gated: bool = True, idle_hold: bool = 
             client,
             gated=gated,
             force_g1=(mode == "planner"),
+            force_smpl=(mode == "smpl"),
             idle_hold=idle_hold,
         )
     raise SystemExit(
-        f"unknown sonic mode {mode!r}; expected 'motion', 'pico', or 'planner'"
+        f"unknown sonic mode {mode!r}; expected motion, pico, planner, or smpl"
     )

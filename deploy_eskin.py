@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from unitree_sdk2py.utils.crc import CRC
 
 from common.command_helper import create_damping_cmd
 from common.depth_client import SimpleDepthClient
@@ -46,6 +47,8 @@ class EskinRobot(RobotInterface):
         super().__init__(config)
         self._snap_lock = threading.Lock()
         self._snap = None
+        self._snap_monotonic = 0.0
+        self.watchdog_tripped = False
         self.command_publish_count = 0
         self.rewriter_publish_count = 0
         self._rewriter_running = True
@@ -56,35 +59,51 @@ class EskinRobot(RobotInterface):
 
     def send_cmd(self):
         with self._snap_lock:
+            if self.watchdog_tripped:
+                raise RuntimeError("motor-command watchdog is latched")
             super().send_cmd()
             self._snap = copy.deepcopy(self.low_cmd)
+            self._snap_monotonic = time.monotonic()
             self.command_publish_count += 1
 
     def _rewriter(self):
         while self._rewriter_running:
             with self._snap_lock:
                 if self._snap is not None:
-                    self.lowcmd_publisher_.Write(self._snap)
+                    age = time.monotonic() - self._snap_monotonic
+                    command = self._snap
+                    if age > self.config.max_command_age_s:
+                        self.watchdog_tripped = True
+                        command = copy.deepcopy(self._snap)
+                        create_damping_cmd(command)
+                        command.crc = CRC().Crc(command)
+                    self.lowcmd_publisher_.Write(command)
                     self.rewriter_publish_count += 1
             time.sleep(0.002)
+
+    def send_damping_now(self) -> None:
+        """Latch and publish damping even after the command watchdog fires.
+
+        Normal ``send_cmd`` calls are rejected after the watchdog has latched,
+        which prevents a stale control loop from resuming.  Emergency damping
+        is the one intentional exception and must remain publishable from the
+        common cleanup path.
+        """
+        with self._snap_lock:
+            create_damping_cmd(self.low_cmd)
+            self.low_cmd.crc = CRC().Crc(self.low_cmd)
+            self._snap = copy.deepcopy(self.low_cmd)
+            self._snap_monotonic = time.monotonic()
+            self.watchdog_tripped = True
+            self.lowcmd_publisher_.Write(self._snap)
+            self.command_publish_count += 1
 
     def stop_rewriter(self) -> None:
         self._rewriter_running = False
         self._rewriter_thread.join(timeout=1.0)
 
 
-# Ankles are forced by ground contact; the settle gate weighs their error
-# 1/ANKLE_SETTLE_SCALE (5 deg limit -> effectively 20 deg on ankles).
 ANKLE_IDX = np.array([4, 5, 10, 11])
-ANKLE_SETTLE_SCALE = 4.0
-
-JOINT_NAMES_23 = [
-    "L_hip_pitch", "L_hip_roll", "L_hip_yaw", "L_knee", "L_ankle_pitch", "L_ankle_roll",
-    "R_hip_pitch", "R_hip_roll", "R_hip_yaw", "R_knee", "R_ankle_pitch", "R_ankle_roll",
-    "waist_yaw",
-    "L_shoulder_pitch", "L_shoulder_roll", "L_shoulder_yaw", "L_elbow", "L_wrist_roll",
-    "R_shoulder_pitch", "R_shoulder_roll", "R_shoulder_yaw", "R_elbow", "R_wrist_roll",
-]
 
 
 class EskinController:
@@ -126,6 +145,8 @@ class EskinController:
         self._step_low_state = state
         self._step_low_state_age_s = state_age_s
         self.robot.update_joint_state(state)
+        if self.robot.watchdog_tripped:
+            raise RuntimeError("500Hz motor-command watchdog published damping")
         if state_age_s > self.config.max_low_state_age_s:
             raise RuntimeError(
                 f"LowState is stale for {state_age_s:.3f}s "
@@ -138,13 +159,46 @@ class EskinController:
                 f"{self.config.max_joint_velocity:.2f}rad/s"
             )
         imu_quat, imu_gyro = self.robot.get_imu(state)
+        motor = self.robot.motor_state_arrays(state=state)
+        present = self.robot.robot_profile.physical_motor_indices
+        temperatures = motor["temperature"][present]
+        if not np.isfinite(temperatures).any(axis=1).all():
+            raise RuntimeError("a physical motor has no valid temperature telemetry")
+        hottest = float(np.nanmax(temperatures))
+        if hottest >= self.config.max_motor_temperature_c:
+            raise RuntimeError(
+                f"motor temperature {hottest:.1f}C exceeds "
+                f"{self.config.max_motor_temperature_c:.1f}C"
+            )
+        faults = motor["motor_error"][present]
+        if np.any(faults != 0):
+            i = int(np.flatnonzero(faults != 0)[0])
+            raise RuntimeError(
+                f"motor {int(present[i])} reports fault code {int(faults[i])}"
+            )
+        quat_norm = float(np.linalg.norm(imu_quat))
+        if not np.isfinite(quat_norm) or quat_norm < 1e-6:
+            raise RuntimeError("pelvis IMU quaternion is invalid")
+        pelvis_rpy = _rpy_wxyz(np.asarray(imu_quat) / quat_norm)
+        if float(np.linalg.norm(pelvis_rpy[:2])) > self.config.max_pelvis_tilt_rad:
+            raise RuntimeError(
+                f"pelvis tilt {float(np.linalg.norm(pelvis_rpy[:2])):.3f}rad exceeds "
+                f"{self.config.max_pelvis_tilt_rad:.3f}rad"
+            )
+        tracking = np.abs(self.robot.last_target_dof_pos - self.robot.qj)
+        if np.any(tracking > self.config.max_tracking_error_rad):
+            i = int(np.argmax(tracking))
+            raise RuntimeError(
+                f"joint {i} tracking error {tracking[i]:.3f}rad exceeds "
+                f"{self.config.max_tracking_error_rad:.3f}rad"
+            )
         base_ang_vel, projected_gravity, dof_pos, dof_vel = (
             self.robot.get_base_features_scaled(imu=(imu_quat, imu_gyro))
         )
 
         if self.record_only:                      # hold default, no inference
             action = np.zeros(self.config.num_actions, np.float32)
-            target_dof_pos = self.config.default_angles_23.copy()
+            target_dof_pos = self.config.physical_default_angles.copy()
             target_dof_pos = self.robot.apply_target_dof_pos(target_dof_pos)
         else:
             depth_raw = (self.camera.latest_depth
@@ -176,7 +230,7 @@ class EskinController:
                 )
 
             target_dof_pos = (
-                action * self.config.action_scale + self.config.default_angles_23
+                action * self.config.action_scale + self.config.physical_default_angles
             )
             # Raised-cosine policy handover. The official controller switches
             # directly from its default-pose hold to the first policy target,
@@ -202,9 +256,9 @@ class EskinController:
 
         if self.feedback is not None:
             self.feedback.publish(
-                q_23=self.robot.qj,
-                dq_23=self.robot.dqj,
-                command_q_23=target_dof_pos,
+                q_physical=self.robot.qj,
+                dq_physical=self.robot.dqj,
+                command_q_physical=target_dof_pos,
                 base_quat_wxyz=imu_quat,
                 base_ang_vel=imu_gyro,
             )
@@ -260,7 +314,7 @@ class EskinController:
             time.sleep(self.config.control_dt)
 
     def ramp_to_default(self, seconds: float = 2.0) -> None:
-        self.ramp_to(self.config.default_angles_23, seconds, "returning to default")
+        self.ramp_to(self.config.physical_default_angles, seconds, "returning to default")
 
     def hold_and_verify(
         self,
@@ -295,7 +349,6 @@ class EskinController:
             self.robot.apply_target_dof_pos(target)
             if i >= tail_start:
                 err = np.abs(target - self.robot.qj)
-                err[ANKLE_IDX] /= ANKLE_SETTLE_SCALE   # ground forces the ankles
                 tail_error_deg.append(float(np.degrees(err.max())))
                 tail_per_joint.append(np.degrees(np.abs(target - self.robot.qj)))
                 tail_velocity.append(speed)
@@ -304,15 +357,16 @@ class EskinController:
         observed_error = max(tail_error_deg, default=float("inf"))
         observed_velocity = max(tail_velocity, default=float("inf"))
         print(
-            f"{label}: tail max error={observed_error:.2f}deg (ankle-weighted), "
+            f"{label}: tail max error={observed_error:.2f}deg, "
             f"tail max |dq|={observed_velocity:.3f}rad/s"
         )
         if tail_per_joint:
             per = np.max(tail_per_joint, axis=0)
             print(f"{label}: per-joint deviation (deg, raw):")
             for j in np.argsort(-per):
-                mark = " (ankle, /4 in gate)" if j in ANKLE_IDX else ""
-                print(f"    {JOINT_NAMES_23[j]:16s} {per[j]:6.2f}{mark}")
+                mark = " (ankle)" if j in ANKLE_IDX else ""
+                name = self.robot.robot_profile.physical_joint_names[j]
+                print(f"    {name:28s} {per[j]:6.2f}{mark}")
         if observed_error > max_error_deg or observed_velocity > max_velocity:
             raise RuntimeError(
                 f"motion frame 0 did not settle: error={observed_error:.2f}deg "
@@ -328,17 +382,17 @@ class EskinController:
         sample = {
             "t": np.float32(self.elapsed),
             "t_monotonic": np.float64(time.monotonic()),
-            "measured_q_23": self.robot.qj.copy().astype(np.float32),
-            "measured_dq_23": self.robot.dqj.copy().astype(np.float32),
+            "measured_q_physical": self.robot.qj.copy().astype(np.float32),
+            "measured_dq_physical": self.robot.dqj.copy().astype(np.float32),
             # Backward-compatible aliases used by replay_episode.py.
             "qj": self.robot.qj.copy().astype(np.float32),
             "dqj": self.robot.dqj.copy().astype(np.float32),
             "action": action.copy().astype(np.float32),
             "target_dof_pos": target_dof_pos.copy().astype(np.float32),
-            "command_q_23": self.robot.last_target_dof_pos.copy(),
-            "command_q_23_unclipped": self.robot.last_target_unclipped.copy(),
-            "command_saturated_23": self.robot.last_target_saturated.copy(),
-            "tracking_error_q_23": (
+            "command_q_physical": self.robot.last_target_dof_pos.copy(),
+            "command_q_physical_unclipped": self.robot.last_target_unclipped.copy(),
+            "command_saturated_physical": self.robot.last_target_saturated.copy(),
+            "tracking_error_q_physical": (
                 self.robot.last_target_dof_pos - self.robot.qj
             ).astype(np.float32),
             "command_q_motor_29": self.robot.commanded_q_29(),
@@ -367,7 +421,20 @@ class EskinController:
             "policy_handover_alpha": np.float32(self._handover_alpha),
             "command_publish_count": np.int64(self.robot.command_publish_count),
             "rewriter_publish_count": np.int64(self.robot.rewriter_publish_count),
+            "low_state_crc_rejected_count": np.int64(self.robot.rejected_crc_count),
         }
+
+        # Preserve the existing episode schema only for the embodiment it
+        # actually describes. Generic readers should use the *_physical keys.
+        if self.robot.robot_profile.name == "g1_23dof":
+            sample.update({
+                "measured_q_23": sample["measured_q_physical"],
+                "measured_dq_23": sample["measured_dq_physical"],
+                "command_q_23": sample["command_q_physical"],
+                "command_q_23_unclipped": sample["command_q_physical_unclipped"],
+                "command_saturated_23": sample["command_saturated_physical"],
+                "tracking_error_q_23": sample["tracking_error_q_physical"],
+            })
 
         if self.is_sonic:
             sample.update(self.policy_runner.diagnostic_fields())
@@ -399,7 +466,7 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
     if config.policy_type == "sonic":
         from policy.sonic_runner import SonicRunner
 
-        if mode in ("pico", "planner") and teleop:
+        if mode in ("pico", "planner", "smpl") and teleop:
             from policy.pico_reference import PicoReferenceWindow
 
             if teleop == "joystick":
@@ -420,6 +487,7 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
                     client,
                     gated=gated,
                     force_g1=(mode == "planner"),
+                    force_smpl=(mode == "smpl"),
                     idle_hold=idle_hold,
                 ),
             )
@@ -441,7 +509,7 @@ def main() -> None:
     ap.add_argument("--config", default="g1_23dof_sonic.yaml")
     ap.add_argument(
         "--mode",
-        choices=["record", "motion", "pico", "planner"],
+        choices=["record", "motion", "pico", "planner", "smpl"],
         default="record",
                     help="record: hold position, stream+record only (no policy). "
                          "motion: replay an exported SONIC clip. pico: live, "
@@ -535,20 +603,22 @@ def main() -> None:
                                         idle_hold=args.idle_hold, slow=args.slow)
 
     feedback = None
-    if args.mode == "pico" and not args.no_feedback:
+    if args.mode in ("pico", "smpl") and not args.no_feedback:
         from common.robot_feedback import RobotFeedbackPublisher
 
         feedback = RobotFeedbackPublisher(
-            port=args.feedback_port or config.pico_feedback_port
+            port=args.feedback_port or config.pico_feedback_port,
+            robot_profile=config.sonic_robot_profile,
         )
 
     missing_action_indices = []
     missing_action_names = []
     if config.policy_type == "sonic":
-        from policy.sonic import robot_g1
+        from policy.sonic.robot_profile import get_robot_profile
 
-        missing_action_indices = [int(i) for i in robot_g1.MISSING_IL]
-        missing_action_names = list(robot_g1.MISSING_IL_NAMES)
+        profile = get_robot_profile(config.sonic_robot_profile)
+        missing_action_indices = [int(i) for i in profile.missing_isaaclab]
+        missing_action_names = list(profile.missing_names)
     reference_for_meta = getattr(policy_runner, "reference", None)
     planner_for_meta = getattr(reference_for_meta, "planner", None)
 
@@ -558,6 +628,7 @@ def main() -> None:
         "policy_type": config.policy_type,
         "mode": args.mode,
         "sonic_model_variant": config.sonic_model_variant,
+        "sonic_robot_profile": config.sonic_robot_profile,
         "force_g1_encoder": bool(args.mode == "planner"),
         "config": str(config.config_path),
         "policy": str(config.policy_path),
@@ -572,9 +643,10 @@ def main() -> None:
         "planner_providers": list(getattr(planner_for_meta, "providers", ())),
         "motion_clip": str(config.sonic_motion_clip),
         "motion_loop": bool(config.sonic_motion_loop),
-        "phantom_hold_ref_dof": bool(config.phantom_hold_ref_dof),
+        "sonic_mask_missing_reference": bool(config.sonic_mask_missing_reference),
         "sonic_missing_action_il_indices": missing_action_indices,
         "sonic_missing_action_order": missing_action_names,
+        "physical_joint_names": list(profile.physical_joint_names) if config.policy_type == "sonic" else [],
         "policy_handover_enabled": bool(args.blend),
         "motion_settle_seconds": float(args.motion_settle_seconds),
         "max_motion_settle_error_deg": float(args.max_motion_settle_error_deg),
@@ -610,7 +682,7 @@ def main() -> None:
         if args.mode == "motion":
             ref = policy_runner.reference
             robot.update_joint_state()
-            frame0 = ref.initial_joint_pose_23
+            frame0 = ref.initial_joint_pose
             gap_deg = float(np.degrees(np.max(np.abs(frame0 - robot.qj))))
             if gap_deg > args.max_motion_init_gap_deg:
                 raise RuntimeError(
@@ -631,7 +703,7 @@ def main() -> None:
             robot.update_joint_state()
             ref.initialize_from_robot(robot.get_imu()[0], robot.qj)
 
-        if args.mode in ("pico", "planner"):
+        if args.mode in ("pico", "planner", "smpl"):
             ref = policy_runner.reference
             robot.update_joint_state()
             ref.initialize_from_robot(robot.get_imu()[0], robot.qj)
@@ -641,9 +713,9 @@ def main() -> None:
         if feedback is not None:
             imu_quat, imu_gyro = robot.get_imu()
             feedback.publish(
-                q_23=robot.qj,
-                dq_23=robot.dqj,
-                command_q_23=robot.last_target_dof_pos,
+                q_physical=robot.qj,
+                dq_physical=robot.dqj,
+                command_q_physical=robot.last_target_dof_pos,
                 base_quat_wxyz=imu_quat,
                 base_ang_vel=imu_gyro,
             )
@@ -701,8 +773,7 @@ def main() -> None:
         # No recorder/planner/socket cleanup exception may prevent this packet.
         if robot is not None:
             try:
-                create_damping_cmd(robot.low_cmd)
-                robot.send_cmd()
+                robot.send_damping_now()
                 # Allow the 500 Hz writer to repeat the damping packet before stopping.
                 time.sleep(0.05)
             except BaseException as exc:

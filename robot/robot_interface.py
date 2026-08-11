@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from typing import Union
 import time
+import copy
 import numpy as np
 
 from unitree_sdk2py.core.channel import (
@@ -30,11 +31,13 @@ from common.command_helper import (
 from common.rotation_helper import get_gravity_orientation, transform_imu_data
 from common.remote_controller import RemoteController, KeyMap
 from config import Config
+from policy.sonic.robot_profile import get_robot_profile
 
 
 class RobotInterface:
     def __init__(self, config: Config):
         self.config = config
+        self.robot_profile = get_robot_profile(config.sonic_robot_profile)
         self.remote_controller = RemoteController()
 
         self.low_cmd = None
@@ -44,11 +47,12 @@ class RobotInterface:
 
         self.qj = np.zeros(config.num_actions, dtype=np.float32)
         self.dqj = np.zeros(config.num_actions, dtype=np.float32)
-        self.last_target_unclipped = config.default_angles_23.copy()
-        self.last_target_dof_pos = config.default_angles_23.copy()
+        self.last_target_unclipped = config.physical_default_angles.copy()
+        self.last_target_dof_pos = config.physical_default_angles.copy()
         self.last_target_saturated = np.zeros(config.num_actions, dtype=bool)
         self._low_state_monotonic = 0.0
         self._state_lock = threading.Lock()
+        self.rejected_crc_count = 0
 
         if config.msg_type == "hg":
             self._init_hg()
@@ -95,6 +99,12 @@ class RobotInterface:
             init_cmd_go(self.low_cmd, weak_motor=self.config.weak_motor)
 
     def _low_state_hg_handler(self, msg: LowStateHG):
+        if self.config.validate_low_state_crc:
+            received = int(msg.crc)
+            calculated = int(CRC().Crc(copy.deepcopy(msg)))
+            if received != calculated:
+                self.rejected_crc_count += 1
+                return
         with self._state_lock:
             self.low_state = msg
             self._low_state_monotonic = time.monotonic()
@@ -259,7 +269,7 @@ class RobotInterface:
         ang_vel = np.array(state.imu_state.gyroscope, dtype=np.float32)
 
         if self.config.imu_type == "torso":
-            waist_idx = self.config.fixed_joint2motor_idx[0]
+            waist_idx = 12  # waist yaw; fixed[0] is waist roll on the 23-DoF profile
             waist_yaw = state.motor_state[waist_idx].q
             waist_yaw_omega = state.motor_state[waist_idx].dq
             quat, ang_vel = transform_imu_data(
@@ -277,7 +287,7 @@ class RobotInterface:
         quat, ang_vel = self.get_imu() if imu is None else imu
 
         projected_gravity = get_gravity_orientation(quat)
-        dof_pos = (qj - self.config.default_angles_23) * self.config.dof_pos_scale
+        dof_pos = (qj - self.config.physical_default_angles) * self.config.dof_pos_scale
         dof_vel = dqj * self.config.dof_vel_scale
         base_ang_vel = ang_vel * self.config.ang_vel_scale
 
@@ -287,6 +297,13 @@ class RobotInterface:
         # hardware joint limits: last line of defense for every mode
         unclipped = np.asarray(target_dof_pos, dtype=np.float32).copy()
         target_dof_pos = np.clip(unclipped, self.config.dof_lower, self.config.dof_upper)
+        command_rate = np.abs(target_dof_pos - self.last_target_dof_pos) / self.config.control_dt
+        if np.any(command_rate > self.config.max_command_rate_rad_s):
+            i = int(np.argmax(command_rate))
+            raise RuntimeError(
+                f"joint {i} target rate {command_rate[i]:.2f}rad/s exceeds "
+                f"{self.config.max_command_rate_rad_s:.2f}rad/s"
+            )
         self.last_target_unclipped = unclipped
         self.last_target_dof_pos = target_dof_pos.copy()
         self.last_target_saturated = np.not_equal(unclipped, target_dof_pos)

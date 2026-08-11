@@ -58,16 +58,14 @@ def main():
     qj = state["qj"].astype(np.float32) if "qj" in state else None
     imu = (state["imu_quat_wxyz"].astype(np.float32)
            if "imu_quat_wxyz" in state else None)
-    cmd = (state["command_q_23"].astype(np.float32)
-           if "command_q_23" in state else None)
+    cmd_key = "command_q_physical" if "command_q_physical" in state else "command_q_23"
+    cmd = state[cmd_key].astype(np.float32) if cmd_key in state else None
     temp = state.get("motor_temperature_29x2")
-    err = (state["tracking_error_q_23"].astype(np.float32)
-           if "tracking_error_q_23" in state else None)
-    JOINT_NAMES = ["Lhip_p", "Lhip_r", "Lhip_y", "Lknee", "Lank_p", "Lank_r",
-                   "Rhip_p", "Rhip_r", "Rhip_y", "Rknee", "Rank_p", "Rank_r",
-                   "waist",
-                   "Lsh_p", "Lsh_r", "Lsh_y", "Lelb", "Lwr",
-                   "Rsh_p", "Rsh_r", "Rsh_y", "Relb", "Rwr"]
+    err_key = "tracking_error_q_physical" if "tracking_error_q_physical" in state else "tracking_error_q_23"
+    err = state[err_key].astype(np.float32) if err_key in state else None
+    joint_names = list(meta.get("physical_joint_names", []))
+    if not joint_names and qj is not None:
+        joint_names = [f"joint_{i}" for i in range(qj.shape[1])]
 
     # Resting baseline per sensor, so light contact is visible rather than
     # swamped by each taxel's offset. Same idea as the live viewer.
@@ -135,7 +133,7 @@ def main():
         if err is not None:
             e = np.degrees(np.abs(err[k]))
             j = int(e.argmax())
-            err_label.value = f"{JOINT_NAMES[j]} {e[j]:.1f} deg"
+            err_label.value = f"{joint_names[j]} {e[j]:.1f} deg"
         if temp is not None:
             t = np.asarray(temp[k])
             temp_label.value = (f"p {t[4].max():.0f}/{t[10].max():.0f}  "

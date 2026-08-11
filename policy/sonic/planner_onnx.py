@@ -1,4 +1,4 @@
-"""ONNX Runtime mirror of the official SONIC kinematic planner.
+"""Python/TensorRT mirror of the official SONIC kinematic planner.
 
 This module implements the public behavior of NVIDIA's
 ``LocalMotionPlannerBase`` and production ``LocalMotionPlannerTensorRT`` in
@@ -20,6 +20,7 @@ import time
 import numpy as np
 
 from . import robot_g1
+from .inference_backend import create_session
 
 
 PLANNER_FPS = 30.0
@@ -93,15 +94,10 @@ class SonicKinematicPlanner:
         version: int | None = None,
         default_height: float = DEFAULT_HEIGHT,
         random_seed: int = DEFAULT_RANDOM_SEED,
+        backend: str = "auto",
+        cache_dir=None,
+        fp16: bool = False,
     ):
-        import onnxruntime as ort
-
-        # load CUDA/cuDNN from the venv's nvidia wheels (no system cuDNN)
-        try:
-            ort.preload_dlls()
-        except Exception:
-            pass
-
         self.model_path = Path(model_path).expanduser().resolve()
         if not self.model_path.exists():
             raise FileNotFoundError(f"SONIC planner model not found: {self.model_path}")
@@ -117,30 +113,13 @@ class SonicKinematicPlanner:
         self.random_seed = int(random_seed)
         self.motion_look_ahead_steps = MOTION_LOOKAHEAD_STEPS
 
-        opts = ort.SessionOptions()
-        opts.intra_op_num_threads = 1
-        opts.inter_op_num_threads = 1
-        available = set(ort.get_available_providers())
-        # No TensorrtExecutionProvider: ORT's TRT bridge fails to convert this
-        # graph (IShuffleLayer type error); the official C++ uses TRT's own
-        # parser. CUDA EP runs the same tensors.
-        providers = [
-            name for name in (
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider",
-            )
-            if name in available
-        ]
-        if not providers:
-            raise RuntimeError(
-                f"ONNX Runtime exposes no supported provider; available={sorted(available)}"
-            )
-        self.providers = tuple(providers)
-        self._session = ort.InferenceSession(
-            str(self.model_path),
-            sess_options=opts,
-            providers=providers,
+        self._session = create_session(
+            self.model_path,
+            backend=backend,
+            cache_dir=cache_dir,
+            fp16=fp16,
         )
+        self.providers = tuple(self._session.get_providers())
         self._inputs = {node.name: node for node in self._session.get_inputs()}
         self._output_names = [node.name for node in self._session.get_outputs()]
         required = {
@@ -165,7 +144,7 @@ class SonicKinematicPlanner:
         self.current_frame = 0
         self.last_inference_ms = np.nan
         self.last_total_ms = np.nan
-        print(f"SONIC planner providers: {self._session.get_providers()}")
+        print(f"SONIC planner providers: {self.providers}")
 
     def _reshape_input(self, name: str, value, dtype) -> np.ndarray:
         node = self._inputs[name]
@@ -344,7 +323,13 @@ class SonicKinematicPlanner:
         w_old = 1.0 - w_new
 
         q = w_old[:, None] * old.joint_pos_il[f_old] + w_new[:, None] * generated.joint_pos_il[f_new]
-        dq = w_old[:, None] * old.joint_vel_il[f_old] + w_new[:, None] * generated.joint_vel_il[f_new]
+        # Do not blend q and dq independently: the changing cross-fade weight
+        # adds a derivative term that the weighted source velocities omit.
+        # Recompute the exact velocity of the trajectory the tracker receives.
+        dq = np.zeros_like(q)
+        if len(q) > 1:
+            dq[:-1] = np.diff(q, axis=0) * CONTROL_FPS
+            dq[-1] = dq[-2]
         pos = w_old[:, None] * old.root_pos[f_old] + w_new[:, None] * generated.root_pos[f_new]
         quat = quat_slerp(old.root_quat_wxyz[f_old], generated.root_quat_wxyz[f_new], w_new)
         self.current_motion = PlannerMotion(q, dq, pos, quat)

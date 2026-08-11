@@ -3,7 +3,7 @@
 SONIC is not the single-``actor_obs`` architecture ``PolicyRunner`` handles. It
 is a pair of ONNX models:
 
-    encoder(reference window, 1762) -> token (64)
+    encoder(reference window, variant-specific) -> token (64)
     decoder(token + 10-step proprio history, 994) -> joint action (29, IsaacLab order)
 
 This is the real-robot counterpart of ``sonic/tracker.py`` in the tactile repo:
@@ -54,73 +54,77 @@ class SonicRunner:
     HISTORY = 10
 
     def __init__(self, config, reference: ReferenceWindowProvider):
-        import onnxruntime as ort
-
         from policy.sonic import obs as sonic_obs, robot_g1
+        from policy.sonic.inference_backend import create_session
+        from policy.sonic.model_profile import get_model_profile
+        from policy.sonic.robot_profile import get_robot_profile
         self.robot_g1 = robot_g1
         self.obs = sonic_obs
 
         self.config = config
         self.reference = reference
         self.mode = reference.sonic_mode
-        if config.sonic_model_variant != "default":
+        self.model_profile = get_model_profile(config.sonic_model_variant)
+        self.robot_profile = get_robot_profile(config.sonic_robot_profile)
+        if int(config.num_actions) != self.robot_profile.physical_dof:
             raise ValueError(
-                "g1_deploy currently validates only sonic_model_variant: default; "
-                f"got {config.sonic_model_variant!r}"
+                f"profile {self.robot_profile.name} has "
+                f"{self.robot_profile.physical_dof} physical joints, but "
+                f"num_actions={config.num_actions}"
             )
-        if int(config.num_actions) != len(robot_g1.IL_FROM_OUR23):
+        configured_motors = np.asarray(config.action_joint2motor_idx, np.int64)
+        configured_fixed = np.asarray(config.fixed_joint2motor_idx, np.int64)
+        if not np.array_equal(
+            configured_motors, self.robot_profile.physical_motor_indices
+        ):
             raise ValueError(
-                "this SONIC runner is the explicit 23-DoF adapter; "
-                f"num_actions={config.num_actions}, expected 23"
+                f"{self.robot_profile.name} requires physical motor order "
+                f"{self.robot_profile.physical_motor_indices.tolist()}, got "
+                f"{configured_motors.tolist()}"
             )
-        if not bool(config.phantom_23dof):
+        if not np.array_equal(configured_fixed, self.robot_profile.missing_motor):
             raise ValueError(
-                "23-DoF SONIC deployment requires phantom_23dof: true; "
-                "the flag cannot be disabled without a separate 29-DoF runner"
+                f"{self.robot_profile.name} requires fixed/missing motors "
+                f"{self.robot_profile.missing_motor.tolist()}, got "
+                f"{configured_fixed.tolist()}"
             )
-        for name in ("default_angles_23", "action_scale", "dof_lower", "dof_upper"):
+        for name in ("physical_default_angles", "action_scale", "dof_lower", "dof_upper"):
             value = np.asarray(getattr(config, name))
-            if value.shape != (23,) or not np.isfinite(value).all():
+            if value.shape != (self.robot_profile.physical_dof,) or not np.isfinite(value).all():
                 raise ValueError(
                     f"SONIC config {name} must be one finite value per physical "
                     f"joint; got shape {value.shape}"
                 )
+        full_default = np.asarray(config.default_angles, np.float64)
+        if full_default.shape != (29,):
+            raise ValueError(f"SONIC default_angles must be full 29-D motor order, got {full_default.shape}")
+        if not np.allclose(
+            full_default[self.robot_profile.physical_motor_indices],
+            config.physical_default_angles,
+            atol=1e-7,
+            rtol=0.0,
+        ):
+            raise ValueError(
+                "physical_default_angles does not match default_angles at the "
+                "selected embodiment's motor indices"
+            )
 
-        # Tiny MLPs: single-threaded is faster than the pool and avoids
-        # setaffinity churn in the control loop.
-        so = ort.SessionOptions()
-        so.intra_op_num_threads = 1
-        so.inter_op_num_threads = 1
         vendored = Path(__file__).resolve().parent / "sonic"
         enc = Path(config.sonic_encoder or vendored / "model_encoder.onnx")
         dec = Path(config.sonic_decoder or vendored / "model_decoder.onnx")
-
-        # cuDNN from the venv's nvidia wheels; no TensorRT EP (its bridge
-        # cannot convert these graphs -- see planner_onnx)
-        try:
-            ort.preload_dlls()
-        except Exception:
-            pass
-        available = set(ort.get_available_providers())
-        providers = [
-            name for name in (
-                "CUDAExecutionProvider",
-                "CPUExecutionProvider",
-            )
-            if name in available
-        ]
-        if not providers:
-            raise RuntimeError(
-                f"ONNX Runtime exposes no supported provider; "
-                f"available={sorted(available)}"
-            )
-
-        self._enc = ort.InferenceSession(str(enc.expanduser()),
-                                         sess_options=so,
-                                         providers=providers)
-        self._dec = ort.InferenceSession(str(dec.expanduser()),
-                                         sess_options=so,
-                                         providers=providers)
+        backend_args = dict(
+            backend=config.sonic_inference_backend,
+            cache_dir=config.sonic_engine_cache_dir,
+            fp16=bool(config.sonic_tensorrt_fp16),
+        )
+        self._enc = create_session(
+            enc.expanduser(),
+            input_shapes={"obs_dict": (1, self.model_profile.encoder_input_dim)},
+            **backend_args,
+        )
+        self._dec = create_session(
+            dec.expanduser(), input_shapes={"obs_dict": (1, 994)}, **backend_args
+        )
         self._enc_io = (self._enc.get_inputs()[0].name, self._enc.get_outputs()[0].name)
         self._dec_io = (self._dec.get_inputs()[0].name, self._dec.get_outputs()[0].name)
         self.encoder_providers = tuple(self._enc.get_providers())
@@ -130,28 +134,28 @@ class SonicRunner:
         enc_out = tuple(self._enc.get_outputs()[0].shape)
         dec_in = tuple(self._dec.get_inputs()[0].shape)
         dec_out = tuple(self._dec.get_outputs()[0].shape)
-        expected = ((1, 1762), (1, 64), (1, 994), (1, 29))
+        expected = self.model_profile.expected_shapes
         actual = (enc_in, enc_out, dec_in, dec_out)
         if actual != expected:
             raise ValueError(
-                "this wrapper implements the official Default SONIC observation "
-                f"layout {expected}, but the selected ONNX pair reports {actual}. "
-                "Do not mix Default, low_latency, or sonic_v1_1 model/config files; "
-                "the low-latency encoder requires its distinct 1247-D step1 builder."
+                f"{self.model_profile.name} requires ONNX shapes {expected}, but "
+                f"the selected pair reports {actual}. Encoder, decoder, and "
+                "sonic_model_variant must come from the same official model card row."
             )
         n_dof = robot_g1.NUM_DOF  # 29, IsaacLab order
 
         # The released decoder is 29-DoF; this robot exposes 23.  Missing joints
         # are omitted only when applying the command.  The official controller
         # feeds the raw 29-D decoder output back as last_action history.
-        self.default_23 = np.asarray(config.default_angles_23, np.float64)
-        self.default_il = np.zeros(n_dof)
-        self.default_il[robot_g1.IL_FROM_OUR23] = self.default_23
+        self.default_physical = np.asarray(config.physical_default_angles, np.float64)
+        self.default_il = self.robot_profile.physical_to_isaaclab(
+            self.default_physical, fill=0.0
+        )
         # phantom_hold_ref_dof: also hold the absent joints in the ENCODER's
         # reference, not just the decoder output. Matches sonic/tracker.py.
-        self.hold_idx = robot_g1.MISSING_IL
+        self.hold_idx = self.robot_profile.missing_isaaclab
         self.encoder_hold_idx = (
-            self.hold_idx if config.phantom_hold_ref_dof else None
+            self.hold_idx if config.sonic_mask_missing_reference else None
         )
 
         self._last_act_il = np.zeros((1, n_dof))
@@ -166,15 +170,18 @@ class SonicRunner:
         self.action = np.zeros(config.num_actions, np.float32)
         self.action_ema = config.action_ema
         self.last_action_il_raw = np.zeros(n_dof, np.float32)
-        self.last_action_23_raw = np.zeros(config.num_actions, np.float32)
+        self.last_action_physical_raw = np.zeros(config.num_actions, np.float32)
         self.last_token = np.zeros(64, np.float32)
-        self.last_encoder_obs = np.zeros(1762, np.float32)
+        self.last_encoder_obs = np.zeros(self.model_profile.encoder_input_dim, np.float32)
         self.last_decoder_obs = np.zeros(994, np.float32)
         self.last_encoder_ms = np.nan
         self.last_decoder_ms = np.nan
         self.last_policy_ms = np.nan
 
-        print(f"SONIC: encoder={enc}")
+        print(
+            f"SONIC: model={self.model_profile.name}, "
+            f"robot={self.robot_profile.name}, encoder={enc}"
+        )
         print(f"       decoder={dec}")
         print(f"       encoder providers={self.encoder_providers}")
         print(f"       decoder providers={self.decoder_providers}")
@@ -197,17 +204,15 @@ class SonicRunner:
         name_in, name_out = self._dec_io
         return self._dec.run([name_out], {name_in: x.astype(np.float32)})[0]
 
-    def _proprio_il(self, dof_pos_23, dof_vel_23):
-        """23-DoF robot state -> 29-DoF IsaacLab, absent joints locked at default."""
-        q = self.default_il[None].copy()
-        v = np.zeros((1, self.robot_g1.NUM_DOF))
-        q[:, self.robot_g1.IL_FROM_OUR23] = dof_pos_23
-        v[:, self.robot_g1.IL_FROM_OUR23] = dof_vel_23
+    def _proprio_il(self, dof_pos, dof_vel):
+        """Physical robot state -> official 29-D SONIC proprioception."""
+        q = self.robot_profile.physical_to_isaaclab(dof_pos, fill=0.0)
+        v = self.robot_profile.physical_to_isaaclab(dof_vel, fill=0.0)
         return q - self.default_il[None], v
 
     def compute_action(self, dof_pos, dof_vel, base_quat_wxyz, base_ang_vel_body,
                        **_ignored) -> np.ndarray:
-        """One control step. ``dof_pos``/``dof_vel`` are RAW 23-DoF robot order.
+        """One control step. ``dof_pos``/``dof_vel`` are physical robot order.
 
         ``base_ang_vel_body`` is angular velocity in the BODY frame, which is
         what both the robot IMU gyroscope and MuJoCo's freejoint qvel[3:6]
@@ -232,6 +237,9 @@ class SonicRunner:
             g["wrist_dof_smpl"], vr_targets=vr_targets,
             hold_idx=self.encoder_hold_idx,
             vr_targets_local=bool(g.get("vr_targets_local", False)),
+            model_profile=self.model_profile,
+            smpl_joints_fut=g.get("smpl_joints_fut"),
+            smpl_rootq_fut=g.get("smpl_rootq_fut"),
         )
         encoder_start = time.perf_counter()
         token = self._encode(enc_obs)
@@ -263,10 +271,10 @@ class SonicRunner:
         # apply them.
         self._last_act_il = np.asarray(action_il, np.float64).copy()
 
-        act = action_il[0, self.robot_g1.IL_FROM_OUR23].astype(np.float32)
+        act = self.robot_profile.isaaclab_to_physical(action_il[0]).astype(np.float32)
         self.action = self.action_ema * act + (1.0 - self.action_ema) * self.action
         self.last_action_il_raw = action_il[0].astype(np.float32).copy()
-        self.last_action_23_raw = act.copy()
+        self.last_action_physical_raw = act.copy()
         self.last_token = token[0].astype(np.float32).copy()
         self.last_encoder_obs = enc_obs[0].astype(np.float32).copy()
         self.last_decoder_obs = decoder_obs[0].astype(np.float32).copy()
@@ -278,7 +286,7 @@ class SonicRunner:
         """Fixed-shape, per-control-step data for deployment episode logs."""
         return {
             "sonic_action_il_raw": self.last_action_il_raw.copy(),
-            "sonic_action_23_raw": self.last_action_23_raw.copy(),
+            "sonic_action_physical_raw": self.last_action_physical_raw.copy(),
             "sonic_missing_action_raw": self.last_action_il_raw[self.hold_idx].copy(),
             "sonic_token": self.last_token.copy(),
             "sonic_encoder_obs": self.last_encoder_obs.copy(),
@@ -286,5 +294,5 @@ class SonicRunner:
             "encoder_inference_ms": np.float32(self.last_encoder_ms),
             "decoder_inference_ms": np.float32(self.last_decoder_ms),
             "policy_total_ms": np.float32(self.last_policy_ms),
-            "sonic_encoder_mode": np.int32(1 if self.mode == "teleop" else 0),
+            "sonic_encoder_mode": np.int32({"g1": 0, "teleop": 1, "smpl": 2}[self.mode]),
         }

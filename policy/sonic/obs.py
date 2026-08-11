@@ -1,12 +1,14 @@
-"""Vendored from the SONIC research repo so this deploy is standalone.
-Source: sonic/policy/obs.py
-Pure numpy; do not edit here -- re-copy if upstream changes.
+"""Pure-numpy mirror of official SONIC observation gatherers.
+
+The observation math remains in the official 29-DoF IsaacLab convention.  The
+only embodiment-specific operation is the optional missing-joint reference
+mask supplied by :mod:`robot_profile`.
 """
-"""Pure-numpy SONIC encoder/decoder obs builders. IsaacLab joint/body order; all quats wxyz (w-first)."""
 
 import numpy as np
 
 from . import robot_g1
+from .model_profile import get_model_profile
 
 # fixed index sets (IsaacLab order)
 LOWER_JOINT_IL_IDX = robot_g1.ISAACLAB_TO_MUJOCO_DOF[:12]  # legs: mujoco 0..11 -> isaaclab
@@ -49,6 +51,7 @@ DEC_TERM_DIMS = [64, 30, 290, 290, 290, 30]
 
 # numpy quat/rotation primitives live in the shared rotation lib (wxyz, torch-free deploy mirror)
 from .rotation_np import (  # noqa: E402
+    heading_quat,
     matrix_from_quat,
     quat_apply,
     quat_conjugate,
@@ -82,25 +85,44 @@ def _validated_vr_targets(vr_targets, batch_size):
 
 
 # encoder obs (1762), BATCHED over leading dim N
-def build_encoder_obs(mode, dof_fut, dvel_fut, rootq_fut, rootz_fut,
-                      body_pos_cur, body_quat_cur, rootz_cur, robot_anchor_quat_wxyz,
-                      wrist_dof_smpl, vr_targets=None, hold_idx=None,
-                      vr_targets_local=False):
-    """Full (N,1762) encoder buffer in INTEGRATION.md term order. mode: g1|teleop|smpl. Concat order must be exact.
-    Pre-gathered inputs (N leading): dof_fut/dvel_fut (N,10,29), rootq_fut (N,10,4), rootz_fut (N,10),
-    body_pos_cur (N,14,3), body_quat_cur (N,14,4), rootz_cur (N,), robot_anchor_quat_wxyz (N,4),
-    wrist_dof_smpl (N,10,6) = smpl-window wrist dof.
-    vr_targets: optional ((N,3,3) world pos, (N,3,4) wxyz quat); else 3 points come from motion.
-    When ``vr_targets_local=True``, both arrays bypass localization.  The caller
-    declares which desired-pose root they use.  NVIDIA's live PICO path supplies
-    calibrated operator-current-pelvis-local values directly; offline training
-    constructs the analogous terms from the desired motion pelvis.  Neither is
-    a request to rotate external targets by the separate kinematic-planner root.
-    hold_idx: IsaacLab joint idxs held at default 0 (phantom: joints absent on the robot -> don't command them)."""
+def build_encoder_obs(
+    mode,
+    dof_fut,
+    dvel_fut,
+    rootq_fut,
+    rootz_fut,
+    body_pos_cur,
+    body_quat_cur,
+    rootz_cur,
+    robot_anchor_quat_wxyz,
+    wrist_dof_smpl,
+    vr_targets=None,
+    hold_idx=None,
+    vr_targets_local=False,
+    *,
+    model_profile="default",
+    smpl_joints_fut=None,
+    smpl_rootq_fut=None,
+):
+    """Build the exact released encoder flat buffer.
+
+    ``mode`` selects one encoder and every term not consumed by that encoder is
+    zero-filled, as in the official C++ gatherer.  Model families are not
+    interchangeable: Default is 1762-D, low-latency 1247-D, and v1.1 1751-D.
+    SMPL positions are the publisher's already pelvis-local ``(N,F,24,3)``
+    representation; root quaternions are world WXYZ values.
+    """
+    profile = (
+        get_model_profile(model_profile)
+        if isinstance(model_profile, str)
+        else model_profile
+    )
+    gf = profile.g1_future_frames
+    sf = profile.smpl_future_frames
     rq = np.asarray(robot_anchor_quat_wxyz, dtype=np.float64).reshape(-1, 4)  # (N,4)
     N = rq.shape[0]
-    dof = np.asarray(dof_fut, dtype=np.float64).copy()      # (N,10,29)
-    dvel = np.asarray(dvel_fut, dtype=np.float64).copy()
+    dof = np.asarray(dof_fut, dtype=np.float64).reshape(N, gf, 29).copy()
+    dvel = np.asarray(dvel_fut, dtype=np.float64).reshape(N, gf, 29).copy()
     if hold_idx is not None:                                # locked absent joints -> default 0, not the ref motion
         dof[:, :, hold_idx] = 0.0; dvel[:, :, hold_idx] = 0.0
 
@@ -112,11 +134,12 @@ def build_encoder_obs(mode, dof_fut, dvel_fut, rootq_fut, rootz_fut,
     t2 = np.concatenate([dof.reshape(N, -1), dvel.reshape(N, -1)], axis=1)  # 290 + 290
 
     # 3. command_z_multi_future (10): ref root z per future frame
-    t3 = np.asarray(rootz_fut, dtype=np.float64).reshape(N, 10).copy()
+    t3 = np.asarray(rootz_fut, dtype=np.float64).reshape(N, gf).copy()
 
     # 4. motion_anchor_ori_b_mf (60): quat_mul(quat_inv(robot_anchor), ref_root_quat_f) -> 6D per frame
-    ref_q = np.asarray(rootq_fut, dtype=np.float64).reshape(N, 10, 4)
-    dif = quat_mul(quat_inv(rq[:, None, :]), ref_q)          # broadcast (N,1,4) x (N,10,4)
+    ref_q = np.asarray(rootq_fut, dtype=np.float64).reshape(N, gf, 4)
+    robot_orientation = heading_quat(rq) if profile.heading_normalized else rq
+    dif = quat_mul(quat_inv(robot_orientation[:, None, :]), ref_q)
     t4 = quat_to_rot6d(dif).reshape(N, -1)                   # 10*6
 
     # 5. command_multi_future_lower_body (240): [lb_pos_f0..f9 (120) | lb_vel_f0..f9 (120)]
@@ -147,32 +170,52 @@ def build_encoder_obs(mode, dof_fut, dvel_fut, rootq_fut, rootz_fut,
         t7 = quat_mul(quat_inv(a_q[:, None, :]), vr_q).reshape(N, -1)
 
     # 8. motion_anchor_ori_b (6): ref-vs-robot root ori, 6D (current)
-    _, ori8 = subtract_frame_transforms(np.zeros((N, 3)), rq, np.zeros((N, 3)), a_q)
+    _, ori8 = subtract_frame_transforms(
+        np.zeros((N, 3)), robot_orientation, np.zeros((N, 3)), a_q
+    )
     t8 = quat_to_rot6d(ori8)                                 # (N,6)
 
     # 9. command_z (1): ref root z at current frame
     t9 = np.asarray(rootz_cur, dtype=np.float64).reshape(N, 1).copy()
 
-    # 10/11. smpl terms (720+60): zero-filled; smpl mode needs smpl_root_quat in npz (TODO).
-    t10 = np.zeros((N, 720))
-    t11 = np.zeros((N, 60))
+    # 10/11. SMPL local joints and root orientation.
+    if smpl_joints_fut is None or smpl_rootq_fut is None:
+        if mode == "smpl":
+            raise ValueError(
+                "SMPL encoder mode requires smpl_joints_fut and smpl_rootq_fut"
+            )
+        t10 = np.zeros((N, sf * 24 * 3))
+        t11 = np.zeros((N, sf * 6))
+    else:
+        t10 = np.asarray(smpl_joints_fut, dtype=np.float64).reshape(N, sf * 24 * 3)
+        smpl_q = np.asarray(smpl_rootq_fut, dtype=np.float64).reshape(N, sf, 4)
+        smpl_dif = quat_mul(quat_inv(robot_orientation[:, None, :]), smpl_q)
+        t11 = quat_to_rot6d(smpl_dif).reshape(N, sf * 6)
 
     # 12. joint_pos_multi_future_wrist_for_smpl (60): 10 smpl frames x 6 wrist DOF pos
-    t12 = np.asarray(wrist_dof_smpl, dtype=np.float64).reshape(N, -1)
+    wrist = np.asarray(wrist_dof_smpl, dtype=np.float64).reshape(N, sf, 6).copy()
+    if hold_idx is not None:
+        wrist[:, :, np.isin(WRIST_IL_IDX, np.asarray(hold_idx, dtype=np.int64))] = 0.0
+    t12 = wrist.reshape(N, -1)
 
     # Deploy encoder order: z + current-frame anchor BEFORE multi-future
     # anchor. The official C++ gatherer clears all 1762 values, then populates
     # only observations required by the selected encoder branch. Preserve the
     # fixed flat layout while zeroing every non-selected term.
-    parts = [t1, t2, t3, t9, t8, t4, t5, t6, t7, t10, t11, t12]
-    required_parts = {
-        # encoder_mode, full joint position/velocity future, future anchor ori
-        "g1": {0, 1, 5},
-        # encoder_mode, current anchor ori, lower-body future, VR3 pos/orientation
-        "teleop": {0, 4, 6, 7, 8},
-        # encoder_mode, SMPL joints/orientation, wrist joint future
-        "smpl": {0, 9, 10, 11},
-    }
+    if profile.include_root_height_terms:
+        parts = [t1, t2, t3, t9, t8, t4, t5, t6, t7, t10, t11, t12]
+        required_parts = {
+            "g1": {0, 1, 5},
+            "teleop": {0, 4, 6, 7, 8},
+            "smpl": {0, 9, 10, 11},
+        }
+    else:
+        parts = [t1, t2, t4, t8, t5, t6, t7, t10, t11, t12]
+        required_parts = {
+            "g1": {0, 1, 2},
+            "teleop": {0, 3, 4, 5, 6},
+            "smpl": {0, 7, 8, 9},
+        }
     if mode not in required_parts:
         raise ValueError(
             f"unsupported SONIC encoder mode {mode!r}; expected one of "
@@ -182,7 +225,11 @@ def build_encoder_obs(mode, dof_fut, dvel_fut, rootq_fut, rootz_fut,
     masked_parts = [part if i in keep else np.zeros_like(part)
                     for i, part in enumerate(parts)]
     obs = np.concatenate(masked_parts, axis=1).astype(np.float32)
-    assert obs.shape[1] == 1762, obs.shape
+    if obs.shape != (N, profile.encoder_input_dim):
+        raise AssertionError(
+            f"{profile.name} encoder observation shape {obs.shape}; expected "
+            f"({N}, {profile.encoder_input_dim})"
+        )
     return obs
 
 

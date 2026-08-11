@@ -112,16 +112,16 @@ The planner ONNX is ~774 MB, so it is not vendored. Point the config at a
 checkout that has it. The wrapper itself is vendored locally:
 
 ```yaml
-sonic_planner_onnx: "~/tactile/others/GR00T-WholeBodyControl/gear_sonic_deploy/planner/target_vel/V2/planner_sonic.onnx"
+sonic_planner_onnx: "{REMOTE_ROOT}/../others/GR00T-WholeBodyControl/gear_sonic_deploy/planner/target_vel/V2/planner_sonic.onnx"
 sonic_planner_version: 2
 pico_server_ip: "127.0.0.1"
-pico_server_port: 5560
+pico_server_port: 5556
 pico_feedback_port: 5558
 ```
 
-The wrapper prefers ONNX Runtime TensorRT, then CUDA, then CPU. The ordinary
-`onnxruntime` dependency provides CPU only; for live navigation use an
-environment with a compatible GPU/TensorRT or `onnxruntime-gpu` stack and
+With `sonic_planner_backend: auto`, the wrapper first attempts the direct
+TensorRT 10 backend, then ONNX Runtime (CUDA when installed, otherwise CPU).
+For a live run use `tensorrt` explicitly after building the engine off-robot;
 confirm the printed provider and logged planner latency before enabling motion.
 
 Port 5557 is already used by this project's local tactile server. Start the

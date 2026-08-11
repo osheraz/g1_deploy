@@ -65,7 +65,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--test", choices=["nav", "vr3", "both", "idle"], default="idle")
-    ap.add_argument("--port", type=int, default=5560)
+    ap.add_argument("--port", type=int, default=5556)
     ap.add_argument("--rate", type=float, default=10.0)
     ap.add_argument("--speed", type=float, default=0.2, help="nav: m/s")
     args = ap.parse_args()
