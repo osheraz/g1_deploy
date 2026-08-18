@@ -1,6 +1,18 @@
 # SONIC deployment refactor and 23-DoF parity ledger
 
-Date: 2026-08-10
+> Historical implementation ledger. For the current three-model × two-input ×
+> two-embodiment architecture, direct-target behavior, accumulated fixes,
+> validation status, and physical conclusions, use the canonical
+> [`SONIC deployment learning guide`](../docs/learning/sonic_deployment.md).
+> The latest captured-IDLE physical analysis, 199-recording training-free MuJoCo
+> adaptation campaign, and model-training roadmap are in
+> [`../docs/analysis/sonic_23dof_slow_walk_adaptation.md`](../docs/analysis/sonic_23dof_slow_walk_adaptation.md).
+> In particular, the current official-parity C++ path does not clamp joint
+> position, command rate, or finite tracking error; tracking excursions are
+> diagnostics-only. Invalid/stale state, excessive measured velocity,
+> temperature/fault, and pelvis tilt still latch damping on hardware.
+
+Date: 2026-08-12
 
 This is the canonical change record for `g1_deploy`. It describes the Python
 runtime, its relationship to NVIDIA's released 29-DoF SONIC implementation,
@@ -41,7 +53,10 @@ The refactor separates three independent choices:
 ```yaml
 sonic_model_variant: low_latency
 sonic_robot_profile: g1_23dof   # or g1_29dof
-sonic_inference_backend: auto   # tensorrt, onnxruntime, or auto
+sonic_inference_backend: tensorrt
+sonic_planner_backend: tensorrt
+sonic_tensorrt_fp16: false
+sonic_tensorrt_tf32: false
 ```
 
 `configs/g1_29dof_sonic.yaml` inherits the common SONIC configuration and only
@@ -83,16 +98,16 @@ For the 23-DoF profile:
 
 - physical positions and velocities fill their 23 correct IsaacLab slots;
 - nonexistent waist roll/pitch and wrist pitch/yaw proprioception are zero;
-- references to those axes are zero when
-  `sonic_mask_missing_reference: true`;
-- decoder output remains raw 29-D in recurrent `last_action` history;
+- native 29-D task references remain unchanged;
+- native 29-D raw decoder output remains unchanged in `last_action`;
 - only physical command application gathers the 23 present actions.
 
-Keeping all 29 decoder outputs in history is the official behavior and keeps
-the recurrent input closest to the training distribution. Replacing the six
-missing history values with zero, measured pelvis angles, or other fabricated
-values would be a new model intervention. It would not restore the missing
-actuators.
+Native 29-DoF execution still keeps all 29 outputs exactly as the official
+controller does. NVIDIA defines `last_action` as raw decoder output, not
+executed motion. The physical q/dq observation independently shows that absent
+joints did not move. Earlier combined A/B runs that favored action-history
+masking were confounded; an isolated straight-walk comparison favored native
+reference plus raw history and the implementation now follows official parity.
 
 ## Supported input modes
 
@@ -144,11 +159,42 @@ its zero-posture fallback is not acceptable for a hardware trial.
 four-frame context, two-control-frame lookahead, production V2 token mask,
 30-to-50 Hz resampling, quaternion SLERP, and eight-frame replan crossfade.
 
+### Constant straight-command refresh defect
+
+The released C++ scheduler refreshes RUN at 0.1 seconds and CRAWLING at 0.2
+seconds, but uses 1.0 second for ordinary locomotion. This can be hidden by
+change-triggered replans: a turning stick continuously changes facing and
+therefore replans at the 10 Hz planner-loop rate, while a perfectly constant
+forward stick uses only the one-second timer.
+
+Three operator recordings exhibited exactly that split. A deterministic
+healthy-plant A/B then changed only the ordinary period: at 1.0 seconds a
+0.4 m/s SLOW_WALK command produced 0.043--0.075 m/s median speed and
+24--47% near-stop time; at 0.1 seconds all three released model profiles
+produced 0.388--0.417 m/s and zero near-stop time. Left-ankle force RMS also
+fell 17--47%. The default is consequently 0.1 seconds in
+`PicoReferenceWindow`, the Python YAML, and the physical C++ launcher. Both
+simulators expose an explicit period override for reproduction and logging.
+
+This is a deliberate evidence-based deviation from the release timer, not a
+change to planner tensors, command axes, gains, decoder output, or 23-DoF
+projection. Full data and limitations are in
+[`../docs/experiments/mujoco/2026-08-13_unitree_remote_forward_replan/`](../docs/experiments/mujoco/2026-08-13_unitree_remote_forward_replan/README.md).
+
 One concrete jitter source was fixed: the old blend independently mixed joint
 position and joint velocity. When blend weight changes, that velocity omits
 the derivative of the crossfade itself, so the encoder sees mutually
 inconsistent q/dq references. The runtime now blends q and recomputes dq from
 the final 50 Hz trajectory. The C++ wrapper received the same fix.
+
+Correction after the later three-model trials: the reduced embodiment must not
+project the planner-owned trajectory. Those waist/wrist values are coherent
+29-DoF recurrent model context, not measured proprioception. The old +0.20 m/s
+A/B was confounded by simultaneous action-history and scheduling changes. A
+controlled isolated comparison found better progress and lower tilt with
+native planner context, and removing projection eliminated the SLOW_WALK
+right-shoulder artifact. Missing axes are neutral/zero only in measured
+proprioception and omitted at the physical motor-output boundary.
 
 This does not guarantee a smooth kinematic plan. Other likely jitter sources
 remain:
@@ -166,9 +212,11 @@ decoder actions blindly: it changes recurrent policy dynamics and adds phase
 lag. If smoothing is needed after measurement, filter operator commands before
 replanning or constrain replan rate/deadband, then validate in simulation.
 
-`--idle-hold` is the recommended first test. The V2 planner's generated IDLE
-trajectory can include a stance transition/stepping motion; a constant measured
-hold avoids treating that as an operator command during initial bring-up.
+Stable-stand IDLE is now the default. Releasing the stick follows the planner's
+gait-ending IDLE transition, then smoothly centers over 1.5 seconds to the
+measured startup stance before holding. This avoids freezing a mid-stride pose
+and avoids indefinitely tracking the planner's heel-raised terminal stance.
+`--no-idle-hold` is diagnostic only.
 
 ## Motion mode and real-world initialization
 
@@ -206,10 +254,12 @@ added as a hardware controller.
 - direct TensorRT 10 engine construction and execution using CUDA PyTorch
   buffers and `execute_async_v3`;
 - per-model serialized engine caches keyed by model metadata, TensorRT/CUDA,
-  GPU name/compute capability, precision, and input shape;
+  GPU name/compute capability, precision, explicit TF32 math mode, cache
+  schema, and input shape;
+- a dedicated non-default CUDA stream per session with serialized context use;
 - incompatible-cache rebuild;
 - ONNX Runtime CUDA/CPU execution for debugging and golden traces;
-- `auto` fallback with an explicit warning.
+- opt-in `auto` fallback with an explicit warning for offline tools only.
 
 TensorRT is an optional environment because its wheel, CUDA, driver, and
 PyTorch versions must match the deployment PC. Install with the project extra
@@ -219,9 +269,12 @@ only after selecting a compatible stack:
 pip install -e '.[tensorrt]'
 ```
 
-For a real run, set `sonic_inference_backend: tensorrt` rather than relying on
-silent fallback, build the engines off-robot, and verify the printed provider.
-FP16 remains disabled until a numerical trace proves acceptable parity.
+The reviewed hardware profiles already require direct TensorRT. The
+robot-facing launcher rejects `auto`, ONNX Runtime, FP16, and TF32, verifies
+the actual direct provider and engine file for every constructed model before
+starting auxiliary streams or DDS, and records the complete contract. Offline
+tools may select ONNX Runtime explicitly. FP16 and TF32 remain disabled until
+a separate numerical trace proves acceptable parity.
 
 ## Logging and safety changes
 
@@ -263,25 +316,61 @@ The actual deployment SDK's CRC, motor temperature shape, and fault fields
 must be verified during a read-only/neutral test before locomotion. Do not
 disable these checks merely to get past an unexplained abort.
 
-## Validation completed on this host
+## Validation completed on the RTX 4090
 
 - `pyzmq 27.1.0` and `msgpack 1.2.1` are installed and import successfully.
 - All Python files compile.
-- Sixteen parity/unit tests pass via `python tests/test_sonic_parity.py`.
+- Twenty parity/unit tests pass via `python tests/test_sonic_parity.py`,
+  including explicit TensorRT flags, cache identity, and hardware fail-closed
+  regressions.
 - The 23- and 29-DoF configurations instantiate with 23/6 and 29/0
   physical/fixed joints respectively.
 - The official low-latency encoder, decoder, and V2 planner pass ONNX checking.
-- Actual CPU ONNX Runtime smoke tests produced finite encoder, decoder, and
-  integrated 23-DoF outputs. Encoder plus decoder took about 5 ms on this host;
-  that is not a deployment-PC latency qualification.
-- The actual planner produced finite trajectories. After the q/dq crossfade
-  fix, derived velocity exactly matched finite-difference joint position in the
-  checked replan trace.
+- The full supplied direct-TensorRT verifier passed against CPU ONNX Runtime:
+  raw 29-D action max error `4.47035e-7`, physical 23-D action max error
+  `4.47035e-7`, and planner joint-q max error `4.92692e-5`.
+- Warm model-only policy p99 was `6.941 ms` and planner p99 was `9.694 ms`.
+- Planner installed velocity exactly matched finite-difference installed q
+  (`max_abs=0.0`).
 - Shell launchers pass `bash -n`.
 
-Not validated here: direct TensorRT (no CUDA/TensorRT GPU environment), C++
-build (required CUDA/TensorRT/Unitree toolchain absent), MuJoCo closed-loop
-dynamics, PICO hardware, DDS on the robot network, or any physical robot move.
+The cross-repository remediation record is
+`../docs/analysis/sonic_4090_remediation.md`. PICO hardware, DDS on the robot network,
+and physical robot motion remain unvalidated.
+
+## 2026-08-12 C++ simulation-to-robot promotion gate
+
+The production physical path uses the same C++ binary, low-latency
+encoder/decoder, V2 planner, observation YAML, `g1_23dof` embodiment, and FP32
+math contract as the completed headless MuJoCo matrices. The C++ fixes are
+therefore not reimplemented in a second hardware controller: native recurrent
+planner context, raw native `last_action`, missing-motor output holds,
+null-state handling, asymmetric arm torque limits, and persistent fault
+damping are in the shared binary.
+
+`sonic_cpp/teleop/run_synthetic_23dof_validation.sh --comprehensive` now
+promotes a candidate only after both exhaustive matrices and extra acceptance
+checks pass. It records SHA-256 hashes of the tested binary, models, config,
+reference motion, physical launch scripts, PICO adapter, and evidence in:
+
+```text
+/data/clhsieh/cache/e_skin/validation/robot_candidate_23dof.json
+```
+
+The no-DDS hardware preflight verifies the receipt. `sonic_cpp/deploy.sh`
+requires it for every real `g1_23dof` launch and verifies it again after the
+mandatory build, immediately before physical confirmation. The PICO hardware
+terminal verifies it a third time before publishing manager traffic. A changed
+binary/model/config/script, retargeted symlink, mutated evidence file, or Git
+revision rejects deployment and requires a new comprehensive run.
+
+The candidate gate checks identity and the known 23-DoF regressions; it does
+not convert simulation into hardware certification. Simulation-only parity and
+fall relaxations remain forbidden on a real interface. Hardware keeps CRC,
+activation bridging, watchdogs, command-rate/tracking/fall guards, and
+irreversible damping. The mechanical, firmware, thermal, cable, support,
+independent-stop, and trained-observer gates remain mandatory in
+`../docs/smpl_teleop.md`.
 
 ## Required gates before 23-DoF locomotion
 

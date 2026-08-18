@@ -1,7 +1,17 @@
 import threading
 import zmq
 import numpy as np
-import cv2
+
+try:
+    import cv2
+except ModuleNotFoundError:  # A headless --no-camera launch does not need it.
+    cv2 = None
+
+
+def _require_cv2():
+    if cv2 is None:
+        raise RuntimeError("camera/depth support requires opencv-python")
+    return cv2
 
 
 def pack_depth_images(
@@ -37,6 +47,7 @@ class SimpleDepthClient(threading.Thread):
         show_debug: bool = False,
     ):
         super().__init__(daemon=True)
+        _require_cv2()
         self.server_address = server_address
         self.port = port
         self.H = height
@@ -134,9 +145,10 @@ def depth_to_obs_vector_match_sim(
     min_d: float,
     max_d: float,
 ) -> np.ndarray:
-
     if depth_raw is None:
         return np.zeros((out_h * out_w,), dtype=np.float32)
+
+    _require_cv2()
 
     depth_m = depth_raw.astype(np.float32)
 

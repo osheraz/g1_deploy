@@ -95,13 +95,21 @@ class Recorder:
     from whatever is already in the output directory.
     """
 
-    def __init__(self, root, meta: dict, button: int = KeyMap.X):
+    def __init__(self, root, meta: dict, button: int | None = KeyMap.X):
         self.root = Path(root).expanduser()
         self.meta = meta
         self.button = button
-        self.button_name = next(
-            (k for k, v in vars(KeyMap).items() if not k.startswith("_") and v == button),
-            str(button),
+        self.button_name = (
+            "automatic-only"
+            if button is None
+            else next(
+                (
+                    k
+                    for k, v in vars(KeyMap).items()
+                    if not k.startswith("_") and v == button
+                ),
+                str(button),
+            )
         )
         self.episode: Optional[EpisodeWriter] = None
         self.index = self._next_index()
@@ -116,6 +124,8 @@ class Recorder:
 
     def handle_buttons(self, button) -> None:
         """One button toggles: press to start, press again to stop and write."""
+        if self.button is None:
+            return
         pressed = button[self.button]
         if pressed and not self._prev:
             if self.episode is None:

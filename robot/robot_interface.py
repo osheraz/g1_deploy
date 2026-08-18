@@ -62,6 +62,14 @@ class RobotInterface:
             raise ValueError("Invalid msg_type")
 
         self.wait_for_low_state()
+        if config.msg_type == "hg" and config.policy_type == "sonic":
+            # Refuse a selected 23/29 command map before _init_low_cmd() or any
+            # moving/default-pose target can be published to the wrong plant.
+            self.robot_profile.require_mode_machine(self.mode_machine_)
+            print(
+                f"Validated {self.robot_profile.name} against "
+                f"LowState mode_machine={self.mode_machine_}."
+            )
         self._init_low_cmd()
 
     # -------- init / I/O --------
@@ -192,15 +200,36 @@ class RobotInterface:
             self.send_cmd()
             time.sleep(self.config.control_dt)
 
-    def default_pos_state(self):
+    def default_pos_state(self, start_button=KeyMap.A, button_name="A"):
         print("Enter default pos state.")
-        print("Waiting for the Button A signal...")
-        while self.remote_controller.button[KeyMap.A] != 1:
+        print(f"Waiting for the Button {button_name} signal...")
+        soft_age_limit = float(self.config.max_low_state_age_s)
+        hold_age_limit = float(
+            getattr(
+                self.config,
+                "max_default_hold_low_state_age_s",
+                max(soft_age_limit, 0.5),
+            )
+        )
+        stale_warning_active = False
+        while self.remote_controller.button[start_button] != 1:
             _, age = self.low_state_snapshot_with_age()
-            if age > self.config.max_low_state_age_s:
+            if age > hold_age_limit:
                 raise RuntimeError(
-                    f"LowState became stale in default-pose hold ({age:.3f}s)"
+                    "LowState was continuously unavailable in default-pose "
+                    f"hold for {age:.3f}s (limit {hold_age_limit:.3f}s)"
                 )
+            if age > soft_age_limit:
+                if not stale_warning_active:
+                    print(
+                        "[LOWSTATE] Brief startup gap "
+                        f"({age * 1e3:.0f}ms > {soft_age_limit * 1e3:.0f}ms); "
+                        "continuing the unchanged default-pose hold"
+                    )
+                    stale_warning_active = True
+            elif stale_warning_active:
+                print("[LOWSTATE] Startup state stream recovered")
+                stale_warning_active = False
             for i in range(len(self.config.default_angles)):
                 cmd = self.low_cmd.motor_cmd[i]
                 cmd.q = self.config.default_angles[i]
@@ -294,19 +323,21 @@ class RobotInterface:
         return base_ang_vel, projected_gravity, dof_pos, dof_vel
 
     def apply_target_dof_pos(self, target_dof_pos: np.ndarray):
-        # hardware joint limits: last line of defense for every mode
-        unclipped = np.asarray(target_dof_pos, dtype=np.float32).copy()
-        target_dof_pos = np.clip(unclipped, self.config.dof_lower, self.config.dof_upper)
-        command_rate = np.abs(target_dof_pos - self.last_target_dof_pos) / self.config.control_dt
-        if np.any(command_rate > self.config.max_command_rate_rad_s):
-            i = int(np.argmax(command_rate))
-            raise RuntimeError(
-                f"joint {i} target rate {command_rate[i]:.2f}rad/s exceeds "
-                f"{self.config.max_command_rate_rad_s:.2f}rad/s"
+        # Match the NVIDIA C++ reference: pass the policy's scaled position
+        # targets directly to the active motors. Joint limits and target-rate
+        # shaping here changed the learned closed loop and made the Python and
+        # C++ deployments behave differently.
+        target_dof_pos = np.asarray(target_dof_pos, dtype=np.float32).copy()
+        if target_dof_pos.shape != self.config.physical_default_angles.shape:
+            raise ValueError(
+                f"expected {self.config.physical_default_angles.shape} target, "
+                f"got {target_dof_pos.shape}"
             )
-        self.last_target_unclipped = unclipped
+        if not np.all(np.isfinite(target_dof_pos)):
+            raise RuntimeError("policy produced a non-finite joint target")
+        self.last_target_unclipped = target_dof_pos.copy()
         self.last_target_dof_pos = target_dof_pos.copy()
-        self.last_target_saturated = np.not_equal(unclipped, target_dof_pos)
+        self.last_target_saturated = np.zeros_like(target_dof_pos, dtype=bool)
         for i, motor_idx in enumerate(self.config.action_joint2motor_idx):
             cmd = self.low_cmd.motor_cmd[motor_idx]
             cmd.q = target_dof_pos[i]

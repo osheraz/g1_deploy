@@ -97,6 +97,7 @@ class SonicKinematicPlanner:
         backend: str = "auto",
         cache_dir=None,
         fp16: bool = False,
+        allow_tf32: bool = False,
     ):
         self.model_path = Path(model_path).expanduser().resolve()
         if not self.model_path.exists():
@@ -118,8 +119,10 @@ class SonicKinematicPlanner:
             backend=backend,
             cache_dir=cache_dir,
             fp16=fp16,
+            allow_tf32=allow_tf32,
         )
         self.providers = tuple(self._session.get_providers())
+        self.engine_path = getattr(self._session, "engine_path", None)
         self._inputs = {node.name: node for node in self._session.get_inputs()}
         self._output_names = [node.name for node in self._session.get_outputs()]
         required = {

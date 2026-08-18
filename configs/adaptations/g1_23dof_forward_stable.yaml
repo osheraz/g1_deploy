@@ -1,0 +1,16 @@
+# Shared 23-DoF forward-stable contract.
+#
+# Masks all six unavailable waist/wrist channels at the future-reference and
+# raw-action history boundaries. Planner recurrence, decoder output, NVIDIA
+# action scale/Kp/Kd, and physical motor targets remain direct. The YAML
+# default hip-pitch scale is 1.00; launchers may pass --hip-pitch-scale.
+# Pair this file with --model-profile; do not treat it as a model alias.
+extends: ../g1_23dof_sonic.yaml
+
+sonic_adaptation_profile: "forward-stable-23"
+sonic_mask_missing_reference: true
+sonic_mask_missing_action_history: true
+sonic_missing_adaptation_scope: "all"
+sonic_reduced_proprioception: "zero"
+action_ema: 1.0
+sonic_action_history_source: "raw"

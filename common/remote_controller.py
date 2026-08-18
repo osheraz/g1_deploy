@@ -9,7 +9,10 @@ class KeyMap:
     R2 = 4
     L2 = 5
     F1 = 6
-    F2 = 7
+    # Unitree's current wireless-controller example and the physical remote
+    # label bit 7 as F3. Some older SDK gamepad headers call the same bit F2.
+    F3 = 7
+    F2 = F3  # compatibility alias for older Unitree SDK naming
     A = 8
     B = 9
     X = 10

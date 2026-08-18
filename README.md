@@ -8,6 +8,11 @@ over Unitree DDS.
 **[tutorials/GETTING_STARTED.md](tutorials/GETTING_STARTED.md)** — ethernet to the robot,
 environment, camera, stream checks, first run.
 
+For SONIC, first read the canonical
+[`deployment learning guide`](../docs/learning/sonic_deployment.md), then use
+the operator launchers under [`workflows/`](workflows/README.md). The generic
+legacy policy commands below are not the reviewed robust 23-DoF SONIC preset.
+
 ## Tutorials
 
 - [Getting started](tutorials/GETTING_STARTED.md) — index
@@ -63,4 +68,7 @@ python scripts/analyze_sonic_episode.py episodes/episode_001
 | [policy/](policy/) | policy runners, SONIC tracker + vendored ONNX |
 | [robot/](robot/) | DDS interface |
 | [common/](common/) | camera, depth, tactile, viser, logging |
-| [scripts/](scripts/) | episode + rollout replay, video |
+| [workflows/](workflows/) | canonical operator launchers grouped by operation |
+| [tools/](tools/) | offline analysis and visual replay; no robot command publishing |
+| [scripts/](scripts/README.md) | compatibility entrypoints and specialized utilities |
+| [experiments/](experiments/README.md) | controlled multi-run studies |

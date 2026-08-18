@@ -1,0 +1,24 @@
+{
+  "schema": "e_skin.synthetic_joint_faults.v1",
+  "description": "Deterministic MuJoCo-only fault used to verify calibration recovery.",
+  "joints": {
+    "3": {
+      "gain": 0.84,
+      "bias_rad": -0.025,
+      "direction_bias_rad": 0.008,
+      "lag_s": 0.045
+    },
+    "4": {
+      "gain": 0.72,
+      "bias_rad": -0.055,
+      "direction_bias_rad": 0.015,
+      "lag_s": 0.080
+    },
+    "5": {
+      "gain": 0.90,
+      "bias_rad": -0.010,
+      "direction_bias_rad": 0.006,
+      "lag_s": 0.035
+    }
+  }
+}

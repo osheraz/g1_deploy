@@ -1,0 +1,25 @@
+# Model-tuned, reference-side 23-DoF slow-gait profile: SONIC v1.1.
+#
+# Mask only the four absent wrist pitch/yaw reference/action-history channels,
+# retain absent waist task context, and scale bilateral hip-pitch active-gait
+# excursion to 90%. Planner recurrence, decoder output, gains, and motor targets
+# remain direct.
+extends: ../g1_23dof_sonic.yaml
+
+sonic_adaptation_profile: "robust-small-gait-23"
+sonic_mask_missing_reference: true
+sonic_mask_missing_action_history: true
+sonic_missing_adaptation_scope: "wrist"
+sonic_reduced_proprioception: "zero"
+action_ema: 1.0
+sonic_action_history_source: "raw"
+
+sonic_reference_leg_scale: 1.0
+sonic_reference_root_height_scale: 1.0
+sonic_reference_joint_scale: [
+  0.90, 1.0, 1.0, 1.0, 1.0, 1.0,
+  0.90, 1.0, 1.0, 1.0, 1.0, 1.0,
+  1.0,
+  1.0, 1.0, 1.0, 1.0, 1.0,
+  1.0, 1.0, 1.0, 1.0, 1.0,
+]

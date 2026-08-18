@@ -1,0 +1,4 @@
+# Compatibility alias for the shared 23-DoF forward-stable contract.
+# Use --model-profile to select the checkpoint; this file is not Original
+# Release exclusive.
+extends: g1_23dof_forward_stable.yaml

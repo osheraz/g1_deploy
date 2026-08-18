@@ -81,6 +81,13 @@ class LocomotionMode(IntEnum):
     FORWARD_JUMP = 17
     STEALTH_WALK = 18
     INJURED_WALK = 19
+    LEDGE_WALKING = 20
+    OBJECT_CARRYING = 21
+    STEALTH_WALK_2 = 22
+    HAPPY_DANCE_WALK = 23
+    ZOMBIE_WALK = 24
+    GUN_WALK = 25
+    SCARE_WALK = 26
 
 
 def decode_packed_message(msg: bytes, topic: bytes | str) -> dict:

@@ -1,0 +1,34 @@
+{
+  "schema": "e_skin.review_gated_validation.v1",
+  "embodiment": "g1_23dof",
+  "physical_dof": 23,
+  "compatibility_storage_slots": 29,
+  "control_dt_s": 0.02,
+  "present_motor_indices": [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    15, 16, 17, 18, 19, 22, 23, 24, 25, 26
+  ],
+  "gain_config": "g1_deploy/configs/g1_23dof_sonic.yaml",
+  "mujoco_model": "sonic_cpp/g1/scene_23dof.xml",
+  "protocols": {
+    "pilot": {
+      "protocol_sha256": "fa13f373e9349955504c047093c8194b5b5550c6a318e75ca0e065047a7d95a3",
+      "blocks": 20,
+      "plan_samples": 10306,
+      "motion_duration_s": 206.12,
+      "validated_contact_samples": 0,
+      "validated_minimum_foot_link_height_m": 0.473540618578214
+    },
+    "screening": {
+      "protocol_sha256": "5a8156d6d86f48142aa6b70a2764b8a2f636cb17fa6cfd894f4a98d3778f8fef",
+      "blocks": 45,
+      "plan_samples": 82464,
+      "motion_duration_s": 1649.28,
+      "validated_contact_samples": 0,
+      "validated_minimum_foot_link_height_m": 0.44887117260082887,
+      "dynamic_frequency_max_hz": 2.2,
+      "dynamic_target_rate_max_rad_s": 2.0,
+      "validated_maximum_joint_speed_rad_s": 4.2467285530196355
+    }
+  }
+}

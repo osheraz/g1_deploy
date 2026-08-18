@@ -101,10 +101,15 @@ the same session. The manager then publishes persistent world/session-frame
 movement and facing vectors; the deploy does not rotate them again.
 
 For a headset-free bench/simulation check, `--mode planner --teleop joystick`
-uses the Unitree remote. That stand-in now mirrors the official persistent yaw,
-deadzone, walking/running speed mapping, and emits no VR fields. It defaults to
-WALK; changing locomotion style from that stand-in currently requires calling
-`set_locomotion_mode`, whereas the real PICO manager handles mode selection.
+uses the Unitree remote and emits no VR fields. The MuJoCo `--unitree-remote`
+path uses `GamepadManagerTeleop`, which mirrors the physical C++
+`gamepad_manager`: `Start` activates control, `Select` stops, the D-pad selects
+one of four motion sets, `X`/`Y` cycle next/previous within non-boxing sets,
+`B` resets the set, and the sticks control movement/facing. Its set tables,
+fixed speed/height values, edge detection, 45-degree movement bins, smoothing,
+deadzone, crawling transitions, and boxing auto-revert follow the native
+controller. The simpler `JoystickTeleop` remains available for keyboard and
+scripted tests.
 
 ## Setup
 
@@ -119,10 +124,12 @@ pico_server_port: 5556
 pico_feedback_port: 5558
 ```
 
-With `sonic_planner_backend: auto`, the wrapper first attempts the direct
-TensorRT 10 backend, then ONNX Runtime (CUDA when installed, otherwise CPU).
-For a live run use `tensorrt` explicitly after building the engine off-robot;
-confirm the printed provider and logged planner latency before enabling motion.
+The reviewed hardware configuration uses `sonic_planner_backend: tensorrt`,
+FP32, and TF32 disabled. The robot-facing launcher fails before auxiliary
+streams or DDS if the planner is not actually direct TensorRT or its serialized
+engine is missing. `auto` and explicit ONNX Runtime remain offline-analysis
+options only; confirm the printed provider, engine path, and logged planner
+latency before any later hardware gate.
 
 Port 5557 is already used by this project's local tactile server. Start the
 official PICO manager with its feedback subscriber pointed at the local

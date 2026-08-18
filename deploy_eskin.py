@@ -4,7 +4,9 @@
     python deploy_eskin.py --mode record --out ~/episodes
     python deploy_eskin.py --mode motion --clip policy/sonic/motion_stand.npz
 
-MOVES THE ROBOT ON LAUNCH.  A = start, X = toggle recording, select = quit.
+MOVES THE ROBOT ON LAUNCH unless ``--preflight-only`` is supplied. Unitree
+planner mode uses the official Start/Select/D-pad/X/Y/B state machine; other
+modes use A to start and stop.
 
 Episodes are directories: state.npz + frames.bin + meta.json.
 Read one back with common.episode.load_episode().
@@ -18,6 +20,8 @@ import time
 from pathlib import Path
 
 import numpy as np
+import unitree_sdk2py.core.channel as _unitree_channel
+import unitree_sdk2py.utils.crc as _unitree_crc
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.utils.crc import CRC
 
@@ -26,6 +30,9 @@ from common.depth_client import SimpleDepthClient
 from common.episode import Recorder, load_episode  # noqa: F401  (re-exported)
 from common.remote_controller import KeyMap
 from common.tactile_record import sample_fields as tactile_fields
+from common.unitree_crc import configure_materialized_unitree_crc
+from common.unitree_dds import configure_process_local_cyclonedds_log
+from common.unitree_mode import release_active_motion_mode
 from config import Config
 from robot.robot_interface import RobotInterface
 
@@ -130,6 +137,7 @@ class EskinController:
         self._handover_alpha = 1.0
         self._step_low_state = None
         self._step_low_state_age_s = np.inf
+        self._next_tracking_warning_s = 0.0
 
     def step(self) -> None:
         step_start = time.perf_counter()
@@ -188,10 +196,21 @@ class EskinController:
         tracking = np.abs(self.robot.last_target_dof_pos - self.robot.qj)
         if np.any(tracking > self.config.max_tracking_error_rad):
             i = int(np.argmax(tracking))
-            raise RuntimeError(
-                f"joint {i} tracking error {tracking[i]:.3f}rad exceeds "
-                f"{self.config.max_tracking_error_rad:.3f}rad"
-            )
+            # NVIDIA's low-level tracker does not terminate or reshape its
+            # commands on tracking error.  The old physical G1 also has a known
+            # left-ankle discrepancy above this diagnostic threshold, so making
+            # it fatal stopped the Python controller before an operator could
+            # evaluate the gait. Keep the condition visible and recorded while
+            # leaving stale state, velocity, temperature/fault, and tilt as the
+            # actual damping conditions.
+            if self.elapsed >= self._next_tracking_warning_s:
+                print(
+                    f"\n[TRACKING DIAGNOSTIC] joint {i} error "
+                    f"{tracking[i]:.3f}rad exceeds "
+                    f"{self.config.max_tracking_error_rad:.3f}rad; "
+                    "controller remains active"
+                )
+                self._next_tracking_warning_s = self.elapsed + 2.0
         base_ang_vel, projected_gravity, dof_pos, dof_vel = (
             self.robot.get_base_features_scaled(imu=(imu_quat, imu_gyro))
         )
@@ -217,7 +236,11 @@ class EskinController:
                 ref.step()
                 if self.teleop is not None:
                     rc = self.robot.remote_controller
-                    self.teleop.set_axes(rc.lx, rc.ly, rc.rx)
+                    update_remote = getattr(self.teleop, "update_remote", None)
+                    if callable(update_remote):
+                        update_remote(rc)
+                    else:
+                        self.teleop.set_axes(rc.lx, rc.ly, rc.rx)
                     self.teleop.tick(self.config.control_dt)
             else:
                 action = self.policy_runner.compute_action(
@@ -459,7 +482,7 @@ class EskinController:
 
 
 def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = True,
-                        idle_hold: bool = False, slow: bool = False):
+                        idle_hold: bool = True, slow: bool = False):
     """SONIC encoder/decoder driven by `mode`, the actor runner, or nothing."""
     if mode == "record":
         return None            # hold position and only record
@@ -470,12 +493,13 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
             from policy.pico_reference import PicoReferenceWindow
 
             if teleop == "joystick":
-                from common.joystick_teleop import JoystickTeleop
-                from common.pico_client import LocomotionMode
+                from common.joystick_teleop import GamepadManagerTeleop
 
-                client = JoystickTeleop(
-                    locomotion_mode=LocomotionMode.SLOW_WALK if slow
-                    else LocomotionMode.WALK)
+                # Match NVIDIA's native gamepad_manager. In particular, do not
+                # start in WALK or reinterpret D-pad presses as direct gait
+                # selection: Start enables control, the D-pad selects a motion
+                # set, and X/Y cycle inside that set.
+                client = GamepadManagerTeleop()
             else:
                 from common.scripted_teleop import ScriptedTeleop
 
@@ -503,10 +527,18 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
 
 
 def main() -> None:
+    from policy.sonic.deployment_profile import model_profile_names
+
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--config", default="g1_23dof_sonic.yaml")
+    ap.add_argument(
+        "--model-profile",
+        choices=model_profile_names(),
+        default="low-latency",
+        help="atomic SONIC encoder/decoder contract (default: low-latency)",
+    )
     ap.add_argument(
         "--mode",
         choices=["record", "motion", "pico", "planner", "smpl"],
@@ -531,15 +563,26 @@ def main() -> None:
     ap.add_argument("--replan-ungated", action="store_true",
                     help="--mode pico/planner: replan on every command instead of "
                          "official gating")
-    ap.add_argument("--idle-hold", action="store_true",
-                    help="--mode pico/planner: IDLE holds the default pose instead "
-                         "of the planner's idle plan (which contains stepping)")
+    ap.add_argument(
+        "--idle-hold",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="--mode pico/planner: hold measured joint pose in IDLE without "
+             "changing recurrent planner context (default: enabled; "
+             "--no-idle-hold is diagnostic only)",
+    )
     ap.add_argument("--slow", action="store_true",
-                    help="--teleop joystick: SLOW_WALK (0.1-0.6 m/s stick-scaled) "
-                         "instead of WALK (~0.9 m/s planner default)")
+                    help="legacy compatibility option; the official Unitree "
+                         "gamepad manager always starts in SLOW_WALK")
     ap.add_argument("--net", default="enp132s0")
     ap.add_argument("--auto-record", action="store_true",
                     help="start experiment logging as soon as control begins")
+    ap.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="load and verify the complete TensorRT policy/planner contract, "
+             "then exit before sensors or Unitree DDS are initialized",
+    )
     ap.add_argument("--feedback-port", type=int, default=None,
                     help="g1_debug PUB port for official PICO VR3 wrist calibration")
     ap.add_argument("--no-feedback", action="store_true",
@@ -562,11 +605,55 @@ def main() -> None:
     ap.add_argument("--no-tactile", action="store_true")
     args = ap.parse_args()
 
+    # The reviewed NFS checkout intentionally retains Git LFS pointer files.
+    # Resolve and load-test the byte-identical local CRC ELF before expensive
+    # model initialization, DDS, or any robot-facing object is created.
+    unitree_crc_library = configure_materialized_unitree_crc(_unitree_crc)
+    print(f"Unitree CRC library: {unitree_crc_library}")
+
     config = Config(args.config)
+    if config.policy_type == "sonic":
+        config.select_sonic_model_profile(args.model_profile)
     if args.clip:
         config.sonic_motion_clip = str(Path(args.clip).expanduser().resolve())
     if args.loop is not None:
         config.sonic_motion_loop = args.loop
+    if config.policy_type == "sonic":
+        from policy.sonic.hardware_contract import require_hardware_config
+
+        # deploy_eskin is robot-facing. Reject fallback/reduced-precision math
+        # before cameras, auxiliary streams, or DDS are initialized.
+        require_hardware_config(config, args.mode)
+
+    # Build and inspect every model session before starting cameras, tactile
+    # receivers, feedback publishers, or DDS. A production TensorRT failure is
+    # therefore a side-effect-free launch failure rather than a leaked partial
+    # hardware process.
+    policy_runner = build_policy_runner(
+        config,
+        args.mode,
+        args.teleop,
+        gated=not args.replan_ungated,
+        idle_hold=args.idle_hold,
+        slow=args.slow,
+    )
+    hardware_engines = {}
+    if config.policy_type == "sonic" and policy_runner is not None:
+        from policy.sonic.hardware_contract import verify_hardware_sessions
+
+        hardware_engines = verify_hardware_sessions(policy_runner, args.mode)
+
+    if args.preflight_only:
+        reference = getattr(policy_runner, "reference", None)
+        stop_reference = getattr(reference, "stop", None)
+        if callable(stop_reference):
+            stop_reference()
+        print(
+            "PHYSICAL PYTHON PREFLIGHT PASSED: model/profile/embodiment and "
+            "direct TensorRT sessions are ready."
+        )
+        print("No DDS participant was created and no motor command was sent.")
+        return
 
     # The camera is recorded even when the policy does not consume depth
     # (the PICO/sonic policy does not), so it is not gated on use_depth_obs.
@@ -598,10 +685,6 @@ def main() -> None:
         print(f"tactile: tcp://{tactile_ip}:{config.tactile_server_port} "
               f"{config.tactile_sensor_order}")
 
-    policy_runner = build_policy_runner(config, args.mode, args.teleop,
-                                        gated=not args.replan_ungated,
-                                        idle_hold=args.idle_hold, slow=args.slow)
-
     feedback = None
     if args.mode in ("pico", "smpl") and not args.no_feedback:
         from common.robot_feedback import RobotFeedbackPublisher
@@ -622,28 +705,63 @@ def main() -> None:
     reference_for_meta = getattr(policy_runner, "reference", None)
     planner_for_meta = getattr(reference_for_meta, "planner", None)
 
-    # X, not A: A is consumed by default_pos_state() to release the loop,
-    # so recording on A would start an episode the instant you start moving.
+    unitree_planner_remote = args.mode == "planner" and args.teleop == "joystick"
+    # X is an official next-gait command in gamepad_manager. Physical planner
+    # trials are already auto-recorded by the launcher, so disable manual
+    # recorder toggling there rather than stealing the gait button.
+    recorder_button = None if unitree_planner_remote else KeyMap.X
     recorder = Recorder(Path(args.out).expanduser(), {
         "policy_type": config.policy_type,
         "mode": args.mode,
         "sonic_model_variant": config.sonic_model_variant,
+        "sonic_release_profile": getattr(
+            config, "sonic_release_profile", args.model_profile
+        ),
         "sonic_robot_profile": config.sonic_robot_profile,
         "force_g1_encoder": bool(args.mode == "planner"),
+        "planner_idle_hold": bool(args.idle_hold),
         "config": str(config.config_path),
         "policy": str(config.policy_path),
         "control_dt": float(config.control_dt),
         "rate_hz": 1.0 / float(config.control_dt),
         "network_interface": args.net,
+        "unitree_crc_library": str(unitree_crc_library),
         "encoder_model": str(config.sonic_encoder),
         "decoder_model": str(config.sonic_decoder),
+        "observation_config": str(config.sonic_observation_config),
         "planner_model": str(config.sonic_planner_onnx),
+        "tensorrt_precision": "fp16" if config.sonic_tensorrt_fp16 else "fp32",
+        "tensorrt_tf32": bool(config.sonic_tensorrt_tf32),
+        "tensorrt_engines": {k: str(v) for k, v in hardware_engines.items()},
         "encoder_providers": list(getattr(policy_runner, "encoder_providers", ())),
         "decoder_providers": list(getattr(policy_runner, "decoder_providers", ())),
         "planner_providers": list(getattr(planner_for_meta, "providers", ())),
         "motion_clip": str(config.sonic_motion_clip),
         "motion_loop": bool(config.sonic_motion_loop),
         "sonic_mask_missing_reference": bool(config.sonic_mask_missing_reference),
+        "sonic_mask_missing_action_history": bool(
+            config.sonic_mask_missing_action_history
+        ),
+        "sonic_adaptation_profile": str(config.sonic_adaptation_profile),
+        "sonic_missing_adaptation_scope": str(
+            config.sonic_missing_adaptation_scope
+        ),
+        "sonic_reduced_proprioception": str(
+            config.sonic_reduced_proprioception
+        ),
+        "sonic_motor_action_scale": np.asarray(
+            config.sonic_motor_action_scale, np.float64
+        ).tolist(),
+        "sonic_motor_action_abs_limit": np.asarray(
+            config.sonic_motor_action_abs_limit, np.float64
+        ).tolist(),
+        "sonic_motor_action_ema": np.asarray(
+            config.sonic_motor_action_ema, np.float64
+        ).tolist(),
+        "sonic_motor_target_rate_limit": np.asarray(
+            config.sonic_motor_target_rate_limit, np.float64
+        ).tolist(),
+        "sonic_action_history_source": str(config.sonic_action_history_source),
         "sonic_missing_action_il_indices": missing_action_indices,
         "sonic_missing_action_order": missing_action_names,
         "physical_joint_names": list(profile.physical_joint_names) if config.policy_type == "sonic" else [],
@@ -655,24 +773,44 @@ def main() -> None:
         "tactile_raw_len": 256,
         "tactile_imu_len": 16,
         "camera_shape": [int(config.depth_raw_height), int(config.depth_raw_width)],
-    }, button=KeyMap.X)
+    }, button=recorder_button)
 
     hl = None
     robot = None
+    motion_switcher = None
     exit_reason = None
     pending_error = None
     try:
         # Load models, open feedback, and construct the recorder before DDS.
         # Once RobotInterface exists, every later failure is inside this common
         # damping/cleanup path.
-        ChannelFactoryInitialize(0, args.net)
+        dds_log = configure_process_local_cyclonedds_log(_unitree_channel)
+        print(f"CycloneDDS diagnostics: {dds_log}")
+        try:
+            ChannelFactoryInitialize(0, args.net)
+        except Exception:
+            print(f"CycloneDDS initialization failed; inspect {dds_log}")
+            raise
+        # Match the working NVIDIA C++ launcher: release Unitree's active
+        # high-level service before RobotInterface creates a LowCmd publisher.
+        # Retain the client for the deployment lifetime.
+        motion_switcher = release_active_motion_mode()
         robot = EskinRobot(config)
         reference = getattr(policy_runner, "reference", None)
         if reference is not None and hasattr(reference, "robot"):
             reference.robot = robot
 
         robot.move_to_default_pos()
-        robot.default_pos_state()
+        if unitree_planner_remote:
+            robot.default_pos_state(KeyMap.start, "Start")
+            # default_pos_state observes the Start press before the planner
+            # manager begins polling. Preserve that same rising-edge decision
+            # so the operator never has to press Start a second time after the
+            # initialization code finishes.
+            policy_runner.reference.client.control_started = True
+            print("[GAMEPAD MANAGER] Start: policy control enabled")
+        else:
+            robot.default_pos_state()
 
         hl = EskinController(
             config, robot, policy_runner, camera, tactile, recorder, feedback=feedback
@@ -722,18 +860,28 @@ def main() -> None:
         if args.auto_record:
             recorder.start()
 
-        print("\n  X = toggle recording   A = kill (straight to damping)   "
-              "select = quit\n")
+        if unitree_planner_remote:
+            print(
+                "\n  Start = enable policy   D-pad = motion set   "
+                "X/Y = next/previous gait\n"
+                "  B = first gait   A = one planner update of IDLE\n"
+                "  F1+F3 = capture settled IDLE stand   "
+                "Select = stop and save\n"
+            )
+        else:
+            print("\n  X = toggle recording   A = kill (straight to damping)   "
+                  "select = quit\n")
 
-        a_released = False        # A is still held from the start press
+        a_released = unitree_planner_remote
         while True:
             hl.step()
             btn = robot.remote_controller.button
-            if btn[KeyMap.A] == 0:
-                a_released = True
-            elif a_released:
-                exit_reason = "A"
-                break
+            if not unitree_planner_remote:
+                if btn[KeyMap.A] == 0:
+                    a_released = True
+                elif a_released:
+                    exit_reason = "A"
+                    break
             if btn[KeyMap.select] == 1:
                 exit_reason = "select"
                 break

@@ -73,6 +73,14 @@ class Config:
         self.viser_display = config.get("viser_display", False)
         self.control_dt = config["control_dt"]
         self.max_low_state_age_s = config.get("max_low_state_age_s", 0.1)
+        self.max_default_hold_low_state_age_s = config.get(
+            "max_default_hold_low_state_age_s", 0.5
+        )
+        if self.max_default_hold_low_state_age_s < self.max_low_state_age_s:
+            raise ValueError(
+                "max_default_hold_low_state_age_s must be greater than or "
+                "equal to max_low_state_age_s"
+            )
         self.max_joint_velocity = config.get("max_joint_velocity", 35.0)
         self.max_motor_temperature_c = config.get("max_motor_temperature_c", 75.0)
         self.max_pelvis_tilt_rad = config.get("max_pelvis_tilt_rad", 0.65)
@@ -169,15 +177,27 @@ class Config:
             _resolve_path(config["sonic_decoder"], config_dir=REMOTE_ROOT)
             if config.get("sonic_decoder") else None
         )
+        self.sonic_observation_config = (
+            _resolve_path(config["sonic_observation_config"], config_dir=REMOTE_ROOT)
+            if config.get("sonic_observation_config") else None
+        )
         self.sonic_model_variant = config.get("sonic_model_variant", "default")
         self.sonic_robot_profile = config.get(
             "sonic_robot_profile", f"g1_{int(config['num_actions'])}dof"
         )
         self.sonic_inference_backend = config.get("sonic_inference_backend", "auto")
+        self.sonic_planner_replan_interval_s = float(
+            config.get("sonic_planner_replan_interval_s", 0.1)
+        )
+        if not 0.1 <= self.sonic_planner_replan_interval_s <= 10.0:
+            raise ValueError(
+                "sonic_planner_replan_interval_s must be in [0.1, 10.0]"
+            )
         self.sonic_planner_backend = config.get(
             "sonic_planner_backend", self.sonic_inference_backend
         )
         self.sonic_tensorrt_fp16 = config.get("sonic_tensorrt_fp16", False)
+        self.sonic_tensorrt_tf32 = config.get("sonic_tensorrt_tf32", False)
         self.sonic_engine_cache_dir = _resolve_path(
             config.get("sonic_engine_cache_dir", "~/.cache/e_skin/sonic"),
             config_dir=REMOTE_ROOT,
@@ -191,6 +211,11 @@ class Config:
             "sonic_planner_default_height", 0.788740
         )
         self.sonic_planner_version = config.get("sonic_planner_version", None)
+        self.sonic_planner_random_seed = int(
+            config.get("sonic_planner_random_seed", 1234)
+        )
+        if self.sonic_planner_random_seed < 0:
+            raise ValueError("sonic_planner_random_seed must be non-negative")
         self.pico_server_ip = config.get("pico_server_ip", "127.0.0.1")
         self.pico_server_port = config.get("pico_server_port", 5556)
         self.pico_feedback_port = config.get("pico_feedback_port", 5558)
@@ -201,7 +226,58 @@ class Config:
         self.sonic_motion_loop = config.get("sonic_motion_loop", True)
         self.sonic_mask_missing_reference = config.get(
             "sonic_mask_missing_reference",
-            config.get("phantom_hold_ref_dof", True),
+            config.get("phantom_hold_ref_dof", False),
+        )
+        self.sonic_mask_missing_action_history = config.get(
+            "sonic_mask_missing_action_history",
+            False,
+        )
+        self.sonic_missing_adaptation_scope = config.get(
+            "sonic_missing_adaptation_scope", "all"
+        )
+        self.sonic_adaptation_profile = config.get(
+            "sonic_adaptation_profile", "official-parity"
+        )
+        self.sonic_reduced_proprioception = config.get(
+            "sonic_reduced_proprioception", "zero"
+        )
+        self.sonic_shadow_settling_time_s = float(
+            config.get("sonic_shadow_settling_time_s", 0.12)
+        )
+        # Neutral by default.  These physical-order vectors are populated by
+        # research profiles or MuJoCo CLI overrides; official parity is direct.
+        physical_dof = int(self.num_actions)
+        self.sonic_motor_action_scale = np.asarray(
+            config.get("sonic_motor_action_scale", [1.0] * physical_dof),
+            dtype=np.float64,
+        )
+        self.sonic_motor_action_abs_limit = np.asarray(
+            config.get("sonic_motor_action_abs_limit", [float("inf")] * physical_dof),
+            dtype=np.float64,
+        )
+        self.sonic_motor_action_ema = np.asarray(
+            config.get("sonic_motor_action_ema", [1.0] * physical_dof),
+            dtype=np.float64,
+        )
+        self.sonic_motor_target_rate_limit = np.asarray(
+            config.get("sonic_motor_target_rate_limit", [float("inf")] * physical_dof),
+            dtype=np.float64,
+        )
+        self.sonic_action_history_source = str(
+            config.get("sonic_action_history_source", "raw")
+        ).strip().lower()
+        # Encoder-facing gait amplitude. Neutral by default. Unlike motor
+        # shaping, this asks SONIC to track a smaller reference while retaining
+        # the tracker's full recovery authority at the output.
+        self.sonic_reference_leg_scale = float(
+            config.get("sonic_reference_leg_scale", 1.0)
+        )
+        self.sonic_reference_root_height_scale = float(
+            config.get("sonic_reference_root_height_scale", 1.0)
+        )
+        self.sonic_reference_joint_scale = np.asarray(
+            config.get("sonic_reference_joint_scale", [1.0] * physical_dof),
+            dtype=np.float64,
         )
         # Compatibility only; embodiment selection is now explicit above.
         self.phantom_23dof = self.sonic_robot_profile == "g1_23dof"
@@ -239,7 +315,10 @@ class Config:
         self.depth_raw_width = config.get("depth_raw_width", 640)
 
         print(f"Loaded config: {self.config_path}")
-        print(f"Policy path: {self.policy_path}")
+        print(
+            "Policy path (base config; an explicit SONIC model profile may "
+            f"replace it): {self.policy_path}"
+        )
         if self.use_depth_obs:
             print(f"Depth: {self.depth_img_width}x{self.depth_img_height}")
             print(f"Depth server: {self.depth_server_ip}:{self.depth_server_port}")
@@ -249,3 +328,30 @@ class Config:
             print(
                 f"Tactile server: {self.tactile_server_ip}:{self.tactile_server_port}"
             )
+
+    def select_sonic_model_profile(self, profile: str) -> None:
+        """Select one complete released encoder/decoder tensor contract.
+
+        Model files and ``sonic_model_variant`` are intentionally changed as
+        one unit. Mixing the 1247-D low-latency encoder with the original
+        1762-D release contract is rejected later by ``SonicRunner`` as well.
+        """
+        if self.policy_type != "sonic":
+            raise ValueError("SONIC model profiles require policy_type=sonic")
+        from policy.sonic.deployment_profile import resolve_python_model_profile
+
+        resolved = resolve_python_model_profile(profile)
+        key = resolved["name"]
+        variant = resolved["variant"]
+        self.sonic_encoder = str(resolved["encoder"])
+        self.sonic_decoder = str(resolved["decoder"])
+        self.sonic_observation_config = str(resolved["observation_config"])
+        self.policy_path = self.sonic_decoder
+        self.sonic_model_variant = variant
+        self.sonic_release_profile = key
+        print(
+            f"SONIC model profile: {key} "
+            f"(variant={variant}, encoder={self.sonic_encoder}, "
+            f"decoder={self.sonic_decoder}, "
+            f"observation={self.sonic_observation_config})"
+        )

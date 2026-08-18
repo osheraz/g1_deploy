@@ -5,6 +5,8 @@ import sys
 import threading
 import tempfile
 import unittest
+from collections import deque
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -19,7 +21,254 @@ from policy.sonic.planner_onnx import (  # noqa: E402
     PlannerMotion,
     SonicKinematicPlanner,
 )
+from policy.sonic.hardware_contract import (  # noqa: E402
+    require_hardware_config,
+    verify_hardware_sessions,
+)
+from policy.sonic.inference_backend import (  # noqa: E402
+    DIRECT_TENSORRT_PROVIDER,
+    ENGINE_CACHE_SCHEMA,
+    _apply_builder_math_flags,
+    _engine_cache_signature,
+)
+from common.unitree_crc import _lfs_object  # noqa: E402
+from common.unitree_dds import configure_process_local_cyclonedds_log  # noqa: E402
+from common.unitree_mode import release_active_motion_mode  # noqa: E402
 from policy.pico_reference import LOWER_BODY_IL_IDX, PicoReferenceWindow  # noqa: E402
+from scripts.sim2sim_sonic import (  # noqa: E402
+    _KEYPAD_TELEOP_KEYS,
+    _MUJOCO_DOCUMENTED_VIEWER_KEYS,
+)
+
+
+class MujocoKeyboardBindingTest(unittest.TestCase):
+    def test_numeric_keypad_controls_do_not_overlap_viewer_shortcuts(self):
+        self.assertTrue(
+            _KEYPAD_TELEOP_KEYS.isdisjoint(_MUJOCO_DOCUMENTED_VIEWER_KEYS)
+        )
+
+
+class RecorderButtonOwnershipTest(unittest.TestCase):
+    def test_automatic_only_recorder_does_not_consume_gamepad_x(self):
+        from common.episode import Recorder
+        from common.remote_controller import KeyMap
+
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = Recorder(tmp, {"test": True}, button=None)
+            buttons = [0] * 16
+            buttons[KeyMap.X] = 1
+            recorder.handle_buttons(buttons)
+            self.assertFalse(recorder.recording)
+            self.assertEqual(recorder.button_name, "automatic-only")
+
+
+class UnitreeDdsConfigTest(unittest.TestCase):
+    def test_shared_cyclonedds_log_is_replaced_with_process_local_path(self):
+        module = SimpleNamespace(
+            ChannelConfigHasInterface=(
+                "<Tracing><OutputFile>/tmp/cdds.LOG</OutputFile></Tracing>"
+            )
+        )
+        path = configure_process_local_cyclonedds_log(module)
+        self.assertEqual(path.parent, Path("/tmp"))
+        self.assertIn(str(path), module.ChannelConfigHasInterface)
+        self.assertNotIn(">/tmp/cdds.LOG<", module.ChannelConfigHasInterface)
+        self.assertEqual(configure_process_local_cyclonedds_log(module), path)
+
+    def test_unitree_crc_lfs_pointer_is_parsed_strictly(self):
+        oid = "b136a91a7e99c5cf914f465e131f63c897a17107939184a6f85d1a57cf315ade"
+        pointer = (
+            "version https://git-lfs.github.com/spec/v1\n"
+            f"oid sha256:{oid}\n"
+            "size 15136\n"
+        ).encode("ascii")
+        self.assertEqual(_lfs_object(pointer), (oid, 15136))
+        self.assertIsNone(_lfs_object(b"\x7fELF"))
+
+
+class UnitreeMotionModeHandoffTest(unittest.TestCase):
+    class _Client:
+        def __init__(self, modes, release_status=0):
+            self.modes = deque(modes)
+            self.release_status = release_status
+            self.timeout = None
+            self.initialized = False
+            self.release_count = 0
+
+        def SetTimeout(self, timeout):
+            self.timeout = timeout
+
+        def Init(self):
+            self.initialized = True
+
+        def CheckMode(self):
+            return 0, self.modes.popleft()
+
+        def ReleaseMode(self):
+            self.release_count += 1
+            return self.release_status, None
+
+    def test_active_service_is_released_before_return(self):
+        client = self._Client(
+            [{"form": "0", "name": "ai"}, {"form": "", "name": ""}]
+        )
+        sleeps = []
+        returned = release_active_motion_mode(
+            lambda: client, sleep_fn=sleeps.append
+        )
+        self.assertIs(returned, client)
+        self.assertEqual(client.timeout, 5.0)
+        self.assertTrue(client.initialized)
+        self.assertEqual(client.release_count, 1)
+        self.assertEqual(sleeps, [5.0])
+
+    def test_release_failure_is_fail_closed(self):
+        client = self._Client(
+            [{"form": "0", "name": "ai"}], release_status=3102
+        )
+        with self.assertRaisesRegex(RuntimeError, "ReleaseMode failed"):
+            release_active_motion_mode(lambda: client, sleep_fn=lambda _: None)
+
+    def test_check_failure_is_fail_closed(self):
+        client = self._Client([])
+        client.CheckMode = lambda: (3104, None)
+        with self.assertRaisesRegex(RuntimeError, "CheckMode failed"):
+            release_active_motion_mode(lambda: client, sleep_fn=lambda _: None)
+
+
+class DefaultPoseHoldTelemetryTest(unittest.TestCase):
+    @staticmethod
+    def _robot(age_s):
+        from common.remote_controller import KeyMap
+        from robot.robot_interface import RobotInterface
+
+        robot = object.__new__(RobotInterface)
+        robot.config = SimpleNamespace(
+            control_dt=0.0,
+            max_low_state_age_s=0.1,
+            max_default_hold_low_state_age_s=0.5,
+            default_angles=np.zeros(2),
+            kps=np.ones(2),
+            kds=np.ones(2),
+        )
+        robot.remote_controller = SimpleNamespace(button=[0] * 16)
+        robot.low_cmd = SimpleNamespace(
+            motor_cmd=[
+                SimpleNamespace(q=0.0, qd=0.0, kp=0.0, kd=0.0, tau=0.0)
+                for _ in range(2)
+            ]
+        )
+        robot.low_state_snapshot_with_age = lambda: (None, age_s)
+        robot.send_cmd = lambda: robot.remote_controller.button.__setitem__(
+            KeyMap.start, 1
+        )
+        return robot
+
+    def test_brief_gap_keeps_unchanged_default_hold_alive(self):
+        from common.remote_controller import KeyMap
+
+        robot = self._robot(0.112)
+        robot.default_pos_state(KeyMap.start, "Start")
+        self.assertEqual(robot.remote_controller.button[KeyMap.start], 1)
+
+    def test_sustained_gap_still_fails_closed(self):
+        from common.remote_controller import KeyMap
+
+        robot = self._robot(0.501)
+        with self.assertRaisesRegex(RuntimeError, "continuously unavailable"):
+            robot.default_pos_state(KeyMap.start, "Start")
+
+
+class TensorRTContractTest(unittest.TestCase):
+    class _Flags:
+        TF32 = "tf32"
+        FP16 = "fp16"
+
+    class _TRT:
+        BuilderFlag = None
+
+    class _Config:
+        def __init__(self):
+            self.set_flags = []
+            self.cleared_flags = []
+
+        def set_flag(self, flag):
+            self.set_flags.append(flag)
+
+        def clear_flag(self, flag):
+            self.cleared_flags.append(flag)
+
+    def setUp(self):
+        self._TRT.BuilderFlag = self._Flags
+
+    def test_fp32_explicitly_clears_tf32_and_fp16(self):
+        config = self._Config()
+        builder = SimpleNamespace(platform_has_fast_fp16=True)
+        _apply_builder_math_flags(
+            config, builder, self._TRT, fp16=False, allow_tf32=False
+        )
+        self.assertEqual(config.set_flags, [])
+        self.assertEqual(config.cleared_flags, [self._Flags.TF32, self._Flags.FP16])
+
+    def test_math_mode_changes_engine_cache_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model = Path(tmp) / "model.onnx"
+            model.write_bytes(b"onnx")
+            common = dict(
+                trt_version="10.10.0",
+                torch_cuda="12.8",
+                gpu_name="RTX 4090",
+                gpu_capability=(8, 9),
+                fp16=False,
+                input_shapes={"obs": (1, 4)},
+            )
+            strict = _engine_cache_signature(model, allow_tf32=False, **common)
+            relaxed = _engine_cache_signature(model, allow_tf32=True, **common)
+            self.assertEqual(strict["schema"], ENGINE_CACHE_SCHEMA)
+            self.assertNotEqual(strict, relaxed)
+            self.assertFalse(strict["math"]["allow_tf32"])
+
+    def test_robot_facing_config_and_sessions_fail_closed(self):
+        config = SimpleNamespace(
+            policy_type="sonic",
+            sonic_inference_backend="auto",
+            sonic_planner_backend="auto",
+            sonic_tensorrt_fp16=False,
+            sonic_tensorrt_tf32=False,
+        )
+        with self.assertRaisesRegex(RuntimeError, "automatic"):
+            require_hardware_config(config, "motion")
+
+        config.sonic_inference_backend = "tensorrt"
+        config.sonic_planner_backend = "tensorrt"
+        require_hardware_config(config, "planner")
+        config.sonic_tensorrt_tf32 = True
+        with self.assertRaisesRegex(RuntimeError, "forbids TF32"):
+            require_hardware_config(config, "planner")
+        config.sonic_tensorrt_tf32 = False
+        config.sonic_tensorrt_fp16 = True
+        with self.assertRaisesRegex(RuntimeError, "requires the reviewed FP32"):
+            require_hardware_config(config, "planner")
+        config.sonic_tensorrt_fp16 = False
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = Path(tmp) / "model.engine"
+            engine.write_bytes(b"engine")
+            planner = SimpleNamespace(
+                providers=(DIRECT_TENSORRT_PROVIDER,), engine_path=engine
+            )
+            runner = SimpleNamespace(
+                encoder_providers=(DIRECT_TENSORRT_PROVIDER,),
+                decoder_providers=(DIRECT_TENSORRT_PROVIDER,),
+                encoder_engine_path=engine,
+                decoder_engine_path=engine,
+                reference=SimpleNamespace(planner=planner),
+            )
+            paths = verify_hardware_sessions(runner, "planner")
+            self.assertEqual(set(paths), {"encoder", "decoder", "planner"})
+
+            runner.decoder_providers = ("CPUExecutionProvider",)
+            with self.assertRaisesRegex(RuntimeError, "decoder provider"):
+                verify_hardware_sessions(runner, "planner")
 
 
 class EncoderMaskTest(unittest.TestCase):
@@ -108,6 +357,105 @@ class PlannerMathTest(unittest.TestCase):
         np.testing.assert_array_equal(G1_23DOF.isaaclab_to_physical(projected), physical23)
         np.testing.assert_array_equal(projected[G1_23DOF.missing_isaaclab], 0)
 
+    def test_reduced_planner_motion_remains_native_recurrent_context(self):
+        motion = PlannerMotion(
+            joint_pos_il=np.ones((5, 29), dtype=np.float64),
+            joint_vel_il=np.full((5, 29), 2.0, dtype=np.float64),
+            root_pos=np.zeros((5, 3), dtype=np.float64),
+            root_quat_wxyz=np.tile([1.0, 0.0, 0.0, 0.0], (5, 1)),
+        )
+        ref = object.__new__(PicoReferenceWindow)
+        ref.robot_profile = G1_23DOF
+        # 23-DoF masking belongs at tracker observation/action boundaries. The
+        # planner's own 29-DoF q/dq remains exactly what the model generated.
+        np.testing.assert_array_equal(motion.joint_pos_il, 1.0)
+        np.testing.assert_array_equal(motion.joint_vel_il, 2.0)
+
+    def test_idle_hold_overrides_tracker_window_without_mutating_plan(self):
+        dof = np.arange(4 * 29, dtype=np.float64).reshape(4, 29)
+        dvel = dof + 1000.0
+        rootq = np.tile([1.0, 0.0, 0.0, 0.0], (4, 1))
+        rootq[:, 3] = np.arange(4) * 0.01
+        plan = {
+            "dof_fut": dof.copy(),
+            "dvel_fut": dvel.copy(),
+            "rootq_fut": rootq.copy(),
+            "root_quat_cur": rootq[1].copy(),
+            "rootz_fut": np.linspace(0.7, 0.8, 4),
+            "rootz_cur": np.float64(0.75),
+        }
+        original = {key: np.asarray(value).copy() for key, value in plan.items()}
+        ref = object.__new__(PicoReferenceWindow)
+        ref._idle_holding = True
+        ref._idle_hold_q_il = np.linspace(-0.2, 0.2, 29)
+        ref._idle_hold_rootq = np.array([1.0, 0.0, 0.0, 0.0])
+        ref._idle_hold_rootz = 0.77
+
+        held = ref._apply_idle_hold_to_plan(plan)
+
+        np.testing.assert_allclose(
+            held["dof_fut"], np.broadcast_to(ref._idle_hold_q_il, dof.shape)
+        )
+        np.testing.assert_array_equal(held["dvel_fut"], 0.0)
+        np.testing.assert_allclose(
+            held["rootq_fut"],
+            np.broadcast_to(ref._idle_hold_rootq, rootq.shape),
+        )
+        np.testing.assert_allclose(held["rootz_fut"], 0.77)
+        for key, value in original.items():
+            np.testing.assert_array_equal(plan[key], value)
+
+    def test_idle_centering_smoothly_targets_known_stable_stand(self):
+        plan = {
+            "dof_fut": np.zeros((4, 29), dtype=np.float64),
+            "dvel_fut": np.zeros((4, 29), dtype=np.float64),
+            "rootq_fut": np.tile([1.0, 0.0, 0.0, 0.0], (4, 1)),
+            "root_quat_cur": np.array([1.0, 0.0, 0.0, 0.0]),
+            "rootz_fut": np.full(4, 0.75),
+            "rootz_cur": np.float64(0.75),
+        }
+        original = {key: np.asarray(value).copy() for key, value in plan.items()}
+        ref = object.__new__(PicoReferenceWindow)
+        ref._idle_centering = True
+        ref._idle_centering_step = 0
+        ref._idle_centering_start_q_il = np.zeros(29)
+        ref._stable_stand_q_il = np.ones(29)
+        ref._idle_centering_rootq = np.array([1.0, 0.0, 0.0, 0.0])
+        ref._idle_centering_start_rootz = 0.75
+        ref._stable_stand_rootz = 0.79
+        ref.model_profile = SimpleNamespace(g1_future_stride=5)
+
+        centered = ref._apply_idle_hold_to_plan(plan)
+
+        np.testing.assert_allclose(centered["dof_fut"][0], 0.0)
+        self.assertTrue(np.all(np.diff(centered["dof_fut"][:, 0]) > 0.0))
+        self.assertTrue(np.all(centered["dvel_fut"][:, 0] >= 0.0))
+        self.assertGreater(centered["rootz_fut"][-1], centered["rootz_fut"][0])
+        for key, value in original.items():
+            np.testing.assert_array_equal(plan[key], value)
+
+    def test_reference_mask_utility_is_not_used_for_official_action_history(self):
+        decoded = np.arange(29, dtype=np.float64)[None]
+        projected = G1_23DOF.mask_isaaclab_reference(decoded)
+        np.testing.assert_array_equal(
+            projected[:, G1_23DOF.missing_isaaclab], 0.0
+        )
+        present = np.setdiff1d(np.arange(29), G1_23DOF.missing_isaaclab)
+        np.testing.assert_array_equal(projected[:, present], decoded[:, present])
+        np.testing.assert_array_equal(
+            G1_29DOF.mask_isaaclab_reference(decoded), decoded
+        )
+        # SONIC's official last_action is raw decoder output. The mask above is
+        # a reference/projection utility, not the default history contract.
+        np.testing.assert_array_equal(decoded, np.arange(29)[None])
+
+    def test_reduced_config_preserves_reference_and_raw_action_history(self):
+        from config import Config
+
+        config = Config("g1_23dof_sonic.yaml")
+        self.assertFalse(config.sonic_mask_missing_reference)
+        self.assertFalse(config.sonic_mask_missing_action_history)
+
     def test_resample_context_and_blend(self):
         qpos = np.zeros((30, 36), dtype=np.float64)
         qpos[:, 2] = 0.788740
@@ -144,6 +492,7 @@ class PlannerMathTest(unittest.TestCase):
         ref = object.__new__(PicoReferenceWindow)
         ref.robot = robot
         ref.planner = planner
+        ref.idle_hold = False
         ref._last_cmd = (0, {})
         ref._idle_readapt_original = np.zeros(29)
         ref._idle_readapt_stored = False
@@ -157,6 +506,204 @@ class PlannerMathTest(unittest.TestCase):
 
 
 class PicoSemanticsTest(unittest.TestCase):
+    def test_ordinary_locomotion_replans_at_planner_rate(self):
+        """A constant straight command must not fall back to the old 1 Hz path."""
+        ref = object.__new__(PicoReferenceWindow)
+        ref.default_replan_period_s = 0.1
+        ref._replan_interval_s = 0.0
+        ref.gated = True
+        nav = {
+            "movement": np.array([1.0, 0.0, 0.0]),
+            "facing": np.array([1.0, 0.0, 0.0]),
+            "speed": 0.4,
+            "height": -1.0,
+        }
+        ref._last_cmd = (1, {key: value.copy() if isinstance(value, np.ndarray)
+                             else value for key, value in nav.items()})
+        self.assertTrue(ref._should_replan(1, nav))
+
+    def test_idle_small_turn_keeps_last_installed_facing_until_replan(self):
+        ref = object.__new__(PicoReferenceWindow)
+        ref.initialized = True
+        ref._fatal_error = None
+        ref._ticks = 5
+        ref._last_planner_tick = 0
+        ref.idle_hold = True
+        ref._last_cmd = (
+            0,
+            {
+                "movement": np.zeros(3),
+                "facing": np.array([1.0, 0.0, 0.0]),
+                "speed": -1.0,
+                "height": -1.0,
+            },
+        )
+        small_yaw = np.radians(2.0)
+        nav = {
+            "movement": np.zeros(3),
+            "facing": np.array([np.cos(small_yaw), np.sin(small_yaw), 0.0]),
+            "speed": -1.0,
+            "height": -1.0,
+        }
+        ref._current_command = lambda: (0, nav)
+        ref._lock = threading.Lock()
+        ref.planner = SimpleNamespace(
+            current_frame=2,
+            current_motion=SimpleNamespace(timesteps=20),
+        )
+        ref._idle_holding = True
+        ref._idle_centering = False
+        ref._maybe_replan()
+        np.testing.assert_array_equal(
+            ref._last_cmd[1]["facing"], [1.0, 0.0, 0.0]
+        )
+
+    def test_turn_in_place_is_not_marked_as_idle_stop_transition(self):
+        ref = object.__new__(PicoReferenceWindow)
+        ref.initialized = True
+        ref._fatal_error = None
+        ref._ticks = 5
+        ref._last_planner_tick = 0
+        ref.idle_hold = True
+        ref._last_cmd = (
+            0,
+            {
+                "movement": np.zeros(3),
+                "facing": np.array([1.0, 0.0, 0.0]),
+                "speed": -1.0,
+                "height": -1.0,
+            },
+        )
+        nav = {
+            "movement": np.zeros(3),
+            "facing": np.array([0.98, 0.2, 0.0]),
+            "speed": -1.0,
+            "height": -1.0,
+        }
+        ref._current_command = lambda: (0, nav)
+        ref._should_replan = lambda mode, command: True
+        ref._lock = threading.Lock()
+        ref.planner = SimpleNamespace(
+            current_frame=2,
+            current_motion=SimpleNamespace(timesteps=20),
+            prepare_replan=lambda: (4, np.zeros((1, 4, 36))),
+            infer_replan=lambda context, **command: object(),
+            install_replan=lambda generated, frame: None,
+        )
+        ref._idle_holding = True
+        ref._idle_settling = False
+        ref._idle_centering = False
+        ref._turn_plan_active = False
+        ref._idle_readapt_stored = False
+        ref.replan_count = 0
+        ref._maybe_replan()
+        self.assertTrue(ref._turn_plan_active)
+        self.assertFalse(ref._idle_settling)
+        self.assertFalse(ref._idle_holding)
+        self.assertEqual(ref.replan_count, 1)
+
+    def test_stand_capture_saves_support_qualified_measured_pose(self):
+        motion = PlannerMotion(
+            joint_pos_il=np.zeros((2, 29)),
+            joint_vel_il=np.zeros((2, 29)),
+            root_pos=np.array([[0.0, 0.0, 0.78], [0.0, 0.0, 0.78]]),
+            root_quat_wxyz=np.tile([1.0, 0.0, 0.0, 0.0], (2, 1)),
+        )
+        physical = np.linspace(-0.2, 0.2, 23)
+        support = {
+            "left_supported": True,
+            "right_supported": True,
+            "max_corner_z_m": 0.005,
+            "max_foot_corner_range_m": 0.001,
+            "com_support_margin_m": 0.08,
+            "base_xy": np.zeros(2),
+            "base_planar_speed_mps": 0.0,
+        }
+        robot = SimpleNamespace(
+            qj=physical.copy(),
+            dqj=np.zeros(23),
+            base_quat_wxyz=np.array([1.0, 0.0, 0.0, 0.0]),
+            root_z=0.79,
+            stand_support_diagnostics=lambda: support,
+        )
+        client = SimpleNamespace(idle_capture_stationary=lambda: True)
+        ref = object.__new__(PicoReferenceWindow)
+        ref.idle_hold = True
+        ref.robot = robot
+        ref.client = client
+        ref.robot_profile = G1_23DOF
+        ref.planner = SimpleNamespace(current_motion=motion, current_frame=0)
+        ref._stand_capture_requested = False
+        ref._stand_capture_samples = deque(maxlen=50)
+        ref._stand_capture_wait_ticks = 0
+        ref.stand_capture_count = 0
+        ref._stable_stand_rootz = 0.78
+        ref._idle_holding = True
+        ref._idle_hold_q_il = np.linspace(-0.1, 0.1, 29)
+        ref._idle_hold_rootz = 0.78
+        ref._turn_plan_active = False
+        self.assertTrue(ref.request_stable_stand_capture("test"))
+        for _ in range(50):
+            ref._update_stable_stand_capture()
+        self.assertEqual(ref.stand_capture_count, 1)
+        self.assertFalse(ref._stand_capture_requested)
+        expected = G1_23DOF.physical_to_isaaclab(physical, fill=0.0)
+        np.testing.assert_allclose(ref._stable_stand_q_il, expected)
+        np.testing.assert_allclose(ref._idle_hold_q_il, expected)
+        self.assertAlmostEqual(ref._stable_stand_rootz, 0.79)
+        self.assertAlmostEqual(ref._idle_hold_rootz, 0.79)
+
+    def test_stand_capture_accepts_stable_physical_pose_without_contact_fields(self):
+        robot = SimpleNamespace(
+            qj=np.zeros(23),
+            dqj=np.zeros(23),
+            base_quat_wxyz=np.array([1.0, 0.0, 0.0, 0.0]),
+        )
+        ref = object.__new__(PicoReferenceWindow)
+        ref.idle_hold = True
+        ref.robot = robot
+        ref.client = SimpleNamespace(idle_capture_stationary=lambda: True)
+        ref.robot_profile = G1_23DOF
+        ref._stand_capture_requested = False
+        ref._stand_capture_samples = deque(maxlen=50)
+        ref._stand_capture_wait_ticks = 0
+        ref.stand_capture_count = 0
+        ref._stable_stand_rootz = 0.78
+        ref._idle_holding = True
+        ref._idle_hold_q_il = np.zeros(29)
+        ref._idle_hold_rootz = 0.78
+        self.assertTrue(ref.request_stable_stand_capture("test"))
+        for _ in range(50):
+            ref._update_stable_stand_capture()
+        self.assertFalse(ref._stand_capture_requested)
+        self.assertEqual(ref.stand_capture_count, 1)
+        np.testing.assert_allclose(ref._stable_stand_q_il, np.zeros(29))
+        self.assertAlmostEqual(ref._stable_stand_rootz, 0.78)
+
+    def test_stand_capture_waits_if_physical_pose_is_moving(self):
+        robot = SimpleNamespace(
+            qj=np.zeros(23),
+            dqj=np.full(23, 0.2),
+            base_quat_wxyz=np.array([1.0, 0.0, 0.0, 0.0]),
+        )
+        ref = object.__new__(PicoReferenceWindow)
+        ref.idle_hold = True
+        ref.robot = robot
+        ref.client = SimpleNamespace(idle_capture_stationary=lambda: True)
+        ref.robot_profile = G1_23DOF
+        ref._stand_capture_requested = False
+        ref._stand_capture_samples = deque(maxlen=50)
+        ref._stand_capture_wait_ticks = 0
+        ref.stand_capture_count = 0
+        ref._idle_holding = True
+        ref._idle_hold_q_il = np.zeros(29)
+        ref._idle_hold_rootz = 0.78
+        self.assertTrue(ref.request_stable_stand_capture("test"))
+        for _ in range(50):
+            ref._update_stable_stand_capture()
+        self.assertTrue(ref._stand_capture_requested)
+        self.assertEqual(ref.stand_capture_count, 0)
+
     def test_forced_planner_profile_stays_g1_when_vr_fields_arrive(self):
         ref = object.__new__(PicoReferenceWindow)
         ref.force_g1 = True
@@ -206,6 +753,167 @@ class PicoSemanticsTest(unittest.TestCase):
             nav["facing"], [np.cos(-0.15), np.sin(-0.15), 0.0], atol=1e-7
         )
         np.testing.assert_allclose(nav["movement"], nav["facing"], atol=1e-7)
+
+    def test_unitree_joystick_dpad_selects_modes_on_rising_edges(self):
+        try:
+            from common.joystick_teleop import JoystickTeleop
+            from common.pico_client import LocomotionMode
+            from common.remote_controller import KeyMap
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"deployment transport dependency is unavailable: {exc}")
+        remote = SimpleNamespace(lx=0.0, ly=0.0, rx=0.0, button=[0] * 16)
+        joystick = JoystickTeleop(locomotion_mode=LocomotionMode.WALK)
+
+        remote.button[KeyMap.up] = 1
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.locomotion_mode, LocomotionMode.SLOW_WALK)
+        self.assertEqual(joystick.mode(), LocomotionMode.IDLE)
+
+        remote.button[KeyMap.up] = 0
+        joystick.update_remote(remote)
+        remote.button[KeyMap.down] = 1
+        remote.ly = 1.0
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.mode(), LocomotionMode.RUN)
+        self.assertAlmostEqual(joystick.nav_command()["speed"], 4.5)
+
+    def test_native_gamepad_manager_standing_fsm_and_system_buttons(self):
+        try:
+            from common.joystick_teleop import GamepadManagerTeleop
+            from common.pico_client import LocomotionMode
+            from common.remote_controller import KeyMap
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"deployment transport dependency is unavailable: {exc}")
+
+        remote = SimpleNamespace(
+            lx=0.0, ly=0.0, rx=0.0, ry=0.0, button=[0] * 16
+        )
+        joystick = GamepadManagerTeleop()
+        self.assertFalse(joystick.control_started)
+        self.assertEqual(joystick.mode(), LocomotionMode.IDLE)
+        joystick.tick(0.2)
+        self.assertEqual(joystick.latest_seq, 0)
+
+        remote.button[KeyMap.start] = 1
+        joystick.update_remote(remote)
+        self.assertTrue(joystick.control_started)
+        joystick.tick(0.02)
+        self.assertEqual(joystick.latest_seq, 1)
+        remote.button[KeyMap.start] = 0
+        joystick.update_remote(remote)
+
+        remote.button[KeyMap.F1] = 1
+        remote.button[KeyMap.F3] = 1
+        joystick.update_remote(remote)
+        self.assertTrue(joystick.consume_idle_capture_request())
+        joystick.update_remote(remote)
+        self.assertFalse(joystick.consume_idle_capture_request())
+        remote.button[KeyMap.F1] = 0
+        remote.button[KeyMap.F3] = 0
+        joystick.update_remote(remote)
+
+        remote.ly = 1.0
+        remote.button[KeyMap.X] = 1
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.mode(), LocomotionMode.WALK)
+        self.assertEqual(joystick.nav_command()["speed"], -1.0)
+
+        # Holding X is not another transition; only a new rising edge advances.
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.mode(), LocomotionMode.WALK)
+        remote.button[KeyMap.X] = 0
+        joystick.update_remote(remote)
+        remote.button[KeyMap.X] = 1
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.mode(), LocomotionMode.RUN)
+        self.assertEqual(joystick.nav_command()["speed"], 1.5)
+
+        remote.button[KeyMap.X] = 0
+        remote.button[KeyMap.Y] = 1
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.mode(), LocomotionMode.WALK)
+        remote.button[KeyMap.Y] = 0
+        remote.button[KeyMap.B] = 1
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.mode(), LocomotionMode.SLOW_WALK)
+        self.assertEqual(joystick.nav_command()["speed"], 0.4)
+
+        remote.button[KeyMap.B] = 0
+        remote.button[KeyMap.A] = 1
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.mode(), LocomotionMode.IDLE)
+        self.assertFalse(joystick.stop_requested)
+        remote.button[KeyMap.A] = 0
+        remote.button[KeyMap.select] = 1
+        joystick.update_remote(remote)
+        self.assertTrue(joystick.stop_requested)
+
+    def test_native_gamepad_manager_motion_set_selection_and_cycle(self):
+        try:
+            from common.joystick_teleop import GamepadManagerTeleop
+            from common.pico_client import LocomotionMode
+            from common.remote_controller import KeyMap
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"deployment transport dependency is unavailable: {exc}")
+
+        remote = SimpleNamespace(
+            lx=0.0, ly=0.0, rx=0.0, ry=0.0, button=[0] * 16
+        )
+        joystick = GamepadManagerTeleop()
+        remote.button[KeyMap.start] = 1
+        joystick.update_remote(remote)
+        remote.button[KeyMap.start] = 0
+        remote.button[KeyMap.right] = 1
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.motion_set_name, "STYLED_WALKING")
+        self.assertEqual(joystick.locomotion_mode, LocomotionMode.LEDGE_WALKING)
+
+        remote.button[KeyMap.right] = 0
+        remote.button[KeyMap.X] = 1
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.locomotion_mode, LocomotionMode.OBJECT_CARRYING)
+
+        remote.button[KeyMap.X] = 0
+        remote.button[KeyMap.up] = 1
+        joystick.update_remote(remote)
+        self.assertEqual(joystick.motion_set_name, "STANDING")
+        self.assertEqual(joystick.locomotion_mode, LocomotionMode.SLOW_WALK)
+
+
+class ReleasedModelSelectionTest(unittest.TestCase):
+    def test_encoder_decoder_profiles_are_atomic(self):
+        from config import Config
+        from policy.sonic.deployment_profile import resolve_python_model_profile
+
+        config = Config("g1_23dof_sonic.yaml")
+        expected_variants = {
+            "original-release": "default",
+            "low-latency": "low_latency",
+            "sonic-v1.1": "sonic_v1_1",
+        }
+        for profile, variant in expected_variants.items():
+            resolved = resolve_python_model_profile(profile)
+            config.select_sonic_model_profile(profile)
+            self.assertEqual(config.sonic_model_variant, variant)
+            self.assertEqual(Path(config.sonic_encoder).resolve(), resolved["encoder"])
+            self.assertEqual(Path(config.sonic_decoder).resolve(), resolved["decoder"])
+            self.assertEqual(
+                Path(config.sonic_observation_config).resolve(),
+                resolved["observation_config"],
+            )
+
+    def test_live_unitree_type_must_match_selected_python_topology(self):
+        for mode in (1, 4):
+            self.assertTrue(G1_23DOF.matches_mode_machine(mode))
+            self.assertFalse(G1_29DOF.matches_mode_machine(mode))
+        for mode in (2, 5):
+            self.assertTrue(G1_29DOF.matches_mode_machine(mode))
+            self.assertFalse(G1_23DOF.matches_mode_machine(mode))
+        for mode in (0, 3, 6, 255):
+            self.assertFalse(G1_23DOF.matches_mode_machine(mode))
+            self.assertFalse(G1_29DOF.matches_mode_machine(mode))
+        with self.assertRaisesRegex(RuntimeError, "locked-waist"):
+            G1_23DOF.require_mode_machine(3)
 
     def test_official_planner_wire_message_and_orientation_fallback(self):
         try:

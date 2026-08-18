@@ -11,9 +11,62 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import threading
 import warnings
 
 import numpy as np
+
+
+ENGINE_CACHE_SCHEMA = 2
+DIRECT_TENSORRT_PROVIDER = "TensorRTExecutionProvider(direct)"
+
+
+def _precision_contract(*, fp16: bool, allow_tf32: bool) -> dict[str, object]:
+    """Return the math contract that must participate in engine identity."""
+    return {
+        "storage_precision": "fp16" if fp16 else "fp32",
+        "allow_tf32": bool(allow_tf32),
+    }
+
+
+def _engine_cache_signature(
+    model_path: Path,
+    *,
+    trt_version: str,
+    torch_cuda: str | None,
+    gpu_name: str,
+    gpu_capability,
+    fp16: bool,
+    allow_tf32: bool,
+    input_shapes: dict[str, tuple[int, ...]],
+) -> dict[str, object]:
+    """Build a complete, deterministic TensorRT engine-cache signature."""
+    return {
+        "schema": ENGINE_CACHE_SCHEMA,
+        "path": str(model_path),
+        "size": model_path.stat().st_size,
+        "mtime_ns": model_path.stat().st_mtime_ns,
+        "trt": trt_version,
+        "torch_cuda": torch_cuda,
+        "gpu_name": gpu_name,
+        "gpu_capability": tuple(gpu_capability),
+        "math": _precision_contract(fp16=fp16, allow_tf32=allow_tf32),
+        "input_shapes": input_shapes,
+    }
+
+
+def _apply_builder_math_flags(config, builder, trt, *, fp16: bool, allow_tf32: bool):
+    """Apply an explicit TensorRT math contract instead of SDK defaults."""
+    if allow_tf32:
+        config.set_flag(trt.BuilderFlag.TF32)
+    else:
+        config.clear_flag(trt.BuilderFlag.TF32)
+    if fp16:
+        if not builder.platform_has_fast_fp16:
+            raise RuntimeError("FP16 was requested but this TensorRT platform lacks fast FP16")
+        config.set_flag(trt.BuilderFlag.FP16)
+    else:
+        config.clear_flag(trt.BuilderFlag.FP16)
 
 
 @dataclass(frozen=True)
@@ -67,6 +120,7 @@ class TensorRTSession:
         input_shapes: dict[str, tuple[int, ...]] | None = None,
         cache_dir=None,
         fp16: bool = False,
+        allow_tf32: bool = False,
         workspace_gib: float = 2.0,
         **_,
     ):
@@ -85,19 +139,21 @@ class TensorRTSession:
         if not self.model_path.is_file():
             raise FileNotFoundError(self.model_path)
         self.input_shapes = {k: tuple(map(int, v)) for k, v in (input_shapes or {}).items()}
+        self.fp16 = bool(fp16)
+        self.allow_tf32 = bool(allow_tf32)
         cache_root = Path(cache_dir or "~/.cache/e_skin/sonic").expanduser()
         cache_root.mkdir(parents=True, exist_ok=True)
-        signature = {
-            "path": str(self.model_path),
-            "size": self.model_path.stat().st_size,
-            "mtime_ns": self.model_path.stat().st_mtime_ns,
-            "trt": trt.__version__,
-            "torch_cuda": torch.version.cuda,
-            "gpu_name": torch.cuda.get_device_name(),
-            "gpu_capability": torch.cuda.get_device_capability(),
-            "fp16": bool(fp16),
-            "input_shapes": self.input_shapes,
-        }
+        self.cache_signature = _engine_cache_signature(
+            self.model_path,
+            trt_version=trt.__version__,
+            torch_cuda=torch.version.cuda,
+            gpu_name=torch.cuda.get_device_name(),
+            gpu_capability=torch.cuda.get_device_capability(),
+            fp16=self.fp16,
+            allow_tf32=self.allow_tf32,
+            input_shapes=self.input_shapes,
+        )
+        signature = self.cache_signature
         key = hashlib.sha256(json.dumps(signature, sort_keys=True).encode()).hexdigest()[:20]
         self.engine_path = cache_root / f"{self.model_path.stem}-{key}.engine"
 
@@ -108,7 +164,10 @@ class TensorRTSession:
         engine_bytes = self.engine_path.read_bytes() if self.engine_path.exists() else None
         if engine_bytes is None:
             engine_bytes = self._build_engine(
-                self._logger, fp16=bool(fp16), workspace_gib=float(workspace_gib)
+                self._logger,
+                fp16=self.fp16,
+                allow_tf32=self.allow_tf32,
+                workspace_gib=float(workspace_gib),
             )
             self.engine_path.write_bytes(engine_bytes)
         self._engine = self._runtime.deserialize_cuda_engine(engine_bytes)
@@ -117,7 +176,10 @@ class TensorRTSession:
                 f"cached TensorRT engine {self.engine_path} is incompatible; rebuilding"
             )
             engine_bytes = self._build_engine(
-                self._logger, fp16=bool(fp16), workspace_gib=float(workspace_gib)
+                self._logger,
+                fp16=self.fp16,
+                allow_tf32=self.allow_tf32,
+                workspace_gib=float(workspace_gib),
             )
             self.engine_path.write_bytes(engine_bytes)
             self._engine = self._runtime.deserialize_cuda_engine(engine_bytes)
@@ -126,6 +188,9 @@ class TensorRTSession:
         self._context = self._engine.create_execution_context()
         if self._context is None:
             raise RuntimeError("TensorRT could not create an execution context")
+        self._device_index = torch.cuda.current_device()
+        self._stream = torch.cuda.Stream(device=self._device_index)
+        self._run_lock = threading.Lock()
 
         self._inputs, self._outputs = [], []
         for i in range(self._engine.num_io_tensors):
@@ -140,7 +205,16 @@ class TensorRTSession:
             else:
                 self._outputs.append(spec)
 
-    def _build_engine(self, logger, *, fp16: bool, workspace_gib: float) -> bytes:
+        precision = "FP16" if self.fp16 else "FP32"
+        print(
+            f"SONIC direct TensorRT: engine={self.engine_path} "
+            f"precision={precision} TF32={'enabled' if self.allow_tf32 else 'disabled'} "
+            "stream=dedicated"
+        )
+
+    def _build_engine(
+        self, logger, *, fp16: bool, allow_tf32: bool, workspace_gib: float
+    ) -> bytes:
         trt = self._trt
         builder = trt.Builder(logger)
         network = builder.create_network(
@@ -154,10 +228,9 @@ class TensorRTSession:
         config.set_memory_pool_limit(
             trt.MemoryPoolType.WORKSPACE, int(workspace_gib * (1 << 30))
         )
-        if fp16:
-            if not builder.platform_has_fast_fp16:
-                raise RuntimeError("FP16 was requested but this TensorRT platform lacks fast FP16")
-            config.set_flag(trt.BuilderFlag.FP16)
+        _apply_builder_math_flags(
+            config, builder, trt, fp16=fp16, allow_tf32=allow_tf32
+        )
 
         profile = None
         for i in range(network.num_inputs):
@@ -187,41 +260,54 @@ class TensorRTSession:
         return list(self._outputs)
 
     def get_providers(self):
-        return ["TensorRTExecutionProvider(direct)"]
+        return [DIRECT_TENSORRT_PROVIDER]
 
     def run(self, output_names, feed):
         torch = self._torch
         missing = [s.name for s in self._inputs if s.name not in feed]
         if missing:
             raise ValueError(f"missing TensorRT inputs: {missing}")
-        tensors = {}
-        stream = torch.cuda.current_stream()
-        for spec in self._inputs:
-            array = np.ascontiguousarray(feed[spec.name], dtype=spec.dtype)
-            if not self._context.set_input_shape(spec.name, tuple(array.shape)):
-                raise ValueError(f"TensorRT rejected shape {array.shape} for {spec.name}")
-            tensor = torch.as_tensor(array, device="cuda")
-            tensors[spec.name] = tensor
-            self._context.set_tensor_address(spec.name, int(tensor.data_ptr()))
+        with self._run_lock:
+            tensors = {}
+            with torch.cuda.device(self._device_index), torch.cuda.stream(self._stream):
+                for spec in self._inputs:
+                    array = np.ascontiguousarray(feed[spec.name], dtype=spec.dtype)
+                    if not self._context.set_input_shape(spec.name, tuple(array.shape)):
+                        raise ValueError(
+                            f"TensorRT rejected shape {array.shape} for {spec.name}"
+                        )
+                    tensor = torch.as_tensor(
+                        array, device=f"cuda:{self._device_index}"
+                    )
+                    tensors[spec.name] = tensor
+                    self._context.set_tensor_address(spec.name, int(tensor.data_ptr()))
 
-        wanted = output_names or [s.name for s in self._outputs]
-        output_specs = {s.name: s for s in self._outputs}
-        for name in wanted:
-            if name not in output_specs:
-                raise ValueError(f"unknown TensorRT output {name!r}")
-            shape = tuple(self._context.get_tensor_shape(name))
-            if any(int(d) < 0 for d in shape):
-                raise RuntimeError(f"unresolved TensorRT output shape {shape} for {name}")
-            np_dtype = np.dtype(output_specs[name].dtype)
-            torch_dtype = torch.from_numpy(np.empty((), dtype=np_dtype)).dtype
-            tensor = torch.empty(shape, dtype=torch_dtype, device="cuda")
-            tensors[name] = tensor
-            self._context.set_tensor_address(name, int(tensor.data_ptr()))
+                wanted = output_names or [s.name for s in self._outputs]
+                output_specs = {s.name: s for s in self._outputs}
+                for name in wanted:
+                    if name not in output_specs:
+                        raise ValueError(f"unknown TensorRT output {name!r}")
+                    shape = tuple(self._context.get_tensor_shape(name))
+                    if any(int(d) < 0 for d in shape):
+                        raise RuntimeError(
+                            f"unresolved TensorRT output shape {shape} for {name}"
+                        )
+                    np_dtype = np.dtype(output_specs[name].dtype)
+                    torch_dtype = torch.from_numpy(np.empty((), dtype=np_dtype)).dtype
+                    tensor = torch.empty(
+                        shape,
+                        dtype=torch_dtype,
+                        device=f"cuda:{self._device_index}",
+                    )
+                    tensors[name] = tensor
+                    self._context.set_tensor_address(name, int(tensor.data_ptr()))
 
-        if not self._context.execute_async_v3(stream_handle=int(stream.cuda_stream)):
-            raise RuntimeError("TensorRT execute_async_v3 failed")
-        stream.synchronize()
-        return [tensors[name].cpu().numpy() for name in wanted]
+                if not self._context.execute_async_v3(
+                    stream_handle=int(self._stream.cuda_stream)
+                ):
+                    raise RuntimeError("TensorRT execute_async_v3 failed")
+            self._stream.synchronize()
+            return [tensors[name].cpu().numpy() for name in wanted]
 
 
 def create_session(
@@ -231,12 +317,17 @@ def create_session(
     input_shapes: dict[str, tuple[int, ...]] | None = None,
     cache_dir=None,
     fp16: bool = False,
+    allow_tf32: bool = False,
 ):
     """Create ``TensorRTSession`` or ``OrtSession`` with explicit fallback rules."""
     choice = str(backend).strip().lower().replace("-", "_")
     if choice in {"trt", "tensorrt", "tensor_rt"}:
         return TensorRTSession(
-            model_path, input_shapes=input_shapes, cache_dir=cache_dir, fp16=fp16
+            model_path,
+            input_shapes=input_shapes,
+            cache_dir=cache_dir,
+            fp16=fp16,
+            allow_tf32=allow_tf32,
         )
     if choice in {"ort", "onnxruntime", "onnx_runtime"}:
         return OrtSession(model_path)
@@ -244,7 +335,11 @@ def create_session(
         raise ValueError("inference backend must be auto, tensorrt, or onnxruntime")
     try:
         return TensorRTSession(
-            model_path, input_shapes=input_shapes, cache_dir=cache_dir, fp16=fp16
+            model_path,
+            input_shapes=input_shapes,
+            cache_dir=cache_dir,
+            fp16=fp16,
+            allow_tf32=allow_tf32,
         )
     except (ImportError, RuntimeError, ValueError, FileNotFoundError) as exc:
         warnings.warn(f"TensorRT unavailable; falling back to ONNX Runtime: {exc}")

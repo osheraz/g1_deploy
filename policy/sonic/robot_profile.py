@@ -83,6 +83,23 @@ class RobotProfile:
         """Mask in the official six-value wrist-reference order."""
         return np.isin(WRIST_IL, self.missing_isaaclab)
 
+    def matches_mode_machine(self, mode_machine: int) -> bool:
+        """Whether a live Unitree model code has this exact motor topology."""
+        mode = int(mode_machine)
+        if self.name == "g1_23dof":
+            return mode in (1, 4)
+        if self.name == "g1_29dof":
+            return mode in (2, 5)
+        return False
+
+    def require_mode_machine(self, mode_machine: int) -> None:
+        if not self.matches_mode_machine(mode_machine):
+            raise RuntimeError(
+                f"selected {self.name} does not match LowState mode_machine="
+                f"{int(mode_machine)} (23-DoF requires 1/4; 29-DoF requires "
+                "2/5; locked-waist 3/6 is unsupported)"
+            )
+
     def validate_physical(self, values, *, name: str = "values") -> np.ndarray:
         arr = np.asarray(values)
         if arr.shape[-1:] != (self.physical_dof,):
