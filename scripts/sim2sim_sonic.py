@@ -576,6 +576,9 @@ def main():
                     help="diagnostic: hold default pose, ignore policy")
     ap.add_argument("--trace", action="store_true", help="print per-step height/tilt/dof-err")
     ap.add_argument("--view", action="store_true", help="open the MuJoCo viewer")
+    ap.add_argument("--gait-templates", default=None,
+                    help="comma-separated gait-template npz paths: lower body "
+                         "from mocap cycles instead of the planner (hybrid)")
     ap.add_argument("--viser", action="store_true",
                     help="browser viewer + drive buttons on :8080 (for SSH; "
                          "replaces the GLFW window)")
@@ -1043,11 +1046,18 @@ def main():
             teleop = ScriptedTeleop(args.pico, speed=args.speed)
         # wall-paced viewing uses the deploy's planner thread; headless sim
         # outruns the wall clock, so it replans synchronously instead
-        ref = PicoReferenceWindow(cfg, teleop, threaded=args.realtime,
-                                  gated=not args.replan_ungated,
-                                  force_g1=args.planner,
-                                  idle_hold=args.idle_hold,
-                                  replan_period_s=args.effective_replan_period_s)
+        ref_kwargs = dict(threaded=args.realtime,
+                          gated=not args.replan_ungated,
+                          force_g1=args.planner,
+                          idle_hold=args.idle_hold,
+                          replan_period_s=args.effective_replan_period_s)
+        if args.gait_templates:
+            from policy.gait_reference import HybridGaitReference
+
+            ref = HybridGaitReference(cfg, teleop,
+                                      args.gait_templates.split(","), **ref_kwargs)
+        else:
+            ref = PicoReferenceWindow(cfg, teleop, **ref_kwargs)
         ref.robot = _MujocoJointState(
             d,
             qadr,

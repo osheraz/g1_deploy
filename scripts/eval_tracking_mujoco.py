@@ -120,12 +120,15 @@ def run_scenario(args, record_dir: Path) -> None:
     if args.clip:
         cmd += ["--clip", args.clip]
     else:
-        cmd += ["--pico", "joystick", "--planner", "--native-gamepad",
-                "--axes", args.planner_axes]
+        cmd += ["--pico", "joystick", "--planner", "--axes", args.planner_axes]
+        if not args.analog_speed:
+            cmd += ["--native-gamepad"]
         if args.axes_until:
             cmd += ["--axes-until", str(args.axes_until)]
         if args.slow:
             cmd += ["--slow"]
+        if args.gait_templates:
+            cmd += ["--gait-templates", args.gait_templates]
     print("running:", " ".join(cmd[1:]))
     res = subprocess.run(cmd, capture_output=True, text=True,
                          cwd=str(DEPLOY_ROOT), timeout=1800)
@@ -144,6 +147,10 @@ def main() -> None:
                     help="joystick scenario: fixed lx,ly,rx")
     ap.add_argument("--axes-until", type=int, default=None)
     ap.add_argument("--slow", action="store_true")
+    ap.add_argument("--gait-templates", default=None,
+                    help="hybrid lower-body gait templates (comma-separated npz)")
+    ap.add_argument("--analog-speed", action="store_true",
+                    help="stick-proportional speed instead of native fixed gaits")
     ap.add_argument("--steps", type=int, default=500)
     ap.add_argument("--config", default=None)
     ap.add_argument("--model-profile", default=None)
