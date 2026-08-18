@@ -99,6 +99,12 @@ while (( $# > 0 )); do
             PLANNER_REPLAN_PERIOD="$2"
             shift 2
             ;;
+        --viser)
+            # Browser viewer for SSH sessions: no GLFW window, drive buttons
+            # and the robot mirror on http://<host>:8080.
+            VIEW_MODE="viser"
+            shift
+            ;;
         --idle-hold)
             IDLE_HOLD=1
             shift
@@ -246,7 +252,7 @@ exec "$DEPLOY_PYTHON" "$ROOT/g1_deploy/scripts/sim2sim_sonic.py" \
     --mjcf "$E_SKIN_SELECTED_MJCF" \
     --pico joystick \
     --planner \
-    --view \
+    "--${VIEW_MODE:-view}" \
     --realtime \
     "${remote_args[@]}" \
     "${friction_args[@]}" \

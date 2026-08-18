@@ -576,6 +576,9 @@ def main():
                     help="diagnostic: hold default pose, ignore policy")
     ap.add_argument("--trace", action="store_true", help="print per-step height/tilt/dof-err")
     ap.add_argument("--view", action="store_true", help="open the MuJoCo viewer")
+    ap.add_argument("--viser", action="store_true",
+                    help="browser viewer + drive buttons on :8080 (for SSH; "
+                         "replaces the GLFW window)")
     ap.add_argument("--realtime", action="store_true",
                     help="with --view, pace the sim to wall clock")
     ap.add_argument(
@@ -1060,7 +1063,7 @@ def main():
         mujoco.mj_forward(m, d)
         ref.initialize_from_robot(d.qpos[3:7].copy(), ref.robot.qj)
         # pico: run until the viewer closes; headless still needs a bound
-        n_steps = args.steps or (10**9 if args.view else 500)
+        n_steps = args.steps or (10**9 if (args.view or args.viser) else 500)
     else:
         clip_path = args.clip or cfg.sonic_motion_clip
         ref = MotionReferenceWindow(
@@ -1157,6 +1160,18 @@ def main():
         viewer.cam.distance = 3.0
         viewer.cam.elevation = -15
         print("viewer open -- close the window to stop")
+
+    viser_view = None
+    if args.viser:
+        from common.viser_sim import ViserSimView
+
+        on_capture = None
+        if args.pico and hasattr(ref, "request_stable_stand_capture"):
+            on_capture = lambda: ref.request_stable_stand_capture("viser button")
+        viser_view = ViserSimView(cfg.urdf_path,
+                                  teleop=teleop if args.pico == "joystick" else None,
+                                  on_capture=on_capture)
+        print("viser: http://localhost:8080  (drive buttons in the sidebar)")
 
     import time as _time
     t_wall = _time.perf_counter()
@@ -1460,11 +1475,13 @@ def main():
                 if teleop is not None:
                     draw_command(viewer, d, teleop)
                 viewer.sync()
-                if args.realtime:
-                    t_wall += args.control_dt
-                    lag = t_wall - _time.perf_counter()
-                    if lag > 0:
-                        _time.sleep(lag)
+            if viser_view is not None and step % 2 == 0:      # 25 Hz mirror
+                viser_view.update(d.qpos[:3], d.qpos[3:7], d.qpos[qadr])
+            if (viewer is not None or viser_view is not None) and args.realtime:
+                t_wall += args.control_dt
+                lag = t_wall - _time.perf_counter()
+                if lag > 0:
+                    _time.sleep(lag)
             if not (args.remote and not getattr(teleop, "control_started", False)):
                 ref.step()
     except KeyboardInterrupt:
