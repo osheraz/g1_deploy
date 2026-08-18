@@ -18,6 +18,10 @@ from common.viser_display import JOINT_NAMES_BY_MOTOR_INDEX
 class ViserSimView:
     def __init__(self, urdf_path, teleop=None, on_capture=None, port: int = 8080):
         self.server = viser.ViserServer(port=port)
+        self.port = self.server.get_port()
+        if self.port != port:
+            print(f"[viser] port {port} busy -> serving on :{self.port} "
+                  f"(open THIS port, old tabs are a dead server)")
         self.base = self.server.scene.add_frame("/base", show_axes=False)
         self.urdf = ViserUrdf(self.server, urdf_or_path=Path(urdf_path),
                               root_node_name="/base", load_meshes=True,
@@ -44,6 +48,8 @@ class ViserSimView:
 
         def push(_e=None):
             teleop.set_axes(strafe.value, fwd.value, turn.value)
+            print(f"[viser] axes lx={strafe.value:+.2f} ly={fwd.value:+.2f} "
+                  f"rx={turn.value:+.2f}", flush=True)
 
         for s in (fwd, strafe, turn):
             s.on_update(push)

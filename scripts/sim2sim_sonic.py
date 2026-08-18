@@ -1181,7 +1181,7 @@ def main():
         viser_view = ViserSimView(cfg.urdf_path,
                                   teleop=teleop if args.pico == "joystick" else None,
                                   on_capture=on_capture)
-        print("viser: http://localhost:8080  (drive buttons in the sidebar)")
+        print(f"viser: http://localhost:{viser_view.port}  (drive sliders in the sidebar)")
 
     import time as _time
     t_wall = _time.perf_counter()
