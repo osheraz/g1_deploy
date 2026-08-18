@@ -127,6 +127,19 @@ class MotionReferenceWindow:
         self.frame = 0
         self.done = False
 
+    def reference_diagnostics(self) -> dict:
+        """Same row schema the planner reference logs, for the eval gate."""
+        ci = min(self.frame, self.T - 1)
+        return {
+            "reference_q_il": self.dof_il[ci].astype(np.float32),
+            "reference_dq_il": self.dof_vel_il[ci].astype(np.float32),
+            "reference_root_position": self.body_pos_il[ci, 0].astype(np.float32),
+            "reference_root_z": np.float32(self.body_pos_il[ci, 0, 2]),
+            "idle_hold_phase": np.int8(0),
+            "stand_capture_pending": np.bool_(False),
+            "stand_capture_count": np.int32(0),
+        }
+
     def step(self) -> None:
         self.frame += 1
         if self.frame >= self.T:
