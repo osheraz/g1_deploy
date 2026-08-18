@@ -30,35 +30,38 @@ class ViserSimView:
             self._add_controls(teleop, on_capture)
 
     def _add_controls(self, teleop, on_capture) -> None:
-        def bump(dlx=0.0, dly=0.0, drx=0.0):
-            teleop.set_axes(float(np.clip(teleop.lx + dlx, -1, 1)),
-                            float(np.clip(teleop.ly + dly, -1, 1)),
-                            float(np.clip(teleop.rx + drx, -1, 1)))
-
-        with self.server.gui.add_folder("drive"):
-            rows = [
-                ("turn L", lambda: bump(drx=-0.5)),
-                ("forward", lambda: bump(dly=+0.5)),
-                ("turn R", lambda: bump(drx=+0.5)),
-                ("left", lambda: bump(dlx=-0.5)),
-                ("STOP (idle)", lambda: teleop.set_axes(0, 0, 0)),
-                ("right", lambda: bump(dlx=+0.5)),
-                ("back", lambda: bump(dly=-0.5)),
-            ]
-            for label, fn in rows:
-                btn = self.server.gui.add_button(label)
-                btn.on_click(lambda _e, f=fn: f())
-
         from common.pico_client import LocomotionMode
 
-        with self.server.gui.add_folder("gait"):
-            for label, mode in (("slow walk", LocomotionMode.SLOW_WALK),
-                                ("walk", LocomotionMode.WALK),
-                                ("run", LocomotionMode.RUN)):
-                btn = self.server.gui.add_button(label)
-                btn.on_click(lambda _e, m=mode: teleop.set_locomotion_mode(m))
+        gui = self.server.gui
+        with gui.add_folder("drive (sliders = stick)"):
+            fwd = gui.add_slider("forward", min=-1.0, max=1.0, step=0.05,
+                                 initial_value=0.0)
+            strafe = gui.add_slider("strafe", min=-1.0, max=1.0, step=0.05,
+                                    initial_value=0.0)
+            turn = gui.add_slider("turn", min=-1.0, max=1.0, step=0.05,
+                                  initial_value=0.0)
+            stop = gui.add_button("STOP -> idle", color="red")
+
+        def push(_e=None):
+            teleop.set_axes(strafe.value, fwd.value, turn.value)
+
+        for s in (fwd, strafe, turn):
+            s.on_update(push)
+
+        def do_stop(_e=None):
+            fwd.value = strafe.value = turn.value = 0.0
+            teleop.set_axes(0, 0, 0)
+
+        stop.on_click(do_stop)
+
+        with gui.add_folder("gait"):
+            gaits = gui.add_button_group("mode", ("SLOW", "WALK", "RUN"))
+            gaits.on_click(lambda _e: teleop.set_locomotion_mode(
+                {"SLOW": LocomotionMode.SLOW_WALK,
+                 "WALK": LocomotionMode.WALK,
+                 "RUN": LocomotionMode.RUN}[gaits.value]))
             if on_capture is not None:
-                cap = self.server.gui.add_button("capture stand (Numpad Enter)")
+                cap = gui.add_button("capture stand pose")
                 cap.on_click(lambda _e: on_capture())
 
         self._teleop = teleop
