@@ -211,15 +211,16 @@ class GaitReferenceAdapter:
 
 
 class LandingHoldAdapter:
-    """Stop infeasible sagittal swing after a foot has already landed.
+    """Legacy landing-hold attempt: suppress sagittal swing after touchdown.
 
-    Same boundary and joint set as ``GaitReferenceAdapter`` sagittal scale:
-    encoder-facing hip-pitch / knee / ankle-pitch only. Hip roll/yaw and
-    ankle roll stay on the clip so weight shift and turning are unchanged.
-    After a confirmed touchdown the landed sagittal ``dvel_fut`` is zeroed
-    for at most ``max_hold_steps`` (160 ms at 50 Hz) so the tracker is not
-    asked to walk that foot through the floor. Pose freeze is optional and
-    rejected for slow walk. The other leg keeps the scaled clip.
+    Withdrawn. Do not use this as a slow-walk method. Pose freeze destroys
+    swing. A 160 ms sagittal ``dvel_fut`` zero is gait-neutral and does not
+    beat ``--slow-gait``. Official Slow Walk stays 0.4; the current recipe
+    is encoder-facing sagittal scale only.
+
+    Same joint set as ``GaitReferenceAdapter`` sagittal scale (hip-pitch /
+    knee / ankle-pitch, encoder copy only). Kept so ``--landing-hold`` and
+    ``--landing-hold-dvel`` can reproduce the 2026-08-19 study.
 
     Plant contact is optional. When it is absent the adapter uses measured
     foot height and a knee-flexion proxy so the same code can run from

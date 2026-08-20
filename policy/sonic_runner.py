@@ -252,7 +252,7 @@ class SonicRunner:
         self.landing_hold_adapter = LandingHoldAdapter(
             enabled=bool(getattr(config, "sonic_landing_hold", False)),
             mode=str(getattr(config, "sonic_landing_hold_mode", "pose")),
-        )
+        )  # legacy attempt; default off
         self.action_history_source = str(
             getattr(config, "sonic_action_history_source", "raw")
         ).strip().lower()

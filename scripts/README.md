@@ -36,6 +36,11 @@ commands for controlled comparisons; fixed presets are convenience aliases.
   controlled experiments; not a second workflow selector.
 - `fake_pico.py`: synthetic PICO-compatible publisher.
 - `prepare_sonic_motion.py` / `export_sonic_motion.py`: motion preparation.
+- `extract_gait_cycle.py`: **legacy.** Builds mocap-cycle npz for the
+  withdrawn hybrid-gait attempt (`--gait-templates`). Not the current
+  slow-walk method.
+- `eval_tracking_mujoco.py`: headless tracking/stability gate. Its
+  `--gait-templates` flag is the same legacy path.
 
 ## Calibration and sensing
 

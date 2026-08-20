@@ -148,7 +148,8 @@ def main() -> None:
     ap.add_argument("--axes-until", type=int, default=None)
     ap.add_argument("--slow", action="store_true")
     ap.add_argument("--gait-templates", default=None,
-                    help="hybrid lower-body gait templates (comma-separated npz)")
+                    help="LEGACY hybrid lower-body templates (comma-separated "
+                         "npz). Reproduction only; not the current slow walk")
     ap.add_argument("--analog-speed", action="store_true",
                     help="stick-proportional speed instead of native fixed gaits")
     ap.add_argument("--steps", type=int, default=500)

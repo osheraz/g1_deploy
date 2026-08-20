@@ -33,8 +33,13 @@ On a known-healthy plant, `--sagittal-scale 0.33` is the slowest uniform walk;
 [`2026-08-18 slower-gait study`](../../../docs/experiments/mujoco/2026-08-18_slower_gait/README.md)
 (Original Release; the other two checkpoints do not inherit that floor).
 Those flags are mutually exclusive with `--hip-pitch-scale`.
-`--landing-hold-dvel` is an optional 160 ms sagittal `dvel_fut` zero after
-touchdown; it is not part of `--slow-gait`. Pose `--landing-hold` is rejected.
+`--landing-hold` / `--landing-hold-dvel` are a **legacy landing-hold
+attempt**. Pose freeze destroys swing; the 160 ms dvel zero is
+gait-neutral and does not beat `--slow-gait`. Reproduction only.
+
+`sim2sim_sonic.py --gait-templates` / `policy/gait_reference.py` is a
+**legacy hybrid-gait attempt** (mocap lower-body cycles over the planner
+upper body). Do not use it for walk / turn / stand. Reproduction only.
 
 `forward-stable-23` is the current 23-DoF observation contract. Pair it with
 `--model-profile`; do not treat the YAML as a model lock.

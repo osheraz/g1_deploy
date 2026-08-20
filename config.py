@@ -294,6 +294,8 @@ class Config:
             None if flex_scale is None
             else np.asarray(flex_scale, dtype=np.float64)
         )
+        # Legacy landing-hold attempt (2026-08-19). Default off. Not the
+        # current slow-walk method; keep only for reproduction.
         self.sonic_landing_hold = bool(config.get("sonic_landing_hold", False))
         self.sonic_landing_hold_mode = str(
             config.get("sonic_landing_hold_mode", "pose")

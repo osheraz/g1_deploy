@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Score landing-hold against early-landing and walk/turn/stand health."""
+"""Score the legacy landing-hold attempt against walk/turn/stand health."""
 from __future__ import annotations
 
 import argparse

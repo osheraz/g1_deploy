@@ -521,6 +521,7 @@ CANDIDATES: dict[str, tuple[str, ...]] = {
         "--yaw-command-scale", "0.15",
         "--yaw-inplace-scale", "0.35",
     ),
+    # Legacy landing-hold attempt. Reproduction only; not the operator recipe.
     "unscaled_hold": (*ALL_MASKS, "--landing-hold"),
     "sag035_hold": (
         *ALL_MASKS,

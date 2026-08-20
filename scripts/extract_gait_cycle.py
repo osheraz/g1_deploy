@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Extract one cyclic gait template from a walking clip (exported npz).
+"""Legacy helper: extract one cyclic gait template from a walking clip.
 
-The template drives GaitCycleReference: phase-indexed lower-body joints from
-real mocap, so slow-speed references stay in SONIC's training distribution
-instead of using the planner (whose floor is ~0.4 m/s).
+Withdrawn. Builds npz files for the unused hybrid-gait attempt
+(``policy/gait_reference.py`` / ``--gait-templates``). That path is not the
+current slow-walk method; keep official Slow Walk 0.4 and use sagittal
+scale / ``--slow-gait``.
 
     python scripts/extract_gait_cycle.py --clip policy/sonic/rand_22.npz \
         --out policy/sonic/gait_templates/slow_walk.npz

@@ -1,13 +1,15 @@
-"""Hybrid gait reference: mocap gait cycles for the lower body, planner upper.
+"""Legacy hybrid gait attempt: mocap lower-body cycles over a planner upper.
 
-Replaces only the planner's LOWER-body reference channels with a
-phase-indexed template extracted from real walking mocap
-(scripts/extract_gait_cycle.py). Motivation: the planner cannot walk slower
-than ~0.4 m/s; templates from genuinely slow clips stay in SONIC's training
-distribution at any commanded speed.
+Withdrawn. Do not use this as a slow-walk method. Official Slow Walk stays
+0.4; the current slower gait is encoder-facing sagittal scale
+(``--slow-gait`` / ``--sagittal-scale``), not a replacement clip.
 
-Formulated as additive deviations about the parent window, so alpha -> 0
-hands over exactly to the parent's idle-hold / stand behavior:
+This module remains only so ``--gait-templates`` can reproduce the attempt.
+It overwrites the planner's lower-body ``dof_fut`` / ``dvel_fut`` with a
+phase-indexed mocap cycle from ``scripts/extract_gait_cycle.py``. That does
+not beat the completed-step floor documented in the 2026-08-18 slower-gait
+study: anything that finishes a step returns to ~0.16–0.20 m/s; anything
+that does not shuffles.
 
     q  = parent_q  + alpha * (cycle(phase) - template_stand)
     dq = parent_dq + alpha * cycle_dq(phase) * (natural_period / period)
@@ -69,7 +71,7 @@ def _wrap(a):
 
 
 class HybridGaitReference(PicoReferenceWindow):
-    """PicoReferenceWindow with template-generated lower-body gait."""
+    """Legacy: template-generated lower body on top of PicoReferenceWindow."""
 
     def __init__(self, config, client, templates, **kwargs):
         super().__init__(config, client, **kwargs)
@@ -84,8 +86,10 @@ class HybridGaitReference(PicoReferenceWindow):
         self._period = self.templates[0].period
         names = ", ".join(f"{t.meta['source'].split('/')[-1]}@{t.speed:.2f}m/s"
                           for t in self.templates)
-        print(f"Hybrid gait reference: lower body from templates [{names}], "
-              f"upper body from the planner")
+        print(
+            "LEGACY hybrid gait (reproduction only; not the current slow walk): "
+            f"lower body from templates [{names}], upper body from the planner"
+        )
 
     # -- gait state ------------------------------------------------------
 

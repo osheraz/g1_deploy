@@ -641,16 +641,16 @@ def main():
         "--landing-hold",
         action="store_true",
         help=(
-            "after touchdown, freeze that leg's sagittal encoder reference at "
-            "the measured pose until the *scaled* clip is stance"
+            "LEGACY reproduction only: freeze landed sagittal pose. "
+            "Rejected; destroys swing. Not the current slow-walk method"
         ),
     )
     ap.add_argument(
         "--landing-hold-dvel",
         action="store_true",
         help=(
-            "after touchdown, zero only sagittal dvel_fut on the landed leg "
-            "until the scaled clip is stance; leave q on the scaled clip"
+            "LEGACY reproduction only: zero landed sagittal dvel_fut. "
+            "Gait-neutral, no scoot win. Prefer --slow-gait / --sagittal-scale"
         ),
     )
     ap.add_argument(
@@ -671,8 +671,10 @@ def main():
     ap.add_argument("--trace", action="store_true", help="print per-step height/tilt/dof-err")
     ap.add_argument("--view", action="store_true", help="open the MuJoCo viewer")
     ap.add_argument("--gait-templates", default=None,
-                    help="comma-separated gait-template npz paths: lower body "
-                         "from mocap cycles instead of the planner (hybrid)")
+                    help="LEGACY reproduction only: comma-separated mocap "
+                         "cycle npz paths that replace planner lower-body "
+                         "reference. Not the current slow-walk method; prefer "
+                         "--slow-gait / --sagittal-scale")
     ap.add_argument("--viser", action="store_true",
                     help="browser viewer + drive buttons on :8080 (for SSH; "
                          "replaces the GLFW window)")
@@ -889,9 +891,19 @@ def main():
     if args.landing_hold:
         cfg.sonic_landing_hold = True
         cfg.sonic_landing_hold_mode = "pose"
+        print(
+            "WARNING: --landing-hold is a legacy attempt (pose freeze). "
+            "It destroys swing. Prefer --slow-gait / --sagittal-scale.",
+            flush=True,
+        )
     if args.landing_hold_dvel:
         cfg.sonic_landing_hold = True
         cfg.sonic_landing_hold_mode = "dvel"
+        print(
+            "WARNING: --landing-hold-dvel is a legacy attempt. "
+            "It does not improve --slow-gait. Prefer sagittal scale alone.",
+            flush=True,
+        )
 
     def parse_plant_overrides(
         specs, *, neutral: float, kind: str, lower: float, upper: float
@@ -1265,6 +1277,12 @@ def main():
         if args.gait_templates:
             from policy.gait_reference import HybridGaitReference
 
+            print(
+                "WARNING: --gait-templates is a legacy hybrid-gait attempt, "
+                "not the current slow-walk method. Prefer --slow-gait / "
+                "--sagittal-scale on the official planner clip.",
+                flush=True,
+            )
             ref = HybridGaitReference(cfg, teleop,
                                       args.gait_templates.split(","), **ref_kwargs)
         else:

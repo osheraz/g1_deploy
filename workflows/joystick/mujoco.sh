@@ -210,8 +210,7 @@ while (( $# > 0 )); do
             echo "--adaptation naive=official-parity; stable=forward-stable-23."
             echo "--hip-pitch-scale, --sagittal-scale, and --slow-gait are valid only with forward-stable-23 on g1_23dof and are mutually exclusive."
             echo "--slow-gait is sagittal 0.28 + knee +8 deg + walk yaw 0.15 / in-place yaw 0.35."
-            echo "--landing-hold-dvel zeros landed sagittal dvel_fut for ~160 ms after touchdown (same joints as sagittal scale)."
-            echo "--landing-hold freezes landed sagittal pose; rejected for slow walk, keep only for ablation."
+            echo "--landing-hold / --landing-hold-dvel are a LEGACY attempt (reproduction only). They do not improve --slow-gait."
             echo "--viser opens a browser viewer on :8080 instead of the GLFW window (SSH)."
             exit 0
             ;;
@@ -352,11 +351,11 @@ if [[ -n "$YAW_INPLACE_SCALE" ]]; then
 fi
 if (( LANDING_HOLD )); then
     reference_args+=(--landing-hold)
-    echo "Landing hold: freeze landed sagittal pose (ablation only; prefer --landing-hold-dvel)"
+    echo "LEGACY landing hold (pose freeze). Withdrawn; destroys swing. Prefer --slow-gait alone."
 fi
 if (( LANDING_HOLD_DVEL )); then
     reference_args+=(--landing-hold-dvel)
-    echo "Landing hold: zero landed sagittal dvel_fut for at most 160 ms after touchdown"
+    echo "LEGACY landing hold (dvel-only). Withdrawn; does not improve --slow-gait."
 fi
 idle_args=()
 if (( ! IDLE_HOLD )); then
