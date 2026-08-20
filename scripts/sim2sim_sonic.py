@@ -699,6 +699,13 @@ def main():
     ap.add_argument("--realtime", action="store_true",
                     help="with --view, pace the sim to wall clock")
     ap.add_argument(
+        "--sim-plugin",
+        default=None,
+        help="dotted path module:Class of a per-step observer plugin; "
+             "instantiated with (model, data, args), on_control_step(step) "
+             "runs after each control step, finalize(record_dir) after the run",
+    )
+    ap.add_argument(
         "--record-dir",
         type=Path,
         default=None,
@@ -1087,6 +1094,11 @@ def main():
     # MJCF as authored: its own timestep, damping, friction, foot geoms
     m = mujoco.MjModel.from_xml_path(str(Path(args.mjcf).expanduser()))
     d = mujoco.MjData(m)
+    plugin = None
+    if args.sim_plugin:
+        import importlib
+        plugin_module, _, plugin_class = args.sim_plugin.partition(":")
+        plugin = getattr(importlib.import_module(plugin_module), plugin_class)(m, d, args)
     decim = max(1, round(args.control_dt / m.opt.timestep))
 
     floor_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "floor")
@@ -1479,6 +1491,8 @@ def main():
                                   teleop=teleop if args.pico == "joystick" else None,
                                   on_capture=on_capture)
         print(f"viser: http://localhost:{viser_view.port}  (drive sliders in the sidebar)")
+        if plugin is not None and hasattr(plugin, "attach_viser"):
+            plugin.attach_viser(viser_view.server, teleop)
 
     import time as _time
     t_wall = _time.perf_counter()
@@ -1774,6 +1788,8 @@ def main():
                     rows[f"{side}_foot_contact_count"].append(contact_count)
                     rows[f"{side}_foot_position"].append(foot_position)
                     rows[f"{side}_foot_corner_z"].append(corner_z)
+                if plugin is not None:
+                    plugin.on_control_step(step)
 
             if ref_dof is not None:
                 f = min(ref.frame, len(ref_dof) - 1)
@@ -1832,6 +1848,8 @@ def main():
             fell=fell,
             interrupted=interrupted,
         )
+    if plugin is not None and args.record_dir is not None:
+        plugin.finalize(args.record_dir.expanduser().resolve())
 
 
 if __name__ == "__main__":
