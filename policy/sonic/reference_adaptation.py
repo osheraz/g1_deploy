@@ -19,6 +19,53 @@ RIGHT_SAGITTAL_IL = (2, 3, 9)
 LEFT_KNEE_IL = 1
 RIGHT_KNEE_IL = 3
 
+# Encoder-facing healthy-plant recipe. Official Slow Walk stays 0.4.
+# C++ constants in sonic_cpp/.../reference_adaptation.hpp must match.
+SLOW_GAIT_SAGITTAL_SCALE = 0.28
+SLOW_GAIT_KNEE_OFFSET_DEG = 8.0
+SLOW_GAIT_YAW_COMMAND_SCALE = 0.15
+SLOW_GAIT_YAW_INPLACE_SCALE = 0.35
+
+
+def _spec_group(spec: str) -> str:
+    return str(spec).split("=", 1)[0].strip().lower()
+
+
+def expand_slow_gait_recipe(
+    *,
+    joint_scale_specs=(),
+    joint_offset_specs=(),
+    yaw_command_scale=None,
+    yaw_inplace_scale=None,
+):
+    """Expand ``--slow-gait`` the same way the MuJoCo and C++ launchers do.
+
+    Sagittal 0.28 + gait-only knee +8° + walk yaw 0.15 / in-place 0.35.
+    An explicit knee offset or yaw scale is kept. Sagittal or hip-pitch
+    scale specs are rejected so the recipe cannot be mixed with those flags.
+    """
+    scale_groups = {_spec_group(spec) for spec in joint_scale_specs}
+    if scale_groups & {"sagittal", "hip_pitch"}:
+        raise ValueError(
+            "--slow-gait is mutually exclusive with sagittal/hip-pitch scale"
+        )
+    scales = [str(spec) for spec in joint_scale_specs]
+    scales.append(f"sagittal={SLOW_GAIT_SAGITTAL_SCALE:g}")
+    offsets = [str(spec) for spec in joint_offset_specs]
+    if "knee" not in {_spec_group(spec) for spec in offsets}:
+        offsets.append(f"knee={SLOW_GAIT_KNEE_OFFSET_DEG:g}")
+    walk_yaw = (
+        SLOW_GAIT_YAW_COMMAND_SCALE
+        if yaw_command_scale is None
+        else float(yaw_command_scale)
+    )
+    inplace_yaw = (
+        SLOW_GAIT_YAW_INPLACE_SCALE
+        if yaw_inplace_scale is None
+        else float(yaw_inplace_scale)
+    )
+    return scales, offsets, walk_yaw, inplace_yaw
+
 
 def gait_yaw_command_scale(reference_joint_scale) -> float:
     """Commanded heading rate that stays consistent with a smaller stride.

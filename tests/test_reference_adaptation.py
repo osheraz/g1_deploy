@@ -6,8 +6,15 @@ from policy.sonic.reference_adaptation import (
     GaitReferenceAdapter,
     LandingHoldAdapter,
     LEFT_SAGITTAL_IL,
+    SAGITTAL_PHYSICAL_IDX,
+    SLOW_GAIT_KNEE_OFFSET_DEG,
+    SLOW_GAIT_SAGITTAL_SCALE,
+    SLOW_GAIT_YAW_COMMAND_SCALE,
+    SLOW_GAIT_YAW_INPLACE_SCALE,
+    expand_slow_gait_recipe,
     gait_yaw_command_scale,
 )
+from policy.sonic.robot_profile import G1_23DOF
 
 
 class GaitReferenceAdapterTest(unittest.TestCase):
@@ -145,6 +152,40 @@ class GaitReferenceAdapterTest(unittest.TestCase):
             [[0.40 + 0.28 * (0.10 - 0.40), 0.40 + 0.60 * (0.80 - 0.40)]],
         )
         np.testing.assert_allclose(out["dvel_fut"][..., 9], [[0.56, 1.2]])
+
+    def test_slow_gait_recipe_matches_cpp_and_allows_yaw_overrides(self):
+        self.assertEqual(SLOW_GAIT_SAGITTAL_SCALE, 0.28)
+        self.assertEqual(SLOW_GAIT_KNEE_OFFSET_DEG, 8.0)
+        self.assertEqual(SLOW_GAIT_YAW_COMMAND_SCALE, 0.15)
+        self.assertEqual(SLOW_GAIT_YAW_INPLACE_SCALE, 0.35)
+        scales, offsets, walk_yaw, inplace_yaw = expand_slow_gait_recipe()
+        self.assertEqual(scales, ["sagittal=0.28"])
+        self.assertEqual(offsets, ["knee=8"])
+        self.assertEqual(walk_yaw, 0.15)
+        self.assertEqual(inplace_yaw, 0.35)
+        scales, offsets, walk_yaw, inplace_yaw = expand_slow_gait_recipe(
+            joint_offset_specs=["knee=6"],
+            yaw_command_scale=0.18,
+            yaw_inplace_scale=0.40,
+        )
+        self.assertEqual(offsets, ["knee=6"])
+        self.assertEqual(walk_yaw, 0.18)
+        self.assertEqual(inplace_yaw, 0.40)
+        with self.assertRaises(ValueError):
+            expand_slow_gait_recipe(joint_scale_specs=["sagittal=0.33"])
+        with self.assertRaises(ValueError):
+            expand_slow_gait_recipe(joint_scale_specs=["hip_pitch=0.85"])
+
+    def test_physical_sagittal_maps_to_cpp_isaaclab_slots(self):
+        physical = np.ones(23)
+        for index in SAGITTAL_PHYSICAL_IDX:
+            physical[index] = 0.28
+        il = G1_23DOF.physical_to_isaaclab(physical, fill=1.0)
+        for index in (0, 1, 9, 10, 13, 14):
+            self.assertEqual(il[index], 0.28)
+        self.assertEqual(il[2], 1.0)
+        self.assertEqual(il[3], 1.0)
+        self.assertEqual(il[4], 1.0)
 
     def test_gait_yaw_command_scale_follows_smallest_sagittal_joint(self):
         healthy = np.ones(23)

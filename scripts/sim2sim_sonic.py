@@ -628,6 +628,15 @@ def main():
         ),
     )
     ap.add_argument(
+        "--slow-gait",
+        action="store_true",
+        help=(
+            "healthy-plant Original Release recipe: sagittal 0.28, gait-only "
+            "knee +8 deg, walk yaw 0.15 / in-place 0.35. Exclusive with "
+            "explicit sagittal or hip-pitch --reference-joint-scale"
+        ),
+    )
+    ap.add_argument(
         "--yaw-command-scale",
         type=float,
         default=None,
@@ -789,6 +798,35 @@ def main():
     apply_motor_overrides(
         args.motor_rate, "sonic_motor_target_rate_limit", "rate"
     )
+    if getattr(args, "slow_gait", False):
+        from policy.sonic.reference_adaptation import expand_slow_gait_recipe
+
+        if str(cfg.sonic_adaptation_profile).strip().lower() != "forward-stable-23":
+            raise SystemExit(
+                "--slow-gait requires a forward-stable-23 adaptation config"
+            )
+        if profile.name != "g1_23dof":
+            raise SystemExit("--slow-gait requires embodiment g1_23dof")
+        try:
+            (
+                args.reference_joint_scale,
+                args.reference_joint_offset_deg,
+                args.yaw_command_scale,
+                args.yaw_inplace_scale,
+            ) = expand_slow_gait_recipe(
+                joint_scale_specs=args.reference_joint_scale,
+                joint_offset_specs=args.reference_joint_offset_deg,
+                yaw_command_scale=args.yaw_command_scale,
+                yaw_inplace_scale=args.yaw_inplace_scale,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        print(
+            "Slow-gait recipe: sagittal 0.28, gait-only knee +8 deg, "
+            f"walk yaw {args.yaw_command_scale:g} / "
+            f"in-place yaw {args.yaw_inplace_scale:g}",
+            flush=True,
+        )
     if np.asarray(cfg.sonic_reference_joint_scale).shape != (
         profile.physical_dof,
     ):

@@ -12,7 +12,12 @@ MODEL_PROFILE="original-release"
 EMBODIMENT="g1_23dof"
 ADAPTATION="official-parity"
 HIP_PITCH_SCALE=""
+SAGITTAL_SCALE=""
 HIP_PITCH_SCALE_DEFAULT="0.85"
+KNEE_GAIT_OFFSET_DEG=""
+YAW_COMMAND_SCALE=""
+YAW_INPLACE_SCALE=""
+SLOW_GAIT=0
 ARM_REAL_ROBOT=0
 EXTRA_ARGS=()
 
@@ -22,7 +27,9 @@ Usage: $0 [--arm-real-robot] [--interface NAME]
           [--model-profile low-latency|original-release|sonic-v1.1]
           [--embodiment g1_23dof|g1_29dof]
           [--adaptation official-parity|forward-stable-23|robust-small-gait-23]
-          [--hip-pitch-scale[=SCALE]]
+          [--hip-pitch-scale[=SCALE]|--sagittal-scale[=SCALE]|--slow-gait]
+          [--knee-gait-offset-deg DEGREES]
+          [--yaw-command-scale SCALE] [--yaw-inplace-scale SCALE]
           [--probe-hosts|--clean-ports|--clean-team-ports]
 
 Unified C++ physical joystick launcher. It never starts MuJoCo. Defaults
@@ -40,9 +47,17 @@ Adaptations:
   robust-small-gait-23
       Historical backward-selected wrist-mask/hip-scale contract.
 
---hip-pitch-scale is valid only with forward-stable-23. No value selects
-the knee-bias-robust MuJoCo default $HIP_PITCH_SCALE_DEFAULT. Omitting the
-flag keeps the base hip-pitch reference scale at 1.00.
+--hip-pitch-scale, --sagittal-scale, and --slow-gait are valid only with
+forward-stable-23 on g1_23dof and are mutually exclusive. No value on a
+scale flag selects $HIP_PITCH_SCALE_DEFAULT. Omitting every scale flag
+keeps encoder-facing gait amplitude at 1.00.
+
+--sagittal-scale shortens hip pitch, knee, and ankle pitch together
+about the captured stand. Prefer it over hip-only for a first physical
+trial (bare = 0.85). --slow-gait is the healthy-MuJoCo Original Release
+floor: sagittal 0.28 + gait-only knee +8 deg + walk yaw 0.15 / in-place
+0.35. Official Slow Walk stays 0.4. Do not start a first physical trial
+at 0.28 unless the plant is known-healthy.
 EOF
 }
 
@@ -101,6 +116,51 @@ while (( $# > 0 )); do
             }
             shift
             ;;
+        --sagittal-scale)
+            if [[ -n "${2:-}" && "${2:-}" != --* ]]; then
+                SAGITTAL_SCALE="$2"
+                shift 2
+            else
+                SAGITTAL_SCALE="$HIP_PITCH_SCALE_DEFAULT"
+                shift
+            fi
+            ;;
+        --sagittal-scale=*)
+            SAGITTAL_SCALE="${1#*=}"
+            [[ -n "$SAGITTAL_SCALE" ]] || {
+                echo "ERROR: --sagittal-scale= requires a value" >&2
+                exit 2
+            }
+            shift
+            ;;
+        --knee-gait-offset-deg)
+            [[ -n "${2:-}" && "${2:-}" != --* ]] || {
+                echo "ERROR: --knee-gait-offset-deg requires DEGREES" >&2
+                exit 2
+            }
+            KNEE_GAIT_OFFSET_DEG="$2"
+            shift 2
+            ;;
+        --yaw-command-scale)
+            [[ -n "${2:-}" && "${2:-}" != --* ]] || {
+                echo "ERROR: --yaw-command-scale requires a value" >&2
+                exit 2
+            }
+            YAW_COMMAND_SCALE="$2"
+            shift 2
+            ;;
+        --yaw-inplace-scale)
+            [[ -n "${2:-}" && "${2:-}" != --* ]] || {
+                echo "ERROR: --yaw-inplace-scale requires a value" >&2
+                exit 2
+            }
+            YAW_INPLACE_SCALE="$2"
+            shift 2
+            ;;
+        --slow-gait)
+            SLOW_GAIT=1
+            shift
+            ;;
         --arm-real-robot)
             ARM_REAL_ROBOT=1
             shift
@@ -139,8 +199,26 @@ if [[ "$ADAPTATION" == "robust-small-gait-23" && "$EMBODIMENT" != "g1_23dof" ]];
     echo "ERROR: robust-small-gait-23 requires --embodiment g1_23dof" >&2
     exit 2
 fi
-if [[ -n "$HIP_PITCH_SCALE" && "$ADAPTATION" != "forward-stable-23" ]]; then
-    echo "ERROR: --hip-pitch-scale is supported only with --adaptation forward-stable-23" >&2
+SLOW_KNEE_OVERRIDE="$KNEE_GAIT_OFFSET_DEG"
+SLOW_YAW_COMMAND_OVERRIDE="$YAW_COMMAND_SCALE"
+SLOW_YAW_INPLACE_OVERRIDE="$YAW_INPLACE_SCALE"
+if (( SLOW_GAIT )); then
+    if [[ -n "$HIP_PITCH_SCALE" || -n "$SAGITTAL_SCALE" ]]; then
+        echo "ERROR: --slow-gait is mutually exclusive with --hip-pitch-scale and --sagittal-scale" >&2
+        exit 2
+    fi
+    SAGITTAL_SCALE="0.28"
+    KNEE_GAIT_OFFSET_DEG="${KNEE_GAIT_OFFSET_DEG:-8}"
+    YAW_COMMAND_SCALE="${YAW_COMMAND_SCALE:-0.15}"
+    YAW_INPLACE_SCALE="${YAW_INPLACE_SCALE:-0.35}"
+fi
+if [[ -n "$HIP_PITCH_SCALE" && -n "$SAGITTAL_SCALE" ]]; then
+    echo "ERROR: --hip-pitch-scale and --sagittal-scale are mutually exclusive" >&2
+    exit 2
+fi
+if [[ -n "$HIP_PITCH_SCALE$SAGITTAL_SCALE$KNEE_GAIT_OFFSET_DEG$YAW_COMMAND_SCALE$YAW_INPLACE_SCALE" &&
+      "$ADAPTATION" != "forward-stable-23" ]]; then
+    echo "ERROR: gait scale / knee offset / yaw flags require --adaptation forward-stable-23" >&2
     exit 2
 fi
 
@@ -151,12 +229,21 @@ case "$ADAPTATION" in
         ;;
     forward-stable-23)
         echo "[ROBOT STACK] C++ / $MODEL_PROFILE / forward-stable-23 / joystick / $EMBODIMENT"
-        if [[ -n "$HIP_PITCH_SCALE" ]]; then
+        if [[ -n "$SAGITTAL_SCALE" ]]; then
+            echo "[ROBOT STACK] All-six reference/history masks; active-gait sagittal scale $SAGITTAL_SCALE; direct decoder targets."
+        elif [[ -n "$HIP_PITCH_SCALE" ]]; then
             echo "[ROBOT STACK] All-six reference/history masks; active-gait hip-pitch scale $HIP_PITCH_SCALE; direct decoder targets."
         else
-            echo "[ROBOT STACK] All-six reference/history masks; hip-pitch scale 1.00; direct decoder targets."
+            echo "[ROBOT STACK] All-six reference/history masks; unscaled sagittal reference; direct decoder targets."
         fi
-        echo "[ROBOT STACK] MuJoCo-qualified only; first physical use is an experimental trial."
+        if [[ -n "$KNEE_GAIT_OFFSET_DEG" ]]; then
+            echo "[ROBOT STACK] Gait-only knee flexion offset: ${KNEE_GAIT_OFFSET_DEG} deg (inactive in IDLE)."
+        fi
+        if [[ -n "$YAW_COMMAND_SCALE$YAW_INPLACE_SCALE" ]]; then
+            echo "[ROBOT STACK] Split yaw: walk ${YAW_COMMAND_SCALE:-1} / in-place ${YAW_INPLACE_SCALE:-$YAW_COMMAND_SCALE}."
+        fi
+        echo "[ROBOT STACK] Encoder copy only. Official Slow Walk stays 0.4."
+        echo "[ROBOT STACK] MuJoCo-qualified recipe; first physical use is an experimental trial."
         ;;
     robust-small-gait-23)
         echo "[ROBOT STACK] C++ / $MODEL_PROFILE / robust-small-gait-23 / joystick / $EMBODIMENT"
@@ -173,8 +260,33 @@ ARGS=(
     --interface "$INTERFACE"
     "${EXTRA_ARGS[@]}"
 )
-if [[ -n "$HIP_PITCH_SCALE" ]]; then
-    ARGS+=(--hip-pitch-scale "$HIP_PITCH_SCALE")
+if (( SLOW_GAIT )); then
+    ARGS+=(--slow-gait)
+    if [[ -n "$SLOW_KNEE_OVERRIDE" ]]; then
+        ARGS+=(--knee-gait-offset-deg "$SLOW_KNEE_OVERRIDE")
+    fi
+    if [[ -n "$SLOW_YAW_COMMAND_OVERRIDE" ]]; then
+        ARGS+=(--yaw-command-scale "$SLOW_YAW_COMMAND_OVERRIDE")
+    fi
+    if [[ -n "$SLOW_YAW_INPLACE_OVERRIDE" ]]; then
+        ARGS+=(--yaw-inplace-scale "$SLOW_YAW_INPLACE_OVERRIDE")
+    fi
+else
+    if [[ -n "$SAGITTAL_SCALE" ]]; then
+        ARGS+=(--sagittal-scale "$SAGITTAL_SCALE")
+    fi
+    if [[ -n "$HIP_PITCH_SCALE" ]]; then
+        ARGS+=(--hip-pitch-scale "$HIP_PITCH_SCALE")
+    fi
+    if [[ -n "$KNEE_GAIT_OFFSET_DEG" ]]; then
+        ARGS+=(--knee-gait-offset-deg "$KNEE_GAIT_OFFSET_DEG")
+    fi
+    if [[ -n "$YAW_COMMAND_SCALE" ]]; then
+        ARGS+=(--yaw-command-scale "$YAW_COMMAND_SCALE")
+    fi
+    if [[ -n "$YAW_INPLACE_SCALE" ]]; then
+        ARGS+=(--yaw-inplace-scale "$YAW_INPLACE_SCALE")
+    fi
 fi
 if (( ARM_REAL_ROBOT )); then
     ARGS+=(--arm-real-robot --non-interactive)

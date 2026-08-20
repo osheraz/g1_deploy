@@ -264,10 +264,10 @@ if (( SLOW_GAIT )); then
         echo "ERROR: --slow-gait is mutually exclusive with --hip-pitch-scale and --sagittal-scale" >&2
         exit 2
     fi
-    SAGITTAL_SCALE="0.28"
-    KNEE_GAIT_OFFSET_DEG="${KNEE_GAIT_OFFSET_DEG:-8}"
-    YAW_COMMAND_SCALE="${YAW_COMMAND_SCALE:-0.15}"
-    YAW_INPLACE_SCALE="${YAW_INPLACE_SCALE:-0.35}"
+    if [[ "$ADAPTATION" != "forward-stable-23" ]]; then
+        echo "ERROR: --slow-gait is supported only on top of --adaptation forward-stable-23" >&2
+        exit 2
+    fi
 fi
 if [[ -n "$HIP_PITCH_SCALE" && -n "$SAGITTAL_SCALE" ]]; then
     echo "ERROR: --hip-pitch-scale and --sagittal-scale are mutually exclusive" >&2
@@ -329,7 +329,10 @@ if [[ -n "$PLANNER_REPLAN_PERIOD" ]]; then
     replan_args=(--planner-replan-period "$PLANNER_REPLAN_PERIOD")
 fi
 reference_args=()
-if [[ -n "$SAGITTAL_SCALE" ]]; then
+if (( SLOW_GAIT )); then
+    reference_args=(--slow-gait)
+    echo "Slow-gait recipe: sagittal 0.28, gait-only knee +8 deg, walk yaw 0.15 / in-place 0.35"
+elif [[ -n "$SAGITTAL_SCALE" ]]; then
     reference_args=(--reference-joint-scale "sagittal=$SAGITTAL_SCALE")
     echo "Forward-stable sagittal reference scale (hip-pitch/knee/ankle-pitch): $SAGITTAL_SCALE"
     echo "Command yaw rate is scaled by ${YAW_COMMAND_SCALE:-$SAGITTAL_SCALE} so walk-plus-turn stays a slower heading change."

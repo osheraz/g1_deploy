@@ -18,7 +18,8 @@ Each launcher selects one atomic model profile (`low-latency`,
 `original-release`, or `sonic-v1.1`), one embodiment (`g1_23dof` or
 `g1_29dof`), and one adaptation. `official-parity` / `naive` is valid on the
 full 3x2x2 matrix. `forward-stable-23` / `stable` is valid for any released
-model on `g1_23dof` and additionally accepts `--hip-pitch-scale`. Native
+model on `g1_23dof` and additionally accepts `--slow-gait`,
+`--sagittal-scale`, and `--hip-pitch-scale`. Native
 29-DoF rejects those 23-DoF adaptations. For `robust-small-gait-23`, the
 deployment registry resolves the model-specific YAML and also rejects native
 29-DoF use. The collaborator MuJoCo flag page is
@@ -29,7 +30,7 @@ deployment registry resolves the model-specific YAML and also rejects native
 ```bash
 /home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_mujoco.sh --model-profile original-release --embodiment g1_23dof --adaptation official-parity
 /home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_mujoco.sh --model-profile original-release --embodiment g1_23dof --adaptation forward-stable-23
-/home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_mujoco.sh --model-profile original-release --embodiment g1_23dof --adaptation forward-stable-23 --hip-pitch-scale
+/home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_mujoco.sh --model-profile original-release --embodiment g1_23dof --adaptation forward-stable-23 --slow-gait
 ```
 
 ## Unified physical C++ launcher
@@ -37,7 +38,7 @@ deployment registry resolves the model-specific YAML and also rejects native
 ```bash
 /home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh --adaptation official-parity --interface enp132s0
 /home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh --adaptation forward-stable-23 --interface enp132s0
-/home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh --adaptation forward-stable-23 --hip-pitch-scale --interface enp132s0
+/home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh --adaptation forward-stable-23 --slow-gait --interface enp132s0
 ```
 
 Add `--arm-real-robot` only after the matching no-DDS preflight. C++ is the
@@ -55,13 +56,13 @@ Interactive keyboard MuJoCo:
 Physical C++ controller (moves the robot):
 
 ```bash
-/home/clhsieh/e_skin/g1_deploy/workflows/joystick/presets/forward_stable_23_robot_cpp.sh --arm-real-robot --hip-pitch-scale --interface enp132s0
+/home/clhsieh/e_skin/g1_deploy/workflows/joystick/presets/forward_stable_23_robot_cpp.sh --arm-real-robot --slow-gait --interface enp132s0
 ```
 
 Run the same physical command without `--arm-real-robot` for its no-DDS
 preflight. The preset locks Original Release, `g1_23dof`, and
-`forward-stable-23`. Append `--hip-pitch-scale` to enable the selected 0.85
-bilateral hip-pitch reference option. C++ is the current physical
+`forward-stable-23`. Append `--slow-gait` for the healthy-plant encoder-facing
+recipe (sagittal 0.28 + knee +8° + split yaw). C++ is the current physical
 recommendation because the Python path experienced 112--115 ms LowState stalls
 on the robot.
 
@@ -96,7 +97,7 @@ Never run Python and C++ low-level controllers concurrently.
 | Adaptation | Status |
 | --- | --- |
 | `official-parity` | General default for the complete model x operation x embodiment matrix |
-| `forward-stable-23` | Current 23-DoF forward Slow Walk candidate on any released model; all-six masks, optional hip-pitch scale, direct output |
+| `forward-stable-23` | Current 23-DoF forward Slow Walk candidate on any released model; all-six masks, optional `--slow-gait` / sagittal / hip-pitch scale, direct output |
 | `robust-small-gait-23` | Historical backward-selected planner / 23-DoF profiles; reference-side only, direct motor output |
 | `stable-slow-23` | Superseded research/reproduction profile with weak ankle output shaping |
 

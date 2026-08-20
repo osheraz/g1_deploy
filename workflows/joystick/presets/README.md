@@ -16,8 +16,9 @@ adaptation cannot drift between commands. Generic MuJoCo selection remains in
 
 The current MuJoCo and C++ physical presets lock Original Release, `g1_23dof`,
 and `forward-stable-23`: all six unavailable reference/history axes are masked,
-with no ankle/output shaping. Both accept optional `--hip-pitch-scale`; omitting
-it keeps the base bilateral hip-pitch reference scale at 1.00. Prefer the
+with no ankle/output shaping. Both accept `--slow-gait`, `--sagittal-scale`,
+and `--hip-pitch-scale`; omitting them keeps encoder-facing amplitude at 1.00.
+Prefer the
 unified [`../robot_cpp.sh`](../robot_cpp.sh) launcher when comparing
 `official-parity` against `forward-stable-23`. The three `robust_small_gait`
 presets are historical backward-selected profiles. The Python physical preset

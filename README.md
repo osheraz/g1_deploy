@@ -24,7 +24,7 @@ legacy policy commands below are not the reviewed robust 23-DoF SONIC preset.
 - [6. Tactile](tutorials/06_tactile.md) — e-skin over ZMQ
 - [PICO teleop and PLANNER/G1](tutorials/PICO_TELEOP.md) — VR teleop and
   planner-controlled locomotion
-- [SONIC parity changes and risk ledger](DEPLOYMENT_PARITY_CHANGES.md) — 23-DoF adaptation, logging, validation gates
+- [SONIC parity changes and risk ledger](DEPLOYMENT_PARITY_CHANGES.md) — historical 23-DoF implementation ledger; current method is the learning guide
 - [WiFi hotspot](tutorials/wifi_hotspot.md) — robot with no wired internet
 
 ## Run

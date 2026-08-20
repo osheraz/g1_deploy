@@ -6,11 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 for arg in "$@"; do
     case "$arg" in
         -h|--help)
-            echo "Usage: $0 [--arm-real-robot] [--hip-pitch-scale[=SCALE]] [--interface NAME] [--probe-hosts|--clean-ports|--clean-team-ports]"
+            echo "Usage: $0 [--arm-real-robot] [--slow-gait|--sagittal-scale[=SCALE]|--hip-pitch-scale[=SCALE]] [--interface NAME] [--probe-hosts|--clean-ports|--clean-team-ports]"
             echo "Fixed stack: C++, Original Release, forward-stable-23, Unitree joystick, physical G1 23-DoF."
             echo "Without --arm-real-robot, performs a no-DDS preflight only."
-            echo "--hip-pitch-scale without a value uses the knee-bias-robust MuJoCo default 0.85."
-            echo "Omitting it keeps the base bilateral hip-pitch reference scale at 1.00."
+            echo "--slow-gait is the healthy-plant recipe (sagittal 0.28 + knee +8 deg + split yaw)."
+            echo "Omitting every scale flag keeps encoder-facing amplitude at 1.00."
             exit 0
             ;;
         --model-profile|--embodiment|--adaptation|--adaptation-profile)

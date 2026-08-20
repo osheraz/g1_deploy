@@ -26,8 +26,8 @@ motor-shaped research profile.
 The generic MuJoCo and C++ physical workflows are separate scripts. Each
 accepts independent selectors for model, embodiment, and adaptation.
 `run_planner_joystick_mujoco.sh` never publishes a physical `LowCmd`.
-`run_planner_joystick_robot_cpp.sh` never starts MuJoCo. The C++ launcher
-accepts `--hip-pitch-scale` on `forward-stable-23`. Prefer those unified
+`run_planner_joystick_robot_cpp.sh` never starts MuJoCo. Both unified
+launchers accept `--slow-gait` on `forward-stable-23`. Prefer those
 commands for controlled comparisons; fixed presets are convenience aliases.
 
 ## Simulation engines and input tools
