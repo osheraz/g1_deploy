@@ -619,6 +619,15 @@ def main() -> None:
     config = Config(args.config)
     if config.policy_type == "sonic":
         config.select_sonic_model_profile(args.model_profile)
+        if str(config.sonic_adaptation_profile).strip().lower() in {
+            "robust-small-gait-23",
+            "stable-slow-23",
+        }:
+            raise SystemExit(
+                f"{config.sonic_adaptation_profile} is a withdrawn legacy "
+                "attempt and is blocked from the physical Python path. "
+                "Current recipe: forward-stable-23 --slow-gait"
+            )
     if args.clip:
         config.sonic_motion_clip = str(Path(args.clip).expanduser().resolve())
     if args.loop is not None:

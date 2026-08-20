@@ -21,9 +21,9 @@ The planner-owned 29-DoF trajectory must not be mutated by an embodiment
 adapter. Official-parity zeros only unavailable measured q/dq and gathers only
 the 23 physical outputs. `forward-stable-23` is the current 23-DoF
 observation contract: all six absent reference/history axes are masked, and
-outputs stay direct. `robust-small-gait-23` is the historical model-tuned
-wrist-mask exception; its checkpoint-specific config is resolved by
-`config/sonic_deployment_profiles.json`, not chosen piecemeal.
+outputs stay direct. `robust-small-gait-23` is a **withdrawn legacy
+attempt** (backward-selected wrist-mask / hip-only scale). It is blocked
+from live launch. MuJoCo reproduction needs `--legacy-reproduction`.
 
 `policy/gait_reference.py` and `gait_templates/` are a **legacy attempt**
 to replace planner lower-body with mocap cycles (`--gait-templates`).

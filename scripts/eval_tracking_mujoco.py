@@ -128,7 +128,7 @@ def run_scenario(args, record_dir: Path) -> None:
         if args.slow:
             cmd += ["--slow"]
         if args.gait_templates:
-            cmd += ["--gait-templates", args.gait_templates]
+            cmd += ["--legacy-reproduction", "--gait-templates", args.gait_templates]
     print("running:", " ".join(cmd[1:]))
     res = subprocess.run(cmd, capture_output=True, text=True,
                          cwd=str(DEPLOY_ROOT), timeout=1800)

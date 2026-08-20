@@ -26,7 +26,7 @@ usage() {
 Usage: $0 [--arm-real-robot] [--interface NAME]
           [--model-profile low-latency|original-release|sonic-v1.1]
           [--embodiment g1_23dof|g1_29dof]
-          [--adaptation official-parity|forward-stable-23|robust-small-gait-23]
+          [--adaptation official-parity|forward-stable-23]
           [--hip-pitch-scale[=SCALE]|--sagittal-scale[=SCALE]|--slow-gait]
           [--knee-gait-offset-deg DEGREES]
           [--yaw-command-scale SCALE] [--yaw-inplace-scale SCALE]
@@ -44,8 +44,8 @@ Adaptations:
   forward-stable-23, stable
       All-six missing-axis reference/history masks and direct output.
       Requires g1_23dof. Valid with any released model profile.
-  robust-small-gait-23
-      Historical backward-selected wrist-mask/hip-scale contract.
+  robust-small-gait-23 and stable-slow-23
+      Withdrawn legacy attempts. Blocked on the physical robot.
 
 --hip-pitch-scale, --sagittal-scale, and --slow-gait are valid only with
 forward-stable-23 on g1_23dof and are mutually exclusive. No value on a
@@ -89,7 +89,7 @@ while (( $# > 0 )); do
             ;;
         --adaptation|--adaptation-profile)
             [[ -n "${2:-}" && "$2" != --* ]] || {
-                echo "ERROR: --adaptation requires official-parity, forward-stable-23, or robust-small-gait-23" >&2
+                echo "ERROR: --adaptation requires official-parity or forward-stable-23" >&2
                 exit 2
             }
             if ! ADAPTATION="$(normalize_sonic_adaptation "$2")"; then
@@ -195,8 +195,9 @@ if [[ "$ADAPTATION" == "forward-stable-23" && "$EMBODIMENT" != "g1_23dof" ]]; th
     echo "ERROR: forward-stable-23 is defined only for --embodiment g1_23dof" >&2
     exit 2
 fi
-if [[ "$ADAPTATION" == "robust-small-gait-23" && "$EMBODIMENT" != "g1_23dof" ]]; then
-    echo "ERROR: robust-small-gait-23 requires --embodiment g1_23dof" >&2
+if is_legacy_sonic_adaptation "$ADAPTATION"; then
+    legacy_sonic_attempt_error "$ADAPTATION"
+    echo "Physical robot launch is refused. There is no override." >&2
     exit 2
 fi
 SLOW_KNEE_OVERRIDE="$KNEE_GAIT_OFFSET_DEG"
@@ -245,9 +246,9 @@ case "$ADAPTATION" in
         echo "[ROBOT STACK] Encoder copy only. Official Slow Walk stays 0.4."
         echo "[ROBOT STACK] MuJoCo-qualified recipe; first physical use is an experimental trial."
         ;;
-    robust-small-gait-23)
-        echo "[ROBOT STACK] C++ / $MODEL_PROFILE / robust-small-gait-23 / joystick / $EMBODIMENT"
-        echo "[ROBOT STACK] Historical backward-selected wrist-mask contract; decoder targets remain direct."
+    *)
+        echo "ERROR: unsupported --adaptation: $ADAPTATION" >&2
+        exit 2
         ;;
 esac
 echo "[ROBOT STACK] Planner recurrence, NVIDIA gains, and physical motor targets remain direct."

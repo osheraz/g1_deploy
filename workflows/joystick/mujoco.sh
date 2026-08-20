@@ -28,6 +28,7 @@ YAW_INPLACE_SCALE=""
 SLOW_GAIT=0
 LANDING_HOLD=0
 LANDING_HOLD_DVEL=0
+LEGACY_REPRODUCTION=0
 VIEW_MODE=""
 while (( $# > 0 )); do
     case "$1" in
@@ -199,18 +200,22 @@ while (( $# > 0 )); do
             LANDING_HOLD_DVEL=1
             shift
             ;;
+        --legacy-reproduction)
+            LEGACY_REPRODUCTION=1
+            shift
+            ;;
         --arm-real-robot|--non-interactive|--probe-hosts|--clean-ports|--clean-team-ports)
             echo "ERROR: $1 is a physical-robot flag. This is the MuJoCo launcher and never sends a LowCmd." >&2
             echo "Use /home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh for the real robot." >&2
             exit 2
             ;;
         -h|--help)
-            echo "Usage: $0 [--model-profile low-latency|original-release|sonic-v1.1] [--embodiment g1_23dof|g1_29dof] [--command-protocol keyboard|unitree-remote] [--adaptation official-parity|forward-stable-23|stable-slow-23|robust-small-gait-23] [--hip-pitch-scale[=SCALE]|--sagittal-scale[=SCALE]|--slow-gait] [--landing-hold|--landing-hold-dvel] [--viser] [--knee-gait-offset-deg DEGREES] [--yaw-command-scale SCALE] [--yaw-inplace-scale SCALE] [--interface IFACE] [--ground-friction MU] [--joint-encoder-offset-deg JOINT=DEGREES] [--plant-gain-scale JOINT_OR_GROUP=SCALE] [--plant-target-delay-ms JOINT_OR_GROUP=MILLISECONDS] [--planner-replan-period SECONDS] [--idle-hold|--no-idle-hold] [--record-root DIR] [--no-record]"
+            echo "Usage: $0 [--model-profile low-latency|original-release|sonic-v1.1] [--embodiment g1_23dof|g1_29dof] [--command-protocol keyboard|unitree-remote] [--adaptation official-parity|forward-stable-23] [--hip-pitch-scale[=SCALE]|--sagittal-scale[=SCALE]|--slow-gait] [--viser] [--knee-gait-offset-deg DEGREES] [--yaw-command-scale SCALE] [--yaw-inplace-scale SCALE] [--interface IFACE] [--ground-friction MU] [--joint-encoder-offset-deg JOINT=DEGREES] [--plant-gain-scale JOINT_OR_GROUP=SCALE] [--plant-target-delay-ms JOINT_OR_GROUP=MILLISECONDS] [--planner-replan-period SECONDS] [--idle-hold|--no-idle-hold] [--record-root DIR] [--no-record]"
             echo "This is the MuJoCo launcher only. It never publishes a physical LowCmd."
             echo "--adaptation naive=official-parity; stable=forward-stable-23."
             echo "--hip-pitch-scale, --sagittal-scale, and --slow-gait are valid only with forward-stable-23 on g1_23dof and are mutually exclusive."
             echo "--slow-gait is sagittal 0.28 + knee +8 deg + walk yaw 0.15 / in-place yaw 0.35."
-            echo "--landing-hold / --landing-hold-dvel are a LEGACY attempt (reproduction only). They do not improve --slow-gait."
+            echo "robust-small-gait-23, stable-slow-23, --landing-hold, and --landing-hold-dvel are withdrawn legacy attempts. Blocked unless --legacy-reproduction."
             echo "--viser opens a browser viewer on :8080 instead of the GLFW window (SSH)."
             exit 0
             ;;
@@ -238,20 +243,30 @@ case "$ADAPTATION" in
         echo "Adaptation: forward-stable-23 (all-six reference/history masks; direct reference and motor output)"
         ;;
     stable-slow-23)
+        if (( ! LEGACY_REPRODUCTION )); then
+            legacy_sonic_attempt_error "stable-slow-23"
+            echo "MuJoCo reproduction only: add --legacy-reproduction." >&2
+            exit 2
+        fi
         if [[ "$MODEL_PROFILE" != "original-release" || "$EMBODIMENT" != "g1_23dof" ]]; then
             echo "ERROR: stable-slow-23 requires --model-profile original-release --embodiment g1_23dof" >&2
             exit 2
         fi
         SELECTED_CONFIG="$ROOT/g1_deploy/configs/adaptations/original_release_23dof_stable_slow.yaml"
-        echo "Adaptation: stable-slow-23 (MuJoCo-qualified masks + weak ankle shaping; no clip/rate limit)"
+        echo "LEGACY reproduction: stable-slow-23 (withdrawn ankle-shaping profile)"
         ;;
     robust-small-gait-23)
+        if (( ! LEGACY_REPRODUCTION )); then
+            legacy_sonic_attempt_error "robust-small-gait-23"
+            echo "MuJoCo reproduction only: add --legacy-reproduction." >&2
+            exit 2
+        fi
         if [[ "$EMBODIMENT" != "g1_23dof" ]]; then
             echo "ERROR: robust-small-gait-23 requires --embodiment g1_23dof" >&2
             exit 2
         fi
         SELECTED_CONFIG="$E_SKIN_SELECTED_ROBUST_23DOF_CONFIG"
-        echo "Adaptation: robust-small-gait-23 (model-tuned wrist/reference contract; direct motor output)"
+        echo "LEGACY reproduction: robust-small-gait-23 (withdrawn backward-selected wrist-mask profile)"
         ;;
     *)
         echo "ERROR: unsupported --adaptation: $ADAPTATION" >&2
@@ -287,6 +302,11 @@ if [[ -n "$KNEE_GAIT_OFFSET_DEG$YAW_COMMAND_SCALE$YAW_INPLACE_SCALE" && "$ADAPTA
 fi
 if (( LANDING_HOLD + LANDING_HOLD_DVEL > 1 )); then
     echo "ERROR: --landing-hold and --landing-hold-dvel are mutually exclusive" >&2
+    exit 2
+fi
+if (( LANDING_HOLD + LANDING_HOLD_DVEL > 0 )) && (( ! LEGACY_REPRODUCTION )); then
+    legacy_sonic_attempt_error "--landing-hold / --landing-hold-dvel"
+    echo "MuJoCo reproduction only: add --legacy-reproduction." >&2
     exit 2
 fi
 if (( LANDING_HOLD + LANDING_HOLD_DVEL > 0 )) && [[ "$ADAPTATION" != "forward-stable-23" ]]; then
@@ -351,6 +371,9 @@ fi
 if [[ -n "$YAW_INPLACE_SCALE" ]]; then
     reference_args+=(--yaw-inplace-scale "$YAW_INPLACE_SCALE")
     echo "In-place turn yaw scale: $YAW_INPLACE_SCALE (walk-plus-turn keeps ${YAW_COMMAND_SCALE:-derived})"
+fi
+if (( LEGACY_REPRODUCTION )); then
+    reference_args+=(--legacy-reproduction)
 fi
 if (( LANDING_HOLD )); then
     reference_args+=(--landing-hold)

@@ -53,7 +53,13 @@ class SonicRunner:
 
     HISTORY = 10
 
-    def __init__(self, config, reference: ReferenceWindowProvider):
+    def __init__(
+        self,
+        config,
+        reference: ReferenceWindowProvider,
+        *,
+        allow_legacy_adaptation: bool = False,
+    ):
         from policy.sonic import obs as sonic_obs, robot_g1
         from policy.sonic.inference_backend import create_session
         from policy.sonic.action_adaptation import MotorActionAdapter
@@ -294,6 +300,15 @@ class SonicRunner:
             raise ValueError(
                 "sonic_adaptation_profile must be official-parity, "
                 "stable-slow-23, robust-small-gait-23, or forward-stable-23"
+            )
+        if (
+            self.adaptation_profile in ("stable-slow-23", "robust-small-gait-23")
+            and not allow_legacy_adaptation
+        ):
+            raise ValueError(
+                f"{self.adaptation_profile} is a withdrawn legacy attempt and "
+                "is blocked from live use. Current recipe: forward-stable-23 "
+                "--slow-gait. Reproduction only: pass --legacy-reproduction"
             )
         if self.adaptation_profile == "forward-stable-23":
             release_profile = getattr(config, "sonic_release_profile", None)

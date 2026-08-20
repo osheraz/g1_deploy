@@ -63,8 +63,9 @@ while (( $# > 0 )); do
             shift
             ;;
         -h|--help)
-            echo "Usage: $0 [--arm-real-robot] [--interface NAME] [--model-profile low-latency|original-release|sonic-v1.1] [--embodiment g1_23dof|g1_29dof] [--adaptation official-parity|forward-stable-23|stable-slow-23|robust-small-gait-23] [--preflight-only]"
+            echo "Usage: $0 [--arm-real-robot] [--interface NAME] [--model-profile low-latency|original-release|sonic-v1.1] [--embodiment g1_23dof|g1_29dof] [--adaptation official-parity|forward-stable-23] [--preflight-only]"
             echo "Without --arm-real-robot, the launcher performs a no-DDS preflight and exits."
+            echo "robust-small-gait-23 and stable-slow-23 are withdrawn legacy attempts and are blocked here."
             exit 0
             ;;
         *)
@@ -148,21 +149,10 @@ case "$ADAPTATION" in
         SELECTED_CONFIG="$E_SKIN_SELECTED_FORWARD_STABLE_23DOF_CONFIG"
         echo "WARNING: forward-stable-23 Python physical path is for A/B only; C++ is the recommended robot runtime" >&2
         ;;
-    stable-slow-23)
-        if [[ "$MODEL_PROFILE" != "original-release" || "$EMBODIMENT" != "g1_23dof" ]]; then
-            echo "ERROR: stable-slow-23 requires --model-profile original-release --embodiment g1_23dof" >&2
-            exit 2
-        fi
-        SELECTED_CONFIG="$ROOT/g1_deploy/configs/adaptations/original_release_23dof_stable_slow.yaml"
-        echo "WARNING: stable-slow-23 is MuJoCo-qualified but has not been physically validated" >&2
-        ;;
-    robust-small-gait-23)
-        if [[ "$EMBODIMENT" != "g1_23dof" ]]; then
-            echo "ERROR: robust-small-gait-23 requires --embodiment g1_23dof" >&2
-            exit 2
-        fi
-        SELECTED_CONFIG="$E_SKIN_SELECTED_ROBUST_23DOF_CONFIG"
-        echo "WARNING: robust-small-gait-23 is MuJoCo-qualified; begin physical testing with support/harness ready" >&2
+    stable-slow-23|robust-small-gait-23)
+        legacy_sonic_attempt_error "$ADAPTATION"
+        echo "Physical Python launch is refused. There is no override." >&2
+        exit 2
         ;;
     *)
         echo "ERROR: unsupported --adaptation: $ADAPTATION" >&2

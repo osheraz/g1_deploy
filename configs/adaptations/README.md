@@ -7,8 +7,8 @@ profiles with narrower contracts.
 | Profile | Allowed stack | Status | What changes |
 | --- | --- | --- | --- |
 | `forward-stable-23` | Any released model + planner + G1 23-DoF | Current corrected-forward MuJoCo and C++ selection | Shared YAML `g1_23dof_forward_stable.yaml`; masks all six absent reference/history axes; optional `--slow-gait` / sagittal / hip-pitch encoder-facing recipe; direct output |
-| `robust-small-gait-23` | Each released checkpoint + planner + G1 23-DoF | Historical backward-selected profiles; forward recommendation withdrawn | Masks absent wrist reference axes, preserves waist task context, uses checkpoint-specific wrist history and bilateral hip-reference scale; direct output |
-| `stable-slow-23` | Original Release + planner + G1 23-DoF | Historical research profile | Masks all absent axes plus weak ankle action shaping; corrected forward tests attribute its useful behavior to the masks, not ankle shaping |
+| `robust-small-gait-23` | Each released checkpoint + planner + G1 23-DoF | **Withdrawn legacy attempt.** Blocked on the robot. MuJoCo needs `--legacy-reproduction` | Backward-selected wrist-mask / hip-only scale from a wrong-sign campaign |
+| `stable-slow-23` | Original Release + planner + G1 23-DoF | **Withdrawn legacy attempt.** Blocked on the robot. MuJoCo needs `--legacy-reproduction` | All-six masks plus weak ankle output shaping |
 
 `robust-small-gait-23` is implemented by one registry-selected YAML per model:
 
@@ -50,9 +50,10 @@ Collaborator MuJoCo flags are in
 matching physical command is
 `g1_deploy/scripts/run_planner_joystick_robot_cpp.sh`. It is not yet a
 physical-robot qualification.
-`stable-slow-23` remains only for reproduction of the 2026-08-13 study. Do not
-make either historical profile the default for the general model x operation x
-embodiment matrix.
+`robust-small-gait-23` and `stable-slow-23` are withdrawn legacy attempts.
+They are blocked on the physical robot. MuJoCo reproduction needs
+`--legacy-reproduction`. Do not make either the default for the model x
+operation x embodiment matrix.
 
 The rationale and evidence are in
 [`../../../docs/learning/sonic_deployment.md`](../../../docs/learning/sonic_deployment.md)

@@ -20,9 +20,10 @@ Each launcher selects one atomic model profile (`low-latency`,
 full 3x2x2 matrix. `forward-stable-23` / `stable` is valid for any released
 model on `g1_23dof` and additionally accepts `--slow-gait`,
 `--sagittal-scale`, and `--hip-pitch-scale`. Native
-29-DoF rejects those 23-DoF adaptations. For `robust-small-gait-23`, the
-deployment registry resolves the model-specific YAML and also rejects native
-29-DoF use. The collaborator MuJoCo flag page is
+29-DoF rejects those 23-DoF adaptations. `robust-small-gait-23` and
+`stable-slow-23` are withdrawn legacy attempts: blocked on the physical
+robot, and blocked in MuJoCo unless `--legacy-reproduction` is passed. The
+collaborator MuJoCo flag page is
 [`../../../docs/runbooks/mujoco.md`](../../../docs/runbooks/mujoco.md).
 
 ## Unified MuJoCo launcher
@@ -66,29 +67,12 @@ recipe (sagittal 0.28 + knee +8° + split yaw). C++ is the current physical
 recommendation because the Python path experienced 112--115 ms LowState stalls
 on the robot.
 
-## Historical robust 23-DoF preset
+## Withdrawn robust 23-DoF preset
 
-Interactive keyboard MuJoCo:
-
-```bash
-/home/clhsieh/e_skin/g1_deploy/workflows/joystick/presets/robust_small_gait_23_mujoco.sh
-```
-
-Physical C++ controller (moves the robot):
-
-```bash
-/home/clhsieh/e_skin/g1_deploy/workflows/joystick/presets/robust_small_gait_23_robot_cpp.sh --arm-real-robot --interface enp132s0
-```
-
-This historical preset remains executable for reproduction. Corrected forward
-MuJoCo tests withdrew it as the recommended forward-gait candidate.
-
-The Python physical preset remains available for controlled A/B and defaults
-to no-DDS preflight:
-
-```bash
-/home/clhsieh/e_skin/g1_deploy/workflows/joystick/presets/robust_small_gait_23_robot_python.sh --interface enp132s0
-```
+`robust-small-gait-23` is a **legacy attempt** from a backward-selected
+campaign. Physical presets refuse to start. The MuJoCo preset starts only
+with `--legacy-reproduction`. Do not use it for a new walk / turn / stand
+run. Current recipe: `forward-stable-23 --slow-gait`.
 
 Never run Python and C++ low-level controllers concurrently.
 
@@ -98,8 +82,8 @@ Never run Python and C++ low-level controllers concurrently.
 | --- | --- |
 | `official-parity` | General default for the complete model x operation x embodiment matrix |
 | `forward-stable-23` | Current 23-DoF forward Slow Walk candidate on any released model; all-six masks, optional `--slow-gait` / sagittal / hip-pitch scale, direct output |
-| `robust-small-gait-23` | Historical backward-selected planner / 23-DoF profiles; reference-side only, direct motor output |
-| `stable-slow-23` | Superseded research/reproduction profile with weak ankle output shaping |
+| `robust-small-gait-23` | **Withdrawn legacy attempt.** Blocked on the robot; MuJoCo needs `--legacy-reproduction` |
+| `stable-slow-23` | **Withdrawn legacy attempt.** Blocked on the robot; MuJoCo needs `--legacy-reproduction` |
 
 The complete method is documented in
 [`../../../docs/learning/sonic_deployment.md`](../../../docs/learning/sonic_deployment.md).

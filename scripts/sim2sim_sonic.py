@@ -637,6 +637,15 @@ def main():
         ),
     )
     ap.add_argument(
+        "--legacy-reproduction",
+        action="store_true",
+        help=(
+            "allow withdrawn legacy attempts (robust-small-gait-23, "
+            "stable-slow-23, --landing-hold, --gait-templates). Blocked from "
+            "live use; current recipe is forward-stable-23 --slow-gait"
+        ),
+    )
+    ap.add_argument(
         "--yaw-command-scale",
         type=float,
         default=None,
@@ -926,11 +935,28 @@ def main():
         cfg.sonic_reference_joint_flex_scale = reference_flex_scale
     if args.landing_hold and args.landing_hold_dvel:
         raise SystemExit("--landing-hold and --landing-hold-dvel are mutually exclusive")
+    legacy_profile = str(cfg.sonic_adaptation_profile).strip().lower() in {
+        "robust-small-gait-23",
+        "stable-slow-23",
+    }
+    legacy_requested = bool(
+        legacy_profile
+        or args.landing_hold
+        or args.landing_hold_dvel
+        or args.gait_templates
+    )
+    if legacy_requested and not args.legacy_reproduction:
+        raise SystemExit(
+            "withdrawn legacy attempt blocked from live use "
+            "(robust-small-gait-23, stable-slow-23, --landing-hold, "
+            "--gait-templates). Current recipe: forward-stable-23 --slow-gait. "
+            "Reproduction only: pass --legacy-reproduction"
+        )
     if args.landing_hold:
         cfg.sonic_landing_hold = True
         cfg.sonic_landing_hold_mode = "pose"
         print(
-            "WARNING: --landing-hold is a legacy attempt (pose freeze). "
+            "WARNING: --landing-hold is a withdrawn legacy attempt (pose freeze). "
             "It destroys swing. Prefer --slow-gait / --sagittal-scale.",
             flush=True,
         )
@@ -938,7 +964,7 @@ def main():
         cfg.sonic_landing_hold = True
         cfg.sonic_landing_hold_mode = "dvel"
         print(
-            "WARNING: --landing-hold-dvel is a legacy attempt. "
+            "WARNING: --landing-hold-dvel is a withdrawn legacy attempt. "
             "It does not improve --slow-gait. Prefer sagittal scale alone.",
             flush=True,
         )
@@ -1332,7 +1358,9 @@ def main():
             encoder_position_offset=encoder_position_offset,
             support_diagnostics=_stand_support_diagnostics,
         )
-        runner = SonicRunner(cfg, ref)
+        runner = SonicRunner(
+            cfg, ref, allow_legacy_adaptation=args.legacy_reproduction
+        )
         ref_dof = None
         d.qpos[:3] = [0.0, 0.0, 0.793]
         d.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]
@@ -1349,7 +1377,9 @@ def main():
             model_profile=cfg.sonic_model_variant,
             robot_profile=cfg.sonic_robot_profile,
         )
-        runner = SonicRunner(cfg, ref)
+        runner = SonicRunner(
+            cfg, ref, allow_legacy_adaptation=args.legacy_reproduction
+        )
         clip = np.load(Path(clip_path).expanduser())
         ref_dof = profile.isaaclab_to_physical(clip["dof_il"])
         ref_vel = profile.isaaclab_to_physical(clip["dof_vel_il"])

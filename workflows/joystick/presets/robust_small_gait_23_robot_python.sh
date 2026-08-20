@@ -1,24 +1,12 @@
 #!/usr/bin/env bash
-# Fixed Python physical/preflight preset for the robust 23-DoF gait.
+# Withdrawn legacy physical Python preset. Blocked; no override.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for arg in "$@"; do
-    case "$arg" in
-        -h|--help)
-            echo "Usage: $0 [--interface NAME] [--arm-real-robot|--preflight-only]"
-            echo "Fixed stack: Python, Original Release, robust-small-gait-23, Unitree joystick, physical G1 23-DoF."
-            echo "Without --arm-real-robot, performs a no-DDS preflight only."
-            exit 0
-            ;;
-        --model-profile|--embodiment|--adaptation)
-            echo "ERROR: this preset locks Original Release / g1_23dof / robust-small-gait-23" >&2
-            exit 2
-            ;;
-    esac
-done
-exec "$SCRIPT_DIR/../robot.sh" \
-    --model-profile original-release \
-    --embodiment g1_23dof \
-    --adaptation robust-small-gait-23 \
-    "$@"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+# shellcheck source=../../../../sonic_cpp/teleop/common.sh
+source "$ROOT/sonic_cpp/teleop/common.sh"
+
+legacy_sonic_attempt_error "robust-small-gait-23"
+echo "Physical Python launch is refused. There is no override." >&2
+echo "Current recipe: $ROOT/g1_deploy/workflows/joystick/presets/forward_stable_23_robot_cpp.sh --slow-gait" >&2
+exit 2

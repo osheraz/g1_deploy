@@ -659,6 +659,14 @@ def _command(
         f"{model}__{candidate}__{command}__seed{seed}",
         "--record-dir", str(record),
         *CANDIDATES[candidate],
+        *(
+            ("--legacy-reproduction",)
+            if any(
+                flag in {"--landing-hold", "--landing-hold-dvel"}
+                for flag in CANDIDATES[candidate]
+            )
+            else ()
+        ),
     ]
 
 

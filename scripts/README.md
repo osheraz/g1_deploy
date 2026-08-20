@@ -15,13 +15,13 @@ These stable absolute commands delegate to canonical workflows/presets:
 | `run_planner_joystick_mujoco.sh` | Generic joystick MuJoCo workflow |
 | `run_planner_joystick_robot_cpp.sh` | Generic C++ physical joystick workflow |
 | `run_planner_joystick_robot.sh` | Generic Python physical/preflight workflow |
-| `run_robust_small_gait_23_mujoco.sh` | Fixed robust 23-DoF MuJoCo preset |
-| `run_robust_small_gait_23_cpp.sh` | Fixed robust 23-DoF physical C++ preset |
-| `run_robust_small_gait_23_robot.sh` | Fixed robust 23-DoF physical Python/preflight preset |
+| `run_robust_small_gait_23_mujoco.sh` | **Withdrawn.** Starts only with `--legacy-reproduction` |
+| `run_robust_small_gait_23_cpp.sh` | **Withdrawn.** Physical launch is refused |
+| `run_robust_small_gait_23_robot.sh` | **Withdrawn.** Physical launch is refused |
 
 `run_robot_23_cpp.sh` is the locked official-parity Original Release C++
-baseline. `run_stable_slow_23_robot.sh` is retained to reproduce the superseded
-motor-shaped research profile.
+baseline. `run_stable_slow_23_robot.sh` is a withdrawn legacy attempt and
+refuses to start.
 
 The generic MuJoCo and C++ physical workflows are separate scripts. Each
 accepts independent selectors for model, embodiment, and adaptation.
