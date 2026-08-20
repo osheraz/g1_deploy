@@ -20,7 +20,15 @@ PLANNER_REPLAN_PERIOD=""
 IDLE_HOLD=1
 ADAPTATION="official-parity"
 HIP_PITCH_SCALE=""
+SAGITTAL_SCALE=""
 HIP_PITCH_SCALE_DEFAULT="0.85"
+KNEE_GAIT_OFFSET_DEG=""
+YAW_COMMAND_SCALE=""
+YAW_INPLACE_SCALE=""
+SLOW_GAIT=0
+LANDING_HOLD=0
+LANDING_HOLD_DVEL=0
+VIEW_MODE=""
 while (( $# > 0 )); do
     case "$1" in
         --model-profile)
@@ -138,16 +146,73 @@ while (( $# > 0 )); do
             }
             shift
             ;;
+        --sagittal-scale)
+            if [[ -n "${2:-}" && "${2:-}" != --* ]]; then
+                SAGITTAL_SCALE="$2"
+                shift 2
+            else
+                SAGITTAL_SCALE="$HIP_PITCH_SCALE_DEFAULT"
+                shift
+            fi
+            ;;
+        --sagittal-scale=*)
+            SAGITTAL_SCALE="${1#*=}"
+            [[ -n "$SAGITTAL_SCALE" ]] || {
+                echo "ERROR: --sagittal-scale= requires a value" >&2
+                exit 2
+            }
+            shift
+            ;;
+        --knee-gait-offset-deg)
+            [[ -n "${2:-}" ]] || {
+                echo "ERROR: --knee-gait-offset-deg requires DEGREES" >&2
+                exit 2
+            }
+            KNEE_GAIT_OFFSET_DEG="$2"
+            shift 2
+            ;;
+        --yaw-command-scale)
+            [[ -n "${2:-}" ]] || {
+                echo "ERROR: --yaw-command-scale requires a value" >&2
+                exit 2
+            }
+            YAW_COMMAND_SCALE="$2"
+            shift 2
+            ;;
+        --yaw-inplace-scale)
+            [[ -n "${2:-}" ]] || {
+                echo "ERROR: --yaw-inplace-scale requires a value" >&2
+                exit 2
+            }
+            YAW_INPLACE_SCALE="$2"
+            shift 2
+            ;;
+        --slow-gait)
+            SLOW_GAIT=1
+            shift
+            ;;
+        --landing-hold)
+            LANDING_HOLD=1
+            shift
+            ;;
+        --landing-hold-dvel)
+            LANDING_HOLD_DVEL=1
+            shift
+            ;;
         --arm-real-robot|--non-interactive|--probe-hosts|--clean-ports|--clean-team-ports)
             echo "ERROR: $1 is a physical-robot flag. This is the MuJoCo launcher and never sends a LowCmd." >&2
             echo "Use /home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh for the real robot." >&2
             exit 2
             ;;
         -h|--help)
-            echo "Usage: $0 [--model-profile low-latency|original-release|sonic-v1.1] [--embodiment g1_23dof|g1_29dof] [--command-protocol keyboard|unitree-remote] [--adaptation official-parity|forward-stable-23|stable-slow-23|robust-small-gait-23] [--hip-pitch-scale[=SCALE]] [--interface IFACE] [--ground-friction MU] [--joint-encoder-offset-deg JOINT=DEGREES] [--plant-gain-scale JOINT_OR_GROUP=SCALE] [--plant-target-delay-ms JOINT_OR_GROUP=MILLISECONDS] [--planner-replan-period SECONDS] [--idle-hold|--no-idle-hold] [--record-root DIR] [--no-record]"
+            echo "Usage: $0 [--model-profile low-latency|original-release|sonic-v1.1] [--embodiment g1_23dof|g1_29dof] [--command-protocol keyboard|unitree-remote] [--adaptation official-parity|forward-stable-23|stable-slow-23|robust-small-gait-23] [--hip-pitch-scale[=SCALE]|--sagittal-scale[=SCALE]|--slow-gait] [--landing-hold|--landing-hold-dvel] [--viser] [--knee-gait-offset-deg DEGREES] [--yaw-command-scale SCALE] [--yaw-inplace-scale SCALE] [--interface IFACE] [--ground-friction MU] [--joint-encoder-offset-deg JOINT=DEGREES] [--plant-gain-scale JOINT_OR_GROUP=SCALE] [--plant-target-delay-ms JOINT_OR_GROUP=MILLISECONDS] [--planner-replan-period SECONDS] [--idle-hold|--no-idle-hold] [--record-root DIR] [--no-record]"
             echo "This is the MuJoCo launcher only. It never publishes a physical LowCmd."
             echo "--adaptation naive=official-parity; stable=forward-stable-23."
-            echo "--hip-pitch-scale without a value uses $HIP_PITCH_SCALE_DEFAULT and is valid only with forward-stable-23 on g1_23dof."
+            echo "--hip-pitch-scale, --sagittal-scale, and --slow-gait are valid only with forward-stable-23 on g1_23dof and are mutually exclusive."
+            echo "--slow-gait is sagittal 0.28 + knee +8 deg + walk yaw 0.15 / in-place yaw 0.35."
+            echo "--landing-hold-dvel zeros landed sagittal dvel_fut for ~160 ms after touchdown (same joints as sagittal scale)."
+            echo "--landing-hold freezes landed sagittal pose; rejected for slow walk, keep only for ablation."
+            echo "--viser opens a browser viewer on :8080 instead of the GLFW window (SSH)."
             exit 0
             ;;
         *)
@@ -195,8 +260,38 @@ case "$ADAPTATION" in
         ;;
 esac
 
+if (( SLOW_GAIT )); then
+    if [[ -n "$HIP_PITCH_SCALE" || -n "$SAGITTAL_SCALE" ]]; then
+        echo "ERROR: --slow-gait is mutually exclusive with --hip-pitch-scale and --sagittal-scale" >&2
+        exit 2
+    fi
+    SAGITTAL_SCALE="0.28"
+    KNEE_GAIT_OFFSET_DEG="${KNEE_GAIT_OFFSET_DEG:-8}"
+    YAW_COMMAND_SCALE="${YAW_COMMAND_SCALE:-0.15}"
+    YAW_INPLACE_SCALE="${YAW_INPLACE_SCALE:-0.35}"
+fi
+if [[ -n "$HIP_PITCH_SCALE" && -n "$SAGITTAL_SCALE" ]]; then
+    echo "ERROR: --hip-pitch-scale and --sagittal-scale are mutually exclusive" >&2
+    exit 2
+fi
 if [[ -n "$HIP_PITCH_SCALE" && "$ADAPTATION" != "forward-stable-23" ]]; then
     echo "ERROR: --hip-pitch-scale is supported only on top of --adaptation forward-stable-23" >&2
+    exit 2
+fi
+if [[ -n "$SAGITTAL_SCALE" && "$ADAPTATION" != "forward-stable-23" ]]; then
+    echo "ERROR: --sagittal-scale is supported only on top of --adaptation forward-stable-23" >&2
+    exit 2
+fi
+if [[ -n "$KNEE_GAIT_OFFSET_DEG$YAW_COMMAND_SCALE$YAW_INPLACE_SCALE" && "$ADAPTATION" != "forward-stable-23" ]]; then
+    echo "ERROR: --knee-gait-offset-deg / yaw scales require --adaptation forward-stable-23" >&2
+    exit 2
+fi
+if (( LANDING_HOLD + LANDING_HOLD_DVEL > 1 )); then
+    echo "ERROR: --landing-hold and --landing-hold-dvel are mutually exclusive" >&2
+    exit 2
+fi
+if (( LANDING_HOLD + LANDING_HOLD_DVEL > 0 )) && [[ "$ADAPTATION" != "forward-stable-23" ]]; then
+    echo "ERROR: --landing-hold / --landing-hold-dvel require --adaptation forward-stable-23" >&2
     exit 2
 fi
 
@@ -235,9 +330,33 @@ if [[ -n "$PLANNER_REPLAN_PERIOD" ]]; then
     replan_args=(--planner-replan-period "$PLANNER_REPLAN_PERIOD")
 fi
 reference_args=()
-if [[ -n "$HIP_PITCH_SCALE" ]]; then
+if [[ -n "$SAGITTAL_SCALE" ]]; then
+    reference_args=(--reference-joint-scale "sagittal=$SAGITTAL_SCALE")
+    echo "Forward-stable sagittal reference scale (hip-pitch/knee/ankle-pitch): $SAGITTAL_SCALE"
+    echo "Command yaw rate is scaled by ${YAW_COMMAND_SCALE:-$SAGITTAL_SCALE} so walk-plus-turn stays a slower heading change."
+elif [[ -n "$HIP_PITCH_SCALE" ]]; then
     reference_args=(--reference-joint-scale "hip_pitch=$HIP_PITCH_SCALE")
     echo "Forward-stable bilateral hip-pitch reference scale: $HIP_PITCH_SCALE"
+    echo "Command yaw rate is scaled by $HIP_PITCH_SCALE so walk-plus-turn stays a slower heading change."
+fi
+if [[ -n "$KNEE_GAIT_OFFSET_DEG" ]]; then
+    reference_args+=(--reference-joint-offset-deg "knee=$KNEE_GAIT_OFFSET_DEG")
+    echo "Gait-only knee flexion offset: ${KNEE_GAIT_OFFSET_DEG} deg (inactive in IDLE)"
+fi
+if [[ -n "$YAW_COMMAND_SCALE" ]]; then
+    reference_args+=(--yaw-command-scale "$YAW_COMMAND_SCALE")
+fi
+if [[ -n "$YAW_INPLACE_SCALE" ]]; then
+    reference_args+=(--yaw-inplace-scale "$YAW_INPLACE_SCALE")
+    echo "In-place turn yaw scale: $YAW_INPLACE_SCALE (walk-plus-turn keeps ${YAW_COMMAND_SCALE:-derived})"
+fi
+if (( LANDING_HOLD )); then
+    reference_args+=(--landing-hold)
+    echo "Landing hold: freeze landed sagittal pose (ablation only; prefer --landing-hold-dvel)"
+fi
+if (( LANDING_HOLD_DVEL )); then
+    reference_args+=(--landing-hold-dvel)
+    echo "Landing hold: zero landed sagittal dvel_fut for at most 160 ms after touchdown"
 fi
 idle_args=()
 if (( ! IDLE_HOLD )); then

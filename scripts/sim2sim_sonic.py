@@ -345,12 +345,40 @@ def _write_recording(
         ).tolist(),
         "action_history_source": str(cfg.sonic_action_history_source),
         "reference_leg_scale": float(cfg.sonic_reference_leg_scale),
+        "landing_hold": bool(getattr(cfg, "sonic_landing_hold", False)),
         "reference_root_height_scale": float(
             cfg.sonic_reference_root_height_scale
         ),
         "reference_joint_scale": np.asarray(
             cfg.sonic_reference_joint_scale, np.float64
         ).tolist(),
+        "reference_joint_dvel_scale": (
+            None if getattr(cfg, "sonic_reference_joint_dvel_scale", None) is None
+            else np.asarray(cfg.sonic_reference_joint_dvel_scale, np.float64).tolist()
+        ),
+        "reference_joint_offset_rad": (
+            None if getattr(cfg, "sonic_reference_joint_offset_rad", None) is None
+            else np.asarray(cfg.sonic_reference_joint_offset_rad, np.float64).tolist()
+        ),
+        "reference_joint_flex_scale": (
+            None if getattr(cfg, "sonic_reference_joint_flex_scale", None) is None
+            else np.asarray(cfg.sonic_reference_joint_flex_scale, np.float64).tolist()
+        ),
+        "derived_yaw_command_scale": float(
+            getattr(args, "derived_yaw_command_scale", 1.0)
+        ),
+        "yaw_command_scale": float(
+            getattr(args, "applied_yaw_command_scale", 1.0)
+        ),
+        "yaw_inplace_scale": float(
+            getattr(args, "applied_yaw_inplace_scale", 1.0)
+        ),
+        "yaw_command_scale_overridden": bool(
+            getattr(args, "yaw_command_scale", None) is not None
+        ),
+        "yaw_inplace_scale_overridden": bool(
+            getattr(args, "yaw_inplace_scale", None) is not None
+        ),
         "realtime": bool(args.realtime),
         "encoder_providers": list(runner.encoder_providers),
         "decoder_providers": list(runner.decoder_providers),
@@ -411,7 +439,7 @@ def main():
     )
     ap.add_argument(
         "--joystick-mode",
-        choices=["slow_walk", "walk", "run"],
+        choices=["slow_walk", "walk", "run", "stealth_walk", "injured_walk"],
         default=None,
         help="deterministic joystick mode override for headless diagnostics",
     )
@@ -569,6 +597,72 @@ def main():
             "groups; unlike motor shaping, tracker recovery output is untouched"
         ),
     )
+    ap.add_argument(
+        "--reference-joint-dvel-scale",
+        action="append",
+        default=[],
+        metavar="GROUP=VALUE",
+        help=(
+            "repeatable encoder-reference velocity scale; default matches "
+            "--reference-joint-scale so a smaller stride also slows dvel_fut"
+        ),
+    )
+    ap.add_argument(
+        "--reference-joint-offset-deg",
+        action="append",
+        default=[],
+        metavar="GROUP=DEGREES",
+        help=(
+            "repeatable gait-only encoder-reference pose offset in degrees; "
+            "inactive in captured IDLE / standing"
+        ),
+    )
+    ap.add_argument(
+        "--reference-joint-flex-scale",
+        action="append",
+        default=[],
+        metavar="GROUP=VALUE",
+        help=(
+            "preserve flexion-side reference amplitude after a smaller stride "
+            "scale; unspecified groups keep --reference-joint-scale"
+        ),
+    )
+    ap.add_argument(
+        "--yaw-command-scale",
+        type=float,
+        default=None,
+        metavar="SCALE",
+        help=(
+            "override stick yaw-rate scale; default is the smallest sagittal "
+            "reference scale so walk-plus-turn matches the shortened stride"
+        ),
+    )
+    ap.add_argument(
+        "--landing-hold",
+        action="store_true",
+        help=(
+            "after touchdown, freeze that leg's sagittal encoder reference at "
+            "the measured pose until the *scaled* clip is stance"
+        ),
+    )
+    ap.add_argument(
+        "--landing-hold-dvel",
+        action="store_true",
+        help=(
+            "after touchdown, zero only sagittal dvel_fut on the landed leg "
+            "until the scaled clip is stance; leave q on the scaled clip"
+        ),
+    )
+    ap.add_argument(
+        "--yaw-inplace-scale",
+        type=float,
+        default=None,
+        metavar="SCALE",
+        help=(
+            "override turn-only yaw-rate scale; walk-plus-turn keeps "
+            "--yaw-command-scale so a short stride can still step in place"
+        ),
+    )
     ap.add_argument("--steps", type=int, default=None, help="default: whole clip")
     ap.add_argument("--control-dt", type=float, default=None)
     ap.add_argument("--init-height", type=float, default=0.78)
@@ -602,6 +696,9 @@ def main():
         help="diagnostic: request stable-IDLE qualification at this control step",
     )
     args = ap.parse_args()
+    args.derived_yaw_command_scale = 1.0
+    args.applied_yaw_command_scale = 1.0
+    args.applied_yaw_inplace_scale = 1.0
 
     cfg = Config(args.config)
     cfg.select_sonic_model_profile(args.model_profile)
@@ -637,6 +734,9 @@ def main():
         group_indices[group] = np.flatnonzero(
             np.char.find(physical_names.astype(str), group) >= 0
         )
+    for index, name in enumerate(physical_names):
+        short = str(name).removesuffix("_joint")
+        group_indices.setdefault(short, np.array([index], dtype=np.int64))
     group_indices["sagittal"] = np.unique(np.concatenate([
         group_indices["hip_pitch"],
         group_indices["knee"],
@@ -716,6 +816,82 @@ def main():
             )
         reference_joint_scale[group_indices[group]] = value
     cfg.sonic_reference_joint_scale = reference_joint_scale
+    if args.reference_joint_dvel_scale:
+        reference_dvel_scale = np.ones(profile.physical_dof, dtype=np.float64)
+        for spec in args.reference_joint_dvel_scale:
+            try:
+                group, text = spec.split("=", 1)
+                value = float(text)
+            except ValueError as exc:
+                raise SystemExit(
+                    f"--reference-joint-dvel-scale expects GROUP=VALUE, got {spec!r}"
+                ) from exc
+            group = group.strip().lower()
+            if group not in group_indices:
+                raise SystemExit(
+                    f"unknown --reference-joint-dvel-scale group {group!r}; choose "
+                    + ", ".join(sorted(group_indices))
+                )
+            if not np.isfinite(value) or not 0.0 < value <= 2.0:
+                raise SystemExit(
+                    "--reference-joint-dvel-scale value must be finite and in (0, 2]"
+                )
+            reference_dvel_scale[group_indices[group]] = value
+        cfg.sonic_reference_joint_dvel_scale = reference_dvel_scale
+    if args.reference_joint_offset_deg:
+        reference_offset = np.zeros(profile.physical_dof, dtype=np.float64)
+        for spec in args.reference_joint_offset_deg:
+            try:
+                group, text = spec.split("=", 1)
+                value = float(text)
+            except ValueError as exc:
+                raise SystemExit(
+                    f"--reference-joint-offset-deg expects GROUP=DEGREES, got {spec!r}"
+                ) from exc
+            group = group.strip().lower()
+            if group not in group_indices:
+                raise SystemExit(
+                    f"unknown --reference-joint-offset-deg group {group!r}; choose "
+                    + ", ".join(sorted(group_indices))
+                )
+            if not np.isfinite(value) or abs(value) > 45.0:
+                raise SystemExit(
+                    "--reference-joint-offset-deg value must be finite and within ±45"
+                )
+            reference_offset[group_indices[group]] = np.radians(value)
+        cfg.sonic_reference_joint_offset_rad = reference_offset
+    if args.reference_joint_flex_scale:
+        reference_flex_scale = np.asarray(
+            cfg.sonic_reference_joint_scale, np.float64
+        ).copy()
+        for spec in args.reference_joint_flex_scale:
+            try:
+                group, text = spec.split("=", 1)
+                value = float(text)
+            except ValueError as exc:
+                raise SystemExit(
+                    f"--reference-joint-flex-scale expects GROUP=VALUE, got {spec!r}"
+                ) from exc
+            group = group.strip().lower()
+            if group not in group_indices:
+                raise SystemExit(
+                    f"unknown --reference-joint-flex-scale group {group!r}; choose "
+                    + ", ".join(sorted(group_indices))
+                )
+            if not np.isfinite(value) or not 0.0 < value <= 2.0:
+                raise SystemExit(
+                    "--reference-joint-flex-scale value must be finite and in (0, 2]"
+                )
+            reference_flex_scale[group_indices[group]] = value
+        cfg.sonic_reference_joint_flex_scale = reference_flex_scale
+    if args.landing_hold and args.landing_hold_dvel:
+        raise SystemExit("--landing-hold and --landing-hold-dvel are mutually exclusive")
+    if args.landing_hold:
+        cfg.sonic_landing_hold = True
+        cfg.sonic_landing_hold_mode = "pose"
+    if args.landing_hold_dvel:
+        cfg.sonic_landing_hold = True
+        cfg.sonic_landing_hold_mode = "dvel"
 
     def parse_plant_overrides(
         specs, *, neutral: float, kind: str, lower: float, upper: float
@@ -1006,6 +1182,8 @@ def main():
                         "slow_walk": LocomotionMode.SLOW_WALK,
                         "walk": LocomotionMode.WALK,
                         "run": LocomotionMode.RUN,
+                        "stealth_walk": LocomotionMode.STEALTH_WALK,
+                        "injured_walk": LocomotionMode.INJURED_WALK,
                     }[args.joystick_mode]
                 )
             if args.planner_speed is not None:
@@ -1014,6 +1192,39 @@ def main():
                         "--planner-speed requires --native-gamepad or --remote"
                     )
                 teleop.movement_speed = float(args.planner_speed)
+            from policy.sonic.reference_adaptation import gait_yaw_command_scale
+
+            derived_yaw = gait_yaw_command_scale(cfg.sonic_reference_joint_scale)
+            if args.yaw_command_scale is not None:
+                if (
+                    not np.isfinite(args.yaw_command_scale)
+                    or not 0.0 < args.yaw_command_scale <= 2.0
+                ):
+                    raise SystemExit(
+                        "--yaw-command-scale must be finite and in (0, 2]"
+                    )
+                teleop.yaw_command_scale = float(args.yaw_command_scale)
+            else:
+                teleop.yaw_command_scale = derived_yaw
+            if args.yaw_inplace_scale is not None:
+                if (
+                    not np.isfinite(args.yaw_inplace_scale)
+                    or not 0.0 < args.yaw_inplace_scale <= 2.0
+                ):
+                    raise SystemExit(
+                        "--yaw-inplace-scale must be finite and in (0, 2]"
+                    )
+                teleop.yaw_inplace_scale = float(args.yaw_inplace_scale)
+            args.derived_yaw_command_scale = derived_yaw
+            args.applied_yaw_command_scale = float(teleop.yaw_command_scale)
+            args.applied_yaw_inplace_scale = float(teleop.yaw_inplace_scale)
+            print(
+                "Command yaw rate scale "
+                f"{teleop.yaw_command_scale:g} "
+                f"(in-place {teleop.yaw_inplace_scale:g}; "
+                f"derived {derived_yaw:g} from sagittal reference; "
+                "hip roll/yaw stay unscaled)"
+            )
             if args.remote:
                 from unitree_sdk2py.core import channel as _unitree_channel
                 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
@@ -1238,6 +1449,7 @@ def main():
         "sonic_missing_proprio_dq": [],
         "sonic_reference_q_il_adapted": [],
         "sonic_reference_dq_il_adapted": [],
+        "sonic_landing_hold": [],
     }
     recording_enabled = args.record_dir is not None
     handover_origin = (
@@ -1293,11 +1505,18 @@ def main():
 
             # SONIC builds its own observation from RAW state; this is exactly the
             # call deploy_eskin.py makes.
+            left_foot = _foot_diagnostics("left")
+            right_foot = _foot_diagnostics("right")
             action = runner.compute_action(
                 dof_pos=q.astype(np.float64),
                 dof_vel=qd.astype(np.float64),
                 base_quat_wxyz=base_q.astype(np.float64),
                 base_ang_vel_body=ang_vel.astype(np.float64),  # qvel[3:6] is body frame
+                foot_contact=(bool(left_foot[0]), bool(right_foot[0])),
+                foot_z=(
+                    float(np.nanmin(left_foot[3])),
+                    float(np.nanmin(right_foot[3])),
+                ),
             )
 
             if args.trace and step < 40 and ref_dof is not None:
@@ -1421,6 +1640,7 @@ def main():
                     "sonic_missing_proprio_dq",
                     "sonic_reference_q_il_adapted",
                     "sonic_reference_dq_il_adapted",
+                    "sonic_landing_hold",
                 ):
                     rows[name].append(
                         np.asarray(runner_diagnostics[name]).copy()

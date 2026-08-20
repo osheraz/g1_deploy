@@ -2,7 +2,12 @@ import unittest
 
 import numpy as np
 
-from policy.sonic.reference_adaptation import GaitReferenceAdapter
+from policy.sonic.reference_adaptation import (
+    GaitReferenceAdapter,
+    LandingHoldAdapter,
+    LEFT_SAGITTAL_IL,
+    gait_yaw_command_scale,
+)
 
 
 class GaitReferenceAdapterTest(unittest.TestCase):
@@ -81,6 +86,251 @@ class GaitReferenceAdapterTest(unittest.TestCase):
         )
         self.assertIs(adapter.apply(source), source)
         self.assertFalse(adapter.last_active)
+
+    def test_gait_offset_is_added_after_position_scale(self):
+        source = self._reference()
+        scales = np.ones(29)
+        offset = np.zeros(29)
+        scales[3] = 0.30
+        offset[3] = 0.10
+        adapter = GaitReferenceAdapter(
+            leg_idx=[3],
+            default_stand_q_il=np.zeros(29),
+            joint_scale_il=scales,
+            joint_offset_il=offset,
+        )
+        out = adapter.apply(source)
+        stand = source["stable_stand_q_il"][3]
+        expected = stand + 0.30 * (source["dof_fut"][..., 3] - stand) + 0.10
+        np.testing.assert_allclose(out["dof_fut"][..., 3], expected, atol=1e-6)
+
+    def test_dvel_scale_can_stay_larger_than_position_scale(self):
+        source = self._reference()
+        q_scale = np.ones(29)
+        dq_scale = np.ones(29)
+        q_scale[[0, 3, 6]] = 0.30
+        dq_scale[[0, 3, 6]] = 0.70
+        adapter = GaitReferenceAdapter(
+            leg_idx=[0, 3, 6],
+            default_stand_q_il=np.zeros(29),
+            joint_scale_il=q_scale,
+            joint_dvel_scale_il=dq_scale,
+        )
+        out = adapter.apply(source)
+        stand = source["stable_stand_q_il"][[0, 3, 6]]
+        expected = stand + 0.30 * (source["dof_fut"][..., [0, 3, 6]] - stand)
+        np.testing.assert_allclose(out["dof_fut"][..., [0, 3, 6]], expected)
+        np.testing.assert_allclose(out["dvel_fut"][..., [0, 3, 6]], 1.4)
+        np.testing.assert_array_equal(out["dvel_fut"][..., 1], 2.0)
+
+    def test_flexion_scale_preserves_only_the_flexed_side_of_stand(self):
+        source = self._reference()
+        source["dof_fut"] = source["dof_fut"].copy()
+        source["dof_fut"][..., 9] = np.array([0.10, 0.80], np.float32)
+        source["stable_stand_q_il"] = source["stable_stand_q_il"].copy()
+        source["stable_stand_q_il"][9] = 0.40
+        scales = np.ones(29)
+        flex = np.ones(29)
+        scales[9] = 0.28
+        flex[9] = 0.60
+        adapter = GaitReferenceAdapter(
+            leg_idx=[9],
+            default_stand_q_il=np.zeros(29),
+            joint_scale_il=scales,
+            joint_flex_scale_il=flex,
+        )
+        out = adapter.apply(source)
+        np.testing.assert_allclose(
+            out["dof_fut"][..., 9],
+            [[0.40 + 0.28 * (0.10 - 0.40), 0.40 + 0.60 * (0.80 - 0.40)]],
+        )
+        np.testing.assert_allclose(out["dvel_fut"][..., 9], [[0.56, 1.2]])
+
+    def test_gait_yaw_command_scale_follows_smallest_sagittal_joint(self):
+        healthy = np.ones(23)
+        self.assertEqual(gait_yaw_command_scale(healthy), 1.0)
+        sagittal = healthy.copy()
+        sagittal[[0, 3, 4, 6, 9, 10]] = 0.40
+        self.assertAlmostEqual(gait_yaw_command_scale(sagittal), 0.40)
+        hip_only = healthy.copy()
+        hip_only[[0, 6]] = 0.85
+        self.assertAlmostEqual(gait_yaw_command_scale(hip_only), 0.85)
+        self.assertEqual(gait_yaw_command_scale(np.ones(11)), 1.0)
+
+    def test_landing_hold_freezes_landed_leg_until_clip_stance(self):
+        hold = LandingHoldAdapter(
+            enabled=True,
+            confirm_down_steps=2,
+            min_swing_steps=2,
+            confirm_release_steps=2,
+        )
+        measured = np.linspace(0.1, 0.4, 29)
+        raw = np.zeros((1, 2, 29), np.float32)
+        raw[..., 1] = 0.40
+        raw[..., 3] = 0.05
+        source = self._reference()
+        source["dof_fut"] = raw.copy()
+        source["dvel_fut"] = np.ones_like(raw)
+        airborne = hold.apply(
+            source,
+            measured_q_il=measured,
+            raw_dof_fut=raw,
+            foot_z=(0.06, 0.01),
+            foot_contact=(False, True),
+        )
+        airborne = hold.apply(
+            airborne,
+            measured_q_il=measured,
+            raw_dof_fut=raw,
+            foot_z=(0.06, 0.01),
+            foot_contact=(False, True),
+        )
+        self.assertFalse(hold.last_holding[0])
+        landed = hold.apply(
+            source,
+            measured_q_il=measured,
+            raw_dof_fut=raw,
+            foot_z=(0.01, 0.01),
+            foot_contact=(True, True),
+        )
+        landed = hold.apply(
+            landed if landed is not source else source,
+            measured_q_il=measured,
+            raw_dof_fut=raw,
+            foot_z=(0.01, 0.01),
+            foot_contact=(True, True),
+        )
+        self.assertTrue(hold.last_holding[0])
+        np.testing.assert_allclose(
+            landed["dof_fut"][..., list(LEFT_SAGITTAL_IL)],
+            np.broadcast_to(measured[list(LEFT_SAGITTAL_IL)], (1, 2, 3)),
+        )
+        np.testing.assert_array_equal(
+            landed["dvel_fut"][..., list(LEFT_SAGITTAL_IL)], 0.0
+        )
+        np.testing.assert_array_equal(
+            landed["dof_fut"][..., 6], raw[..., 6]
+        )
+        np.testing.assert_array_equal(source["dof_fut"], raw)
+        stance = raw.copy()
+        stance[..., 1] = 0.05
+        stance[..., 3] = 0.40
+        source["dof_fut"] = stance
+        released = hold.apply(
+            source,
+            measured_q_il=measured,
+            raw_dof_fut=stance,
+            foot_z=(0.01, 0.01),
+            foot_contact=(True, True),
+        )
+        released = hold.apply(
+            released if released is not source else source,
+            measured_q_il=measured,
+            raw_dof_fut=stance,
+            foot_z=(0.01, 0.01),
+            foot_contact=(True, True),
+        )
+        self.assertFalse(hold.last_holding[0])
+        self.assertFalse(np.array_equal(
+            released["dof_fut"][..., list(LEFT_SAGITTAL_IL)],
+            measured[list(LEFT_SAGITTAL_IL)],
+        ))
+
+    def test_landing_hold_dvel_zeros_velocity_and_keeps_clip_q(self):
+        hold = LandingHoldAdapter(
+            enabled=True,
+            mode="dvel",
+            confirm_down_steps=2,
+            min_swing_steps=2,
+            confirm_release_steps=2,
+        )
+        measured = np.linspace(0.1, 0.4, 29)
+        raw = np.zeros((1, 2, 29), np.float32)
+        raw[..., 1] = 0.40
+        raw[..., 3] = 0.05
+        source = self._reference()
+        source["dof_fut"] = raw.copy()
+        source["dvel_fut"] = np.ones_like(raw)
+        for _ in range(2):
+            hold.apply(
+                source,
+                measured_q_il=measured,
+                raw_dof_fut=raw,
+                foot_z=(0.06, 0.06),
+                foot_contact=(False, False),
+            )
+        for _ in range(2):
+            source = hold.apply(
+                source,
+                measured_q_il=measured,
+                raw_dof_fut=raw,
+                foot_z=(0.01, 0.06),
+                foot_contact=(True, False),
+            )
+        self.assertTrue(hold.last_holding[0])
+        np.testing.assert_array_equal(
+            source["dvel_fut"][..., list(LEFT_SAGITTAL_IL)], 0.0
+        )
+        np.testing.assert_array_equal(
+            source["dof_fut"][..., list(LEFT_SAGITTAL_IL)],
+            raw[..., list(LEFT_SAGITTAL_IL)],
+        )
+
+    def test_landing_hold_times_out_while_clip_still_swings(self):
+        hold = LandingHoldAdapter(
+            enabled=True,
+            mode="dvel",
+            confirm_down_steps=1,
+            min_swing_steps=1,
+            confirm_release_steps=3,
+            max_hold_steps=4,
+        )
+        measured = np.linspace(0.1, 0.4, 29)
+        raw = np.zeros((1, 2, 29), np.float32)
+        raw[..., 1] = 0.40
+        raw[..., 3] = 0.05
+        source = self._reference()
+        source["dof_fut"] = raw.copy()
+        source["dvel_fut"] = np.ones_like(raw)
+        hold.apply(
+            source,
+            measured_q_il=measured,
+            raw_dof_fut=raw,
+            foot_z=(0.06, 0.06),
+            foot_contact=(False, False),
+        )
+        for _ in range(4):
+            source = hold.apply(
+                source,
+                measured_q_il=measured,
+                raw_dof_fut=raw,
+                foot_z=(0.01, 0.06),
+                foot_contact=(True, False),
+            )
+        self.assertTrue(hold.last_holding[0])
+        source = self._reference()
+        source["dof_fut"] = raw.copy()
+        source["dvel_fut"] = np.ones_like(raw)
+        released = hold.apply(
+            source,
+            measured_q_il=measured,
+            raw_dof_fut=raw,
+            foot_z=(0.01, 0.06),
+            foot_contact=(True, False),
+        )
+        self.assertFalse(hold.last_holding[0])
+        self.assertIs(released, source)
+        np.testing.assert_array_equal(
+            released["dvel_fut"][..., list(LEFT_SAGITTAL_IL)], 1.0
+        )
+
+    def test_disabled_landing_hold_is_bitwise_pass_through(self):
+        source = self._reference()
+        hold = LandingHoldAdapter(enabled=False)
+        self.assertIs(
+            hold.apply(source, measured_q_il=np.zeros(29)),
+            source,
+        )
 
 
 if __name__ == "__main__":

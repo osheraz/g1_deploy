@@ -754,6 +754,67 @@ class PicoSemanticsTest(unittest.TestCase):
         )
         np.testing.assert_allclose(nav["movement"], nav["facing"], atol=1e-7)
 
+    def test_unitree_joystick_yaw_rate_follows_gait_scale(self):
+        try:
+            from common.joystick_teleop import JoystickTeleop, YAW_GAIN
+            from common.pico_client import LocomotionMode
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"deployment transport dependency is unavailable: {exc}")
+        joystick = JoystickTeleop(
+            locomotion_mode=LocomotionMode.SLOW_WALK, yaw_command_scale=0.40
+        )
+        joystick.set_axes(lx=0.0, ly=1.0, rx=1.0)
+        joystick.tick(0.1)
+        nav = joystick.nav_command()
+        expected = -YAW_GAIN * 0.40 * 0.1
+        np.testing.assert_allclose(
+            nav["facing"], [np.cos(expected), np.sin(expected), 0.0], atol=1e-7
+        )
+
+    def test_native_gamepad_yaw_rate_follows_gait_scale(self):
+        try:
+            from common.joystick_teleop import GamepadManagerTeleop
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"deployment transport dependency is unavailable: {exc}")
+        joystick = GamepadManagerTeleop()
+        joystick.control_started = True
+        joystick.yaw_command_scale = 0.40
+        joystick.set_axes(lx=0.0, ly=1.0, rx=1.0)
+        joystick.tick(0.1)
+        expected = -joystick.MANAGER_YAW_GAIN * 0.40 * 0.1
+        np.testing.assert_allclose(
+            joystick.nav_command()["facing"],
+            [np.cos(expected), np.sin(expected), 0.0],
+            atol=1e-7,
+        )
+
+    def test_native_gamepad_inplace_yaw_can_exceed_walk_turn_scale(self):
+        try:
+            from common.joystick_teleop import GamepadManagerTeleop
+        except ModuleNotFoundError as exc:
+            self.skipTest(f"deployment transport dependency is unavailable: {exc}")
+        joystick = GamepadManagerTeleop()
+        joystick.control_started = True
+        joystick.yaw_command_scale = 0.15
+        joystick.yaw_inplace_scale = 0.35
+        joystick.set_axes(lx=0.0, ly=0.0, rx=1.0)
+        joystick.tick(0.1)
+        expected = -joystick.MANAGER_YAW_GAIN * 0.35 * 0.1
+        np.testing.assert_allclose(
+            joystick.nav_command()["facing"],
+            [np.cos(expected), np.sin(expected), 0.0],
+            atol=1e-7,
+        )
+        joystick.yaw_rad = 0.0
+        joystick.set_axes(lx=0.0, ly=1.0, rx=1.0)
+        joystick.tick(0.1)
+        expected = -joystick.MANAGER_YAW_GAIN * 0.15 * 0.1
+        np.testing.assert_allclose(
+            joystick.nav_command()["facing"],
+            [np.cos(expected), np.sin(expected), 0.0],
+            atol=1e-7,
+        )
+
     def test_unitree_joystick_dpad_selects_modes_on_rising_edges(self):
         try:
             from common.joystick_teleop import JoystickTeleop

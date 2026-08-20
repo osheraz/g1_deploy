@@ -500,6 +500,11 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
                 # selection: Start enables control, the D-pad selects a motion
                 # set, and X/Y cycle inside that set.
                 client = GamepadManagerTeleop()
+                from policy.sonic.reference_adaptation import gait_yaw_command_scale
+
+                client.yaw_command_scale = gait_yaw_command_scale(
+                    config.sonic_reference_joint_scale
+                )
             else:
                 from common.scripted_teleop import ScriptedTeleop
 

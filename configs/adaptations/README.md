@@ -24,6 +24,18 @@ pose reconstruction, final IDLE centering, or captured standing hold. The hip
 reference scale is active only for planner gait; wrist masking is a tracker
 observation contract and remains applicable in POSE mode.
 
+The MuJoCo launcher also accepts `--sagittal-scale` on `forward-stable-23`.
+That scales hip pitch, knee, and ankle pitch together. Bare flag 0.85 is the
+current smaller-gait default from the
+[`2026-08-18 small-gait study`](../../../docs/experiments/mujoco/2026-08-18_small_consistent_gait/README.md).
+On a known-healthy plant, `--sagittal-scale 0.33` is the slowest uniform walk;
+`--slow-gait` is the slower 0.28 + knee-offset + split-yaw recipe from the
+[`2026-08-18 slower-gait study`](../../../docs/experiments/mujoco/2026-08-18_slower_gait/README.md)
+(Original Release; the other two checkpoints do not inherit that floor).
+Those flags are mutually exclusive with `--hip-pitch-scale`.
+`--landing-hold-dvel` is an optional 160 ms sagittal `dvel_fut` zero after
+touchdown; it is not part of `--slow-gait`. Pose `--landing-hold` is rejected.
+
 `forward-stable-23` is the current 23-DoF observation contract. Pair it with
 `--model-profile`; do not treat the YAML as a model lock.
 `original_release_23dof_forward_stable.yaml` is a compatibility alias for the

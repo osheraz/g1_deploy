@@ -8,3 +8,4 @@ pixi.lock
 uv.lock
 unitree_sdk2_python/
 logs/
+MUJOCO_LOG.TXT

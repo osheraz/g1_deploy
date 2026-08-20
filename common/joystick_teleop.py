@@ -87,6 +87,7 @@ class JoystickTeleop(TeleopBase):
         self,
         publish_hz: float = 10.0,
         locomotion_mode: LocomotionMode = LocomotionMode.WALK,
+        yaw_command_scale: float = 1.0,
     ):
         super().__init__(publish_hz)
         self.navigation_frame = "world"
@@ -95,9 +96,48 @@ class JoystickTeleop(TeleopBase):
         self.rx = 0.0     # turn, right positive
         self.locomotion_mode = LocomotionMode(locomotion_mode)
         self.yaw_rad = 0.0
+        self.yaw_command_scale = yaw_command_scale
+        self._yaw_inplace_scale = None
         self._previous_buttons = np.zeros(16, dtype=np.int8)
         self._idle_capture_requested = False
         self._idle_capture_chord_down = False
+
+    @property
+    def yaw_command_scale(self) -> float:
+        return self._yaw_command_scale
+
+    @yaw_command_scale.setter
+    def yaw_command_scale(self, value: float) -> None:
+        value = float(value)
+        if not np.isfinite(value) or not 0.0 < value <= 2.0:
+            raise ValueError("yaw_command_scale must be finite and in (0, 2]")
+        self._yaw_command_scale = value
+
+    @property
+    def yaw_inplace_scale(self) -> float:
+        """Heading-rate scale used when the stick is turn-only.
+
+        Walk-plus-turn keeps ``yaw_command_scale``. In-place turning can use a
+        larger floor so a short stride still produces stepping, not a stand-spin.
+        """
+        if self._yaw_inplace_scale is None:
+            return self._yaw_command_scale
+        return self._yaw_inplace_scale
+
+    @yaw_inplace_scale.setter
+    def yaw_inplace_scale(self, value: float | None) -> None:
+        if value is None:
+            self._yaw_inplace_scale = None
+            return
+        value = float(value)
+        if not np.isfinite(value) or not 0.0 < value <= 2.0:
+            raise ValueError("yaw_inplace_scale must be finite and in (0, 2]")
+        self._yaw_inplace_scale = value
+
+    def _yaw_scale_for_stick(self, *, deadzone: float) -> float:
+        if max(abs(self.lx), abs(self.ly)) < deadzone:
+            return self.yaw_inplace_scale
+        return self.yaw_command_scale
 
     def _update_idle_capture_chord(self, buttons: np.ndarray) -> bool:
         """Reserve an F1+F3 rising-edge chord for deliberate stand capture."""
@@ -127,7 +167,12 @@ class JoystickTeleop(TeleopBase):
     def tick(self, dt: float) -> None:
         super().tick(dt)
         if abs(self.rx) >= DEADZONE:
-            self.yaw_rad += YAW_GAIN * (-self.rx) * float(dt)
+            self.yaw_rad += (
+                YAW_GAIN
+                * self._yaw_scale_for_stick(deadzone=DEADZONE)
+                * (-self.rx)
+                * float(dt)
+            )
 
     def set_axes(self, lx: float, ly: float, rx: float = 0.0) -> None:
         self.lx, self.ly, self.rx = float(lx), float(ly), float(rx)
@@ -430,7 +475,12 @@ class GamepadManagerTeleop(JoystickTeleop):
         else:
             self.t += float(dt)
         if abs(self.rx) >= self.MANAGER_DEADZONE:
-            self.yaw_rad -= self.MANAGER_YAW_GAIN * self.rx * float(dt)
+            self.yaw_rad -= (
+                self.MANAGER_YAW_GAIN
+                * self._yaw_scale_for_stick(deadzone=self.MANAGER_DEADZONE)
+                * self.rx
+                * float(dt)
+            )
 
         if self._transition is not None:
             self._transition.remaining_s -= float(dt)

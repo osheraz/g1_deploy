@@ -279,6 +279,27 @@ class Config:
             config.get("sonic_reference_joint_scale", [1.0] * physical_dof),
             dtype=np.float64,
         )
+        dvel_scale = config.get("sonic_reference_joint_dvel_scale", None)
+        self.sonic_reference_joint_dvel_scale = (
+            None if dvel_scale is None
+            else np.asarray(dvel_scale, dtype=np.float64)
+        )
+        offset = config.get("sonic_reference_joint_offset_rad", None)
+        self.sonic_reference_joint_offset_rad = (
+            None if offset is None
+            else np.asarray(offset, dtype=np.float64)
+        )
+        flex_scale = config.get("sonic_reference_joint_flex_scale", None)
+        self.sonic_reference_joint_flex_scale = (
+            None if flex_scale is None
+            else np.asarray(flex_scale, dtype=np.float64)
+        )
+        self.sonic_landing_hold = bool(config.get("sonic_landing_hold", False))
+        self.sonic_landing_hold_mode = str(
+            config.get("sonic_landing_hold_mode", "pose")
+        ).strip().lower()
+        if self.sonic_landing_hold_mode not in ("pose", "dvel"):
+            raise ValueError("sonic_landing_hold_mode must be pose or dvel")
         # Compatibility only; embodiment selection is now explicit above.
         self.phantom_23dof = self.sonic_robot_profile == "g1_23dof"
         self.phantom_hold_ref_dof = self.sonic_mask_missing_reference

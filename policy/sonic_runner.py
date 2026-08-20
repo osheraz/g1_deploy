@@ -58,7 +58,10 @@ class SonicRunner:
         from policy.sonic.inference_backend import create_session
         from policy.sonic.action_adaptation import MotorActionAdapter
         from policy.sonic.model_profile import get_model_profile
-        from policy.sonic.reference_adaptation import GaitReferenceAdapter
+        from policy.sonic.reference_adaptation import (
+            GaitReferenceAdapter,
+            LandingHoldAdapter,
+        )
         from policy.sonic.reduced_adaptation import ReducedProprioceptionAdapter
         from policy.sonic.robot_profile import get_robot_profile
         self.robot_g1 = robot_g1
@@ -212,6 +215,43 @@ class SonicRunner:
                 np.asarray(config.sonic_reference_joint_scale, np.float64),
                 fill=1.0,
             ),
+            joint_dvel_scale_il=(
+                None if getattr(
+                    config, "sonic_reference_joint_dvel_scale", None
+                ) is None
+                else self.robot_profile.physical_to_isaaclab(
+                    np.asarray(
+                        config.sonic_reference_joint_dvel_scale, np.float64
+                    ),
+                    fill=1.0,
+                )
+            ),
+            joint_offset_il=(
+                None if getattr(
+                    config, "sonic_reference_joint_offset_rad", None
+                ) is None
+                else self.robot_profile.physical_to_isaaclab(
+                    np.asarray(
+                        config.sonic_reference_joint_offset_rad, np.float64
+                    ),
+                    fill=0.0,
+                )
+            ),
+            joint_flex_scale_il=(
+                None if getattr(
+                    config, "sonic_reference_joint_flex_scale", None
+                ) is None
+                else self.robot_profile.physical_to_isaaclab(
+                    np.asarray(
+                        config.sonic_reference_joint_flex_scale, np.float64
+                    ),
+                    fill=1.0,
+                )
+            ),
+        )
+        self.landing_hold_adapter = LandingHoldAdapter(
+            enabled=bool(getattr(config, "sonic_landing_hold", False)),
+            mode=str(getattr(config, "sonic_landing_hold_mode", "pose")),
         )
         self.action_history_source = str(
             getattr(config, "sonic_action_history_source", "raw")
@@ -260,12 +300,21 @@ class SonicRunner:
             reference_joint_scale = np.asarray(
                 config.sonic_reference_joint_scale, np.float64
             )
-            hip_pitch_scale = reference_joint_scale[[0, 6]]
-            non_hip_scale = np.delete(reference_joint_scale, [0, 6])
-            qualified_hip_scale = (
-                np.allclose(hip_pitch_scale, hip_pitch_scale[0], atol=1e-12)
-                and 0.80 <= float(hip_pitch_scale[0]) <= 1.00
-                and np.all(non_hip_scale == 1.0)
+            def _bilateral_in_range(indices) -> bool:
+                pair = reference_joint_scale[list(indices)]
+                return bool(
+                    np.allclose(pair, pair[0], atol=1e-12)
+                    and 0.28 <= float(pair[0]) <= 1.00
+                )
+
+            other_scale = np.delete(
+                reference_joint_scale, [0, 3, 4, 6, 9, 10]
+            )
+            qualified_lower_body_scale = (
+                _bilateral_in_range((0, 6))
+                and _bilateral_in_range((3, 9))
+                and _bilateral_in_range((4, 10))
+                and np.all(other_scale == 1.0)
             )
             direct_output = (
                 np.all(self.motor_action_adapter.scale == 1.0)
@@ -287,7 +336,7 @@ class SonicRunner:
                 and float(config.action_ema) == 1.0
                 and float(config.sonic_reference_leg_scale) == 1.0
                 and float(config.sonic_reference_root_height_scale) == 1.0
-                and qualified_hip_scale
+                and qualified_lower_body_scale
                 and direct_output
                 and self.action_history_source == "raw"
             )
@@ -296,9 +345,9 @@ class SonicRunner:
                     "forward-stable-23 is defined only for g1_23dof with a "
                     "released model profile, all six absent reference/history "
                     "axes masked, zero missing-axis proprioception, bilateral "
-                    "hip-pitch reference scale in [0.80, 1.00] with every "
-                    "other reference channel unscaled, raw action history, "
-                    "and fully direct output"
+                    "hip-pitch/knee/ankle-pitch reference scales in "
+                    "[0.28, 1.00] with every other reference channel unscaled, "
+                    "raw action history, and fully direct output"
                 )
         if self.adaptation_profile == "stable-slow-23":
             release_profile = getattr(config, "sonic_release_profile", None)
@@ -451,6 +500,7 @@ class SonicRunner:
         self.action.fill(0.0)
         self.reduced_proprioception.reset()
         self.motor_action_adapter.reset()
+        self.landing_hold_adapter.reset()
 
     def _encode(self, x):
         name_in, name_out = self._enc_io
@@ -486,7 +536,18 @@ class SonicRunner:
         for ``PolicyRunner.compute_action`` where the caller passes depth etc.
         """
         policy_start = time.perf_counter()
-        g = self.gait_reference_adapter.apply(self.reference.window())
+        raw = self.reference.window()
+        g = self.gait_reference_adapter.apply(raw)
+        measured_il = self.robot_profile.physical_to_isaaclab(
+            np.asarray(dof_pos, np.float64).reshape(-1), fill=0.0
+        )
+        g = self.landing_hold_adapter.apply(
+            g,
+            measured_q_il=measured_il,
+            raw_dof_fut=g.get("dof_fut"),
+            foot_z=_ignored.get("foot_z"),
+            foot_contact=_ignored.get("foot_contact"),
+        )
         self.last_reference_q_il_adapted = np.asarray(
             g["dof_fut"][0, 0], np.float32
         ).copy()
@@ -594,4 +655,5 @@ class SonicRunner:
             "sonic_reference_gait_active": np.bool_(
                 self.gait_reference_adapter.last_active
             ),
+            "sonic_landing_hold": self.landing_hold_adapter.last_holding.copy(),
         }
