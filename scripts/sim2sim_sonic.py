@@ -1480,6 +1480,8 @@ def main():
         viewer.cam.elevation = -15
         print("viewer open -- close the window to stop")
 
+    if plugin is not None and hasattr(plugin, "attach_teleop"):
+        plugin.attach_teleop(teleop)
     viser_view = None
     if args.viser:
         from common.viser_sim import ViserSimView
@@ -1663,6 +1665,8 @@ def main():
             d.ctrl[pd_act] = plant_applied_target_q_true
             if len(hold_act):
                 d.ctrl[hold_act] = hold_tgt
+            if plugin is not None and hasattr(plugin, "pre_physics"):
+                plugin.pre_physics(step)
             for _ in range(decim):
                 mujoco.mj_step(m, d)
 
@@ -1788,8 +1792,6 @@ def main():
                     rows[f"{side}_foot_contact_count"].append(contact_count)
                     rows[f"{side}_foot_position"].append(foot_position)
                     rows[f"{side}_foot_corner_z"].append(corner_z)
-                if plugin is not None:
-                    plugin.on_control_step(step)
 
             if ref_dof is not None:
                 f = min(ref.frame, len(ref_dof) - 1)
@@ -1809,6 +1811,8 @@ def main():
                 viewer.sync()
             if viser_view is not None and step % 2 == 0:      # 25 Hz mirror
                 viser_view.update(d.qpos[:3], d.qpos[3:7], d.qpos[qadr])
+            if plugin is not None:
+                plugin.on_control_step(step)
             if (viewer is not None or viser_view is not None) and args.realtime:
                 t_wall += args.control_dt
                 lag = t_wall - _time.perf_counter()
