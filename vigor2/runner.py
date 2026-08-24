@@ -6,6 +6,7 @@ import contextlib
 import math
 import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -79,6 +80,7 @@ class FallRecRunner:
         self._plan_seq = 0
         self.plan_age = 0
         self.async_planner = None
+        self.first_plan_timeout_s = 1.0
         if bool(config.planner_async):
             self.async_planner = AsyncPlanner(self.planner)
             self.async_planner.start()
@@ -117,8 +119,9 @@ class FallRecRunner:
         self.plan_age = 0
 
     def close(self) -> None:
-        if self.async_planner is not None:
+        if self.async_planner is not None:  # join, or the daemon dies mid-CUDA-call at exit
             self.async_planner.stop()
+            self.async_planner.join(timeout=2.0)
 
     def compute_action(self, base_ang_vel, projected_gravity, dof_pos, dof_vel,
                        depth_raw=None, base_quat_wxyz=None, depth_full=None) -> np.ndarray:
@@ -180,10 +183,20 @@ class FallRecRunner:
             self.planner.plan = self.async_planner.latest_plan
             self.planner.cursor = 0
             self.plan_age = 0
-        if self.planner.plan is None:
-            raise RuntimeError(
-                f"No plan after {self.act_count} ticks; the planner thread has not produced one."
-            )
+        if self.planner.plan is None:  # first plan only: wait for it, bounded, then raise
+            deadline = time.perf_counter() + self.first_plan_timeout_s
+            while self.async_planner.latest_seq == self._plan_seq:
+                if self.async_planner.error is not None:
+                    raise RuntimeError("Planner thread died") from self.async_planner.error
+                if time.perf_counter() > deadline:
+                    raise RuntimeError(
+                        f"No plan after {self.first_plan_timeout_s:.1f}s; planner thread stalled."
+                    )
+                time.sleep(0.001)
+            self._plan_seq = self.async_planner.latest_seq
+            self.planner.plan = self.async_planner.latest_plan
+            self.planner.cursor = 0
+            self.plan_age = 0
         self.plan_age += 1
         idx = min(self.planner.cursor, self.planner.plan.shape[1] - 1)
         zg = self.planner.plan[:, idx]
