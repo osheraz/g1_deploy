@@ -24,5 +24,5 @@ unified [`../robot_cpp.sh`](../robot_cpp.sh) launcher when comparing
 presets are withdrawn legacy attempts. Physical copies refuse to start. The
 MuJoCo copy needs `--legacy-reproduction`.
 
-Compatibility entry points in `g1_deploy/scripts/` delegate here so existing
+Compatibility entry points in `g1_deploy/sonic/scripts/` delegate here so existing
 absolute commands continue to work.

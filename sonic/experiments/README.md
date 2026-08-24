@@ -15,5 +15,5 @@ protocol, derived tables/figures, limitations, and conclusions live under
 | `run_slower_gait.py` / `analyze_landing_hold.py` | [`2026-08-19 landing hold`](../../docs/experiments/mujoco/2026-08-19_landing_hold/README.md) (legacy attempt; withdrawn) |
 
 Keep experiment orchestration here and reusable controller math in
-`g1_deploy/policy/`. Do not copy a production launcher into an experiment;
+`g1_deploy/sonic/`. Do not copy a production launcher into an experiment;
 call the canonical workflow/engine with a recorded configuration instead.

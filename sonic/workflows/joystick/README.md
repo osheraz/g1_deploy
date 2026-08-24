@@ -87,7 +87,7 @@ Never run Python and C++ low-level controllers concurrently.
 
 The complete method is documented in
 [`../../../docs/learning/sonic_deployment.md`](../../../docs/learning/sonic_deployment.md).
-Compatibility commands under `g1_deploy/scripts/run_planner_joystick_*.sh`,
+Compatibility commands under `g1_deploy/sonic/scripts/run_planner_joystick_*.sh`,
 `run_forward_stable_23_*.sh`, `run_robot_23_cpp.sh`, and
 `run_robust_small_gait_23_*.sh` delegate here without changing their operator
 interface.
