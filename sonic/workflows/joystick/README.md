@@ -51,13 +51,13 @@ LowState stalls on the robot.
 Interactive keyboard MuJoCo:
 
 ```bash
-/home/clhsieh/e_skin/g1_deploy/workflows/joystick/presets/forward_stable_23_mujoco.sh
+/home/clhsieh/e_skin/g1_deploy/sonic/workflows/joystick/presets/forward_stable_23_mujoco.sh
 ```
 
 Physical C++ controller (moves the robot):
 
 ```bash
-/home/clhsieh/e_skin/g1_deploy/workflows/joystick/presets/forward_stable_23_robot_cpp.sh --arm-real-robot --slow-gait --interface enp132s0
+/home/clhsieh/e_skin/g1_deploy/sonic/workflows/joystick/presets/forward_stable_23_robot_cpp.sh --arm-real-robot --slow-gait --interface enp132s0
 ```
 
 Run the same physical command without `--arm-real-robot` for its no-DDS
