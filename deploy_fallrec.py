@@ -18,19 +18,19 @@ import numpy as np
 import yaml
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-from common.depth_client import SimpleDepthClient
-from common.command_helper import create_damping_cmd
-from common.remote_controller import KeyMap
-from common.real_logger import RealLogger
-from config import Config
-from robot.robot_interface import RobotInterface
-from policy.fallrec.runner import FallRecRunner
+from core.common.depth_client import SimpleDepthClient
+from core.common.command_helper import create_damping_cmd
+from core.common.remote_controller import KeyMap
+from core.common.real_logger import RealLogger
+from core.config import Config
+from core.robot.robot_interface import RobotInterface
+from vigor2.runner import FallRecRunner
 
 
 def load_fallrec_config(path: str) -> SimpleNamespace:
     full = Path(path)
     if not full.is_file():
-        full = Path(__file__).resolve().parent / "configs" / path
+        full = Path(__file__).resolve().parent / "vigor2" / path
     with open(full) as handle:
         return SimpleNamespace(**yaml.safe_load(handle))
 

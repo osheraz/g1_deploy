@@ -10,7 +10,7 @@ environment, camera, stream checks, first run.
 
 For SONIC, first read the canonical
 [`deployment learning guide`](../docs/learning/sonic_deployment.md), then use
-the operator launchers under [`workflows/`](workflows/README.md). The generic
+the operator launchers under [`sonic/workflows/`](sonic/workflows/README.md). The generic
 legacy policy commands below are not the reviewed robust 23-DoF SONIC preset.
 
 ## Tutorials
@@ -32,7 +32,7 @@ legacy policy commands below are not the reviewed robust 23-DoF SONIC preset.
 Read-only stream check — never sends robot commands:
 
 ```bash
-python check_streams.py --config g1_23dof.yaml
+python sonic/check_streams.py --config g1_23dof.yaml
 ```
 
 Policy — **moves the robot on launch**:
@@ -53,7 +53,7 @@ After a diagnostic episode, inspect timing, tracking, pelvis tilt, target
 saturation, and unavailable 29-DoF waist demand:
 
 ```bash
-python scripts/analyze_sonic_episode.py episodes/episode_001
+python sonic/scripts/analyze_sonic_episode.py episodes/episode_001
 ```
 
 ## Layout
@@ -62,13 +62,13 @@ python scripts/analyze_sonic_episode.py episodes/episode_001
 | --- | --- |
 | [deploy_g1.py](deploy_g1.py) | fall-recovery policy runtime |
 | [deploy_eskin.py](deploy_eskin.py) | SONIC teleop + tactile + episode recording |
-| [check_streams.py](check_streams.py) | read-only stream checker |
+| [sonic/check_streams.py](sonic/check_streams.py) | read-only stream checker |
 | [config.py](config.py) | config loader |
 | [configs/](configs/) | per-robot / per-policy configs |
 | [policy/](policy/) | policy runners, SONIC tracker + vendored ONNX |
 | [robot/](robot/) | DDS interface |
 | [common/](common/) | camera, depth, tactile, viser, logging |
-| [workflows/](workflows/) | canonical operator launchers grouped by operation |
-| [tools/](tools/) | offline analysis and visual replay; no robot command publishing |
-| [scripts/](scripts/README.md) | compatibility entrypoints and specialized utilities |
-| [experiments/](experiments/README.md) | controlled multi-run studies |
+| [sonic/workflows/](sonic/workflows/) | canonical operator launchers grouped by operation |
+| [sonic/tools/](sonic/tools/) | offline analysis and visual replay; no robot command publishing |
+| [sonic/scripts/](sonic/scripts/README.md) | compatibility entrypoints and specialized utilities |
+| [sonic/experiments/](sonic/experiments/README.md) | controlled multi-run studies |

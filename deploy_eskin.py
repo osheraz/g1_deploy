@@ -2,14 +2,14 @@
 """e-skin deploy: SONIC tracker + tactile, with gamepad-triggered recording.
 
     python deploy_eskin.py --mode record --out ~/episodes
-    python deploy_eskin.py --mode motion --clip policy/sonic/motion_stand.npz
+    python deploy_eskin.py --mode motion --clip sonic/model/motion_stand.npz
 
 MOVES THE ROBOT ON LAUNCH unless ``--preflight-only`` is supplied. Unitree
 planner mode uses the official Start/Select/D-pad/X/Y/B state machine; other
 modes use A to start and stop.
 
 Episodes are directories: state.npz + frames.bin + meta.json.
-Read one back with common.episode.load_episode().
+Read one back with sonic.common.episode.load_episode().
 """
 from __future__ import annotations
 
@@ -25,16 +25,16 @@ import unitree_sdk2py.utils.crc as _unitree_crc
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.utils.crc import CRC
 
-from common.command_helper import create_damping_cmd
-from common.depth_client import SimpleDepthClient
-from common.episode import Recorder, load_episode  # noqa: F401  (re-exported)
-from common.remote_controller import KeyMap
-from common.tactile_record import sample_fields as tactile_fields
-from common.unitree_crc import configure_materialized_unitree_crc
-from common.unitree_dds import configure_process_local_cyclonedds_log
-from common.unitree_mode import release_active_motion_mode
-from config import Config
-from robot.robot_interface import RobotInterface
+from core.common.command_helper import create_damping_cmd
+from core.common.depth_client import SimpleDepthClient
+from sonic.common.episode import Recorder, load_episode  # noqa: F401  (re-exported)
+from core.common.remote_controller import KeyMap
+from sonic.common.tactile_record import sample_fields as tactile_fields
+from sonic.common.unitree_crc import configure_materialized_unitree_crc
+from sonic.common.unitree_dds import configure_process_local_cyclonedds_log
+from sonic.common.unitree_mode import release_active_motion_mode
+from core.config import Config
+from core.robot.robot_interface import RobotInterface
 
 
 def _rpy_wxyz(q) -> np.ndarray:
@@ -487,26 +487,26 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
     if mode == "record":
         return None            # hold position and only record
     if config.policy_type == "sonic":
-        from policy.sonic_runner import SonicRunner
+        from sonic.sonic_runner import SonicRunner
 
         if mode in ("pico", "planner", "smpl") and teleop:
-            from policy.pico_reference import PicoReferenceWindow
+            from sonic.pico_reference import PicoReferenceWindow
 
             if teleop == "joystick":
-                from common.joystick_teleop import GamepadManagerTeleop
+                from sonic.common.joystick_teleop import GamepadManagerTeleop
 
                 # Match NVIDIA's native gamepad_manager. In particular, do not
                 # start in WALK or reinterpret D-pad presses as direct gait
                 # selection: Start enables control, the D-pad selects a motion
                 # set, and X/Y cycle inside that set.
                 client = GamepadManagerTeleop()
-                from policy.sonic.reference_adaptation import gait_yaw_command_scale
+                from sonic.model.reference_adaptation import gait_yaw_command_scale
 
                 client.yaw_command_scale = gait_yaw_command_scale(
                     config.sonic_reference_joint_scale
                 )
             else:
-                from common.scripted_teleop import ScriptedTeleop
+                from sonic.common.scripted_teleop import ScriptedTeleop
 
                 client = ScriptedTeleop(teleop)
             return SonicRunner(
@@ -521,18 +521,18 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
                 ),
             )
 
-        from policy.sonic_reference import build_reference
+        from sonic.sonic_reference import build_reference
 
         return SonicRunner(config, build_reference(config, mode, gated=gated,
                                                    idle_hold=idle_hold))
 
-    from policy.policy_runner import PolicyRunner
+    from vigor.policy_runner import PolicyRunner
 
     return PolicyRunner(config)
 
 
 def main() -> None:
-    from policy.sonic.deployment_profile import model_profile_names
+    from sonic.model.deployment_profile import model_profile_names
 
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -633,7 +633,7 @@ def main() -> None:
     if args.loop is not None:
         config.sonic_motion_loop = args.loop
     if config.policy_type == "sonic":
-        from policy.sonic.hardware_contract import require_hardware_config
+        from sonic.model.hardware_contract import require_hardware_config
 
         # deploy_eskin is robot-facing. Reject fallback/reduced-precision math
         # before cameras, auxiliary streams, or DDS are initialized.
@@ -653,7 +653,7 @@ def main() -> None:
     )
     hardware_engines = {}
     if config.policy_type == "sonic" and policy_runner is not None:
-        from policy.sonic.hardware_contract import verify_hardware_sessions
+        from sonic.model.hardware_contract import verify_hardware_sessions
 
         hardware_engines = verify_hardware_sessions(policy_runner, args.mode)
 
@@ -688,7 +688,7 @@ def main() -> None:
 
     tactile = None
     if config.use_tactile and not args.no_tactile:
-        from common.tactile_client import TactileClient
+        from sonic.common.tactile_client import TactileClient
 
         tactile = TactileClient(
             sensor_names=config.tactile_sensor_order,
@@ -701,7 +701,7 @@ def main() -> None:
 
     feedback = None
     if args.mode in ("pico", "smpl") and not args.no_feedback:
-        from common.robot_feedback import RobotFeedbackPublisher
+        from sonic.common.robot_feedback import RobotFeedbackPublisher
 
         feedback = RobotFeedbackPublisher(
             port=args.feedback_port or config.pico_feedback_port,
@@ -711,7 +711,7 @@ def main() -> None:
     missing_action_indices = []
     missing_action_names = []
     if config.policy_type == "sonic":
-        from policy.sonic.robot_profile import get_robot_profile
+        from sonic.model.robot_profile import get_robot_profile
 
         profile = get_robot_profile(config.sonic_robot_profile)
         missing_action_indices = [int(i) for i in profile.missing_isaaclab]

@@ -35,7 +35,7 @@ attempt**. Pose freeze destroys swing; the 160 ms dvel zero is
 gait-neutral and does not beat `--slow-gait`. Reproduction only. Python
 only; not on the C++ robot path.
 
-`sim2sim_sonic.py --gait-templates` / `policy/gait_reference.py` is a
+`sim2sim_sonic.py --gait-templates` / `sonic/gait_reference.py` is a
 **legacy hybrid-gait attempt** (mocap lower-body cycles over the planner
 upper body). Do not use it for walk / turn / stand. Reproduction only.
 
@@ -48,7 +48,7 @@ physical launchers accept `--slow-gait` / `--sagittal-scale` /
 Collaborator MuJoCo flags are in
 [`../../../docs/runbooks/mujoco.md`](../../../docs/runbooks/mujoco.md). The
 matching physical command is
-`g1_deploy/scripts/run_planner_joystick_robot_cpp.sh`. It is not yet a
+`g1_deploy/sonic/scripts/run_planner_joystick_robot_cpp.sh`. It is not yet a
 physical-robot qualification.
 `robust-small-gait-23` and `stable-slow-23` are withdrawn legacy attempts.
 They are blocked on the physical robot. MuJoCo reproduction needs

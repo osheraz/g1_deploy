@@ -39,4 +39,7 @@ test = [
 managed = true
 
 [tool.setuptools]
-py-modules = ["config", "deploy_g1"]
+py-modules = ["deploy_g1", "deploy_eskin", "deploy_fallrec"]
+
+[tool.setuptools.packages.find]
+include = ["core*", "vigor*", "vigor2*", "sonic*"]

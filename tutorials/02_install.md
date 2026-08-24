@@ -17,7 +17,7 @@ That covers numpy, opencv, onnxruntime, viser, omegaconf, scipy.
 uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
-Required even for ONNX policies — `policy/policy_runner.py` imports torch unconditionally.
+Required even for ONNX policies — `vigor/policy_runner.py` imports torch unconditionally.
 
 ## Unitree SDK
 
@@ -41,13 +41,13 @@ Keep `CYCLONEDDS_HOME` exported in your shell profile — the SDK needs it at im
 python -c "import unitree_sdk2py, cv2, numpy, torch; print(numpy.__version__, cv2.__version__)"
 ```
 
-## Running scripts under `scripts/`
+## Running scripts under `sonic/scripts/`
 
 Python puts the *script's* directory on `sys.path`, not your cwd, so scripts importing
 `common` need the repo root:
 
 ```bash
-PYTHONPATH=. python scripts/<script>.py
+PYTHONPATH=. python sonic/scripts/<script>.py
 ```
 
 ## Troubleshooting

@@ -18,7 +18,7 @@ Optional:
 | [PICO teleop](PICO_TELEOP.md) | VR teleop from a PICO headset |
 | [WiFi hotspot](wifi_hotspot.md) | robot with no wired internet |
 
-Nothing sends robot commands until [5. Run](05_run.md). `check_streams.py` is read-only.
+Nothing sends robot commands until [5. Run](05_run.md). `sonic/check_streams.py` is read-only.
 
 ## What talks to what
 

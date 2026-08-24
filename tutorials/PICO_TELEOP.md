@@ -9,11 +9,11 @@ explicit PLANNER-only profile that always uses the G1 encoder.
 | | |
 | --- | --- |
 | PICO publisher | separate process owning the XR SDK; publishes the `planner` ZMQ topic |
-| [`common/pico_client.py`](../common/pico_client.py) | subscribes and decodes that topic |
-| [`policy/pico_reference.py`](../policy/pico_reference.py) | official-style planner scheduling, mode selection, encoder window |
-| [`policy/sonic/planner_onnx.py`](../policy/sonic/planner_onnx.py) | Python ONNX mirror of the official C++ planner pipeline |
-| [`common/robot_feedback.py`](../common/robot_feedback.py) | publishes measured 23-DoF posture as official-compatible `g1_debug` feedback |
-| [`policy/sonic_runner.py`](../policy/sonic_runner.py) | encoder -> token -> decoder -> 23-dof action |
+| [`sonic/common/pico_client.py`](../sonic/common/pico_client.py) | subscribes and decodes that topic |
+| [`sonic/pico_reference.py`](../sonic/pico_reference.py) | official-style planner scheduling, mode selection, encoder window |
+| [`sonic/model/planner_onnx.py`](../sonic/model/planner_onnx.py) | Python ONNX mirror of the official C++ planner pipeline |
+| [`sonic/common/robot_feedback.py`](../sonic/common/robot_feedback.py) | publishes measured 23-DoF posture as official-compatible `g1_debug` feedback |
+| [`sonic/sonic_runner.py`](../sonic/sonic_runner.py) | encoder -> token -> decoder -> 23-dof action |
 
 ## Wire format
 
@@ -35,7 +35,7 @@ f32[12] (3 endpoints wxyz), `vr_compliance`.
 Check the stream on its own:
 
 ```bash
-python -m common.pico_client --server <publisher-ip>
+python -m sonic.common.pico_client --server <publisher-ip>
 ```
 
 ## Command mapping
@@ -162,7 +162,7 @@ roughly 0.55 MB/s, so keep initial diagnostic episodes short.
 Analyze one on the actual deployment PC with:
 
 ```bash
-python scripts/analyze_sonic_episode.py episodes/episode_001
+python sonic/scripts/analyze_sonic_episode.py episodes/episode_001
 ```
 
 The report separates encoder/decoder/planner inference from loop-period and

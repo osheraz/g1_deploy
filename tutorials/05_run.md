@@ -2,10 +2,10 @@
 
 ## Check the streams first
 
-`check_streams.py` never sends commands:
+`sonic/check_streams.py` never sends commands:
 
 ```bash
-python check_streams.py --config g1_23dof.yaml
+python sonic/check_streams.py --config g1_23dof.yaml
 ```
 
 Want a `robot: ok` line with a rising `msgs=` and a fresh `age=`. Stuck on
@@ -44,7 +44,7 @@ Any remote combo needed to get the G1 out of its built-in sport mode into a stat
 `--log` writes an `.npz` per run:
 
 ```bash
-PYTHONPATH=. python scripts/replay_rollout.py --log TEST.npz
+PYTHONPATH=. python sonic/scripts/replay_rollout.py --log TEST.npz
 ```
 
 ## Troubleshooting

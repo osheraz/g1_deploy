@@ -27,7 +27,7 @@ policy still runs but behaves wrong. Don't tune them to make shapes fit.
 Only relevant if the policy was trained with depth. To just look at the camera, see
 [4. Cameras](04_cameras.md).
 
-[`common/depth_client.py`](../common/depth_client.py) turns each frame into the obs vector:
+[`core/common/depth_client.py`](../core/common/depth_client.py) turns each frame into the obs vector:
 `cv2.imdecode` → center-crop to square (`640×480` → `480×480`) → `×depth_scale` to meters →
 resize to `64×64` (`INTER_AREA`) → clip to `[min_d, max_d]` → normalize to `[0,1]` →
 **subtract `0.5`** → flatten to `depth_obs_dim`.

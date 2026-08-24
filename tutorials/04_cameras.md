@@ -26,7 +26,7 @@ data collection.
 | `img_server_osher.py` | 5555 | depth only, single-part | older, redundant |
 
 Do not run both: they open the same camera, so the second gets `Device or resource busy`.
-[`depth_client.py`](../common/depth_client.py) accepts either message shape, so nothing
+[`depth_client.py`](../core/common/depth_client.py) accepts either message shape, so nothing
 downstream cares.
 
 ## Depth encoding
@@ -36,10 +36,10 @@ The RealSense filter chain runs on each frame (decimation → disparity → spat
 the 16-bit values.
 
 View depth alone with the built-in viewer in
-[`common/depth_client.py`](../common/depth_client.py):
+[`core/common/depth_client.py`](../core/common/depth_client.py):
 
 ```bash
-PYTHONPATH=. python common/depth_client.py --server 192.168.123.164 --port 5556 --debug
+PYTHONPATH=. python core/common/depth_client.py --server 192.168.123.164 --port 5556 --debug
 ```
 
 Grayscale window clipped to `0.1–2.0 m`. Press `q` to quit.

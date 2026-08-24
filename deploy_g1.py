@@ -8,15 +8,15 @@ import threading
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-from common.depth_client import SimpleDepthClient, pack_depth_images
-from common.command_helper import create_damping_cmd
-from common.remote_controller import KeyMap
-from common.timer import TicToc
-from common.real_logger import RealLogger
-from config import Config
+from core.common.depth_client import SimpleDepthClient, pack_depth_images
+from core.common.command_helper import create_damping_cmd
+from core.common.remote_controller import KeyMap
+from core.common.timer import TicToc
+from core.common.real_logger import RealLogger
+from core.config import Config
 
-from robot.robot_interface import RobotInterface
-from policy.policy_runner import PolicyRunner
+from core.robot.robot_interface import RobotInterface
+from vigor.policy_runner import PolicyRunner
 
 class ViserUpdateThread(threading.Thread):
     def __init__(
@@ -267,7 +267,7 @@ def main():
 
     viser_display = None
     if config.viser_display:
-        from common.viser_display import DeployViser
+        from core.common.viser_display import DeployViser
 
         viser_display = DeployViser(
             urdf_path=Path(config.urdf_path),
@@ -290,7 +290,7 @@ def main():
     
     # logger = None
 
-    from common.external_camera import ExtCamRGB
+    from core.common.external_camera import ExtCamRGB
 
     ext_cam = ExtCamRGB(
         cam_id=0,
