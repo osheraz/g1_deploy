@@ -60,14 +60,16 @@ python sonic/scripts/analyze_sonic_episode.py episodes/episode_001
 
 | Path | What |
 | --- | --- |
-| [deploy_g1.py](deploy_g1.py) | fall-recovery policy runtime |
+| [deploy_g1.py](deploy_g1.py) | VIGOR reactive policy runtime |
+| [deploy_fallrec.py](deploy_fallrec.py) | VIGOR2: diffusion planner -> z_g -> tracker |
 | [deploy_eskin.py](deploy_eskin.py) | SONIC teleop + tactile + episode recording |
 | [sonic/check_streams.py](sonic/check_streams.py) | read-only stream checker |
-| [config.py](config.py) | config loader |
-| [configs/](configs/) | per-robot / per-policy configs |
-| [policy/](policy/) | policy runners, SONIC tracker + vendored ONNX |
-| [robot/](robot/) | DDS interface |
-| [common/](common/) | camera, depth, tactile, viser, logging |
+| [configs/](configs/) | per-robot yamls (`g1_23dof_sonic.yaml` for both VIGOR2 teachers) |
+| [core/](core/) | config loader, DDS interface, camera / depth / viser / logging |
+| [vigor/](vigor/) | VIGOR policy runner + student model |
+| [vigor2/](vigor2/) | planner, tracker, runner, `fallrec.yaml` |
+| [sonic/model/](sonic/model/) | SONIC tracker + vendored ONNX |
+| [sonic/common/](sonic/common/) | tactile, gamepad, SONIC-only clients |
 | [sonic/workflows/](sonic/workflows/) | canonical operator launchers grouped by operation |
 | [sonic/tools/](sonic/tools/) | offline analysis and visual replay; no robot command publishing |
 | [sonic/scripts/](sonic/scripts/README.md) | compatibility entrypoints and specialized utilities |
