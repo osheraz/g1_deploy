@@ -29,17 +29,17 @@ collaborator MuJoCo flag page is
 ## Unified MuJoCo launcher
 
 ```bash
-/home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_mujoco.sh --model-profile original-release --embodiment g1_23dof --adaptation official-parity
-/home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_mujoco.sh --model-profile original-release --embodiment g1_23dof --adaptation forward-stable-23
-/home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_mujoco.sh --model-profile original-release --embodiment g1_23dof --adaptation forward-stable-23 --slow-gait
+/home/clhsieh/e_skin/g1_deploy/sonic/scripts/run_planner_joystick_mujoco.sh --model-profile original-release --embodiment g1_23dof --adaptation official-parity
+/home/clhsieh/e_skin/g1_deploy/sonic/scripts/run_planner_joystick_mujoco.sh --model-profile original-release --embodiment g1_23dof --adaptation forward-stable-23
+/home/clhsieh/e_skin/g1_deploy/sonic/scripts/run_planner_joystick_mujoco.sh --model-profile original-release --embodiment g1_23dof --adaptation forward-stable-23 --slow-gait
 ```
 
 ## Unified physical C++ launcher
 
 ```bash
-/home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh --adaptation official-parity --interface enp132s0
-/home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh --adaptation forward-stable-23 --interface enp132s0
-/home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh --adaptation forward-stable-23 --slow-gait --interface enp132s0
+/home/clhsieh/e_skin/g1_deploy/sonic/scripts/run_planner_joystick_robot_cpp.sh --adaptation official-parity --interface enp132s0
+/home/clhsieh/e_skin/g1_deploy/sonic/scripts/run_planner_joystick_robot_cpp.sh --adaptation forward-stable-23 --interface enp132s0
+/home/clhsieh/e_skin/g1_deploy/sonic/scripts/run_planner_joystick_robot_cpp.sh --adaptation forward-stable-23 --slow-gait --interface enp132s0
 ```
 
 Add `--arm-real-robot` only after the matching no-DDS preflight. C++ is the
