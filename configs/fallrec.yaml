@@ -1,0 +1,17 @@
+# Fall recovery: diffusion planner -> z_g -> RL tracker. Independent of the SONIC configs.
+
+tracker_checkpoint: "/home/osher/hv2/logs/FallRecNew/20260822/215238-TEACHER_STEPS_FT_20260822--isaacsim-fall_recovery-g1_23dof/model_last.pt"
+planner_model: null       # MotionGenerator model.pt
+planner_cfg: null         # null = use the config embedded in the checkpoint
+
+planner_sampler: ddim
+planner_inference_steps: 12
+planner_action_horizon: 2  # ticks between replans; 2 is what every eval uses, not the 12 default
+planner_async: true        # sample off the control loop so the tracker never blocks
+
+depth_source: full         # full = whole frame like sim; square = student-era centre crop
+depth_min_d: 0.0
+depth_max_d: 2.0
+
+yaw_command_deg: 0.0
+control_dt: 0.02
