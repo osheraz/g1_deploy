@@ -206,7 +206,7 @@ while (( $# > 0 )); do
             ;;
         --arm-real-robot|--non-interactive|--probe-hosts|--clean-ports|--clean-team-ports)
             echo "ERROR: $1 is a physical-robot flag. This is the MuJoCo launcher and never sends a LowCmd." >&2
-            echo "Use /home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh for the real robot." >&2
+            echo "Use /home/clhsieh/e_skin/g1_deploy/sonic/scripts/run_planner_joystick_robot_cpp.sh for the real robot." >&2
             exit 2
             ;;
         -h|--help)

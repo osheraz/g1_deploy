@@ -16,7 +16,7 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[3]
-SIM = ROOT / "g1_deploy/scripts/sim2sim_sonic.py"
+SIM = ROOT / "g1_deploy/sonic/scripts/sim2sim_sonic.py"
 PYTHON = Path("/data/clhsieh/environments/python/venvs/e-skin-4090-verify/bin/python")
 TRT = Path("/data/clhsieh/software/nvidia/tensorrt/10.13.3.9")
 DEFAULT_OUTPUT = Path("/data/clhsieh/logs/e_skin/experiments/20260818_gait_yaw_rate")

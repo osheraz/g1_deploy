@@ -33,7 +33,7 @@ done
 if (( ! LEGACY_REPRODUCTION )); then
     legacy_sonic_attempt_error "robust-small-gait-23"
     echo "MuJoCo reproduction only: add --legacy-reproduction." >&2
-    echo "Current recipe: $ROOT/g1_deploy/workflows/joystick/presets/forward_stable_23_mujoco.sh --slow-gait" >&2
+    echo "Current recipe: $ROOT/g1_deploy/sonic/workflows/joystick/presets/forward_stable_23_mujoco.sh --slow-gait" >&2
     exit 2
 fi
 exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../mujoco.sh" \

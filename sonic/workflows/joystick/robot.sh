@@ -51,7 +51,7 @@ while (( $# > 0 )); do
             ;;
         --hip-pitch-scale|--hip-pitch-scale=*)
             echo "ERROR: --hip-pitch-scale is supported on the C++ robot launcher, not this Python path." >&2
-            echo "Use /home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_robot_cpp.sh" >&2
+            echo "Use /home/clhsieh/e_skin/g1_deploy/sonic/scripts/run_planner_joystick_robot_cpp.sh" >&2
             exit 2
             ;;
         --preflight-only)

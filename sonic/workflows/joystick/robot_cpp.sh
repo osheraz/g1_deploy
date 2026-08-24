@@ -167,7 +167,7 @@ while (( $# > 0 )); do
             ;;
         --command-protocol|--unitree-remote|--ground-friction|--joint-encoder-offset-deg|--plant-gain-scale|--plant-target-delay-ms|--planner-replan-period|--idle-hold|--no-idle-hold|--record-root|--no-record)
             echo "ERROR: $1 is a MuJoCo-only flag. This is the physical C++ robot launcher." >&2
-            echo "Use /home/clhsieh/e_skin/g1_deploy/scripts/run_planner_joystick_mujoco.sh for simulation." >&2
+            echo "Use /home/clhsieh/e_skin/g1_deploy/sonic/scripts/run_planner_joystick_mujoco.sh for simulation." >&2
             exit 2
             ;;
         --probe-hosts|--clean-ports|--clean-team-ports)

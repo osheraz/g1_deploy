@@ -97,7 +97,7 @@ class Config:
         self.lowstate_topic = config["lowstate_topic"]
 
         # Relative to the repo root, not configs/: "policy/x.onnx" means
-        # g1_deploy/policy/x.onnx. Absolute and ~ paths pass through.
+        # g1_deploy/sonic/x.onnx. Absolute and ~ paths pass through.
         self.policy_path = _resolve_path(
             config["policy_path"], config_dir=REMOTE_ROOT
         )
