@@ -81,7 +81,7 @@ class Vigor2Viser:
         world = link_pos @ _rot_from_wxyz(q).T + np.asarray(pos, dtype=np.float32)
         return world[self.edges]
 
-    def update(self, low_state, qj: np.ndarray, depth_raw, runner) -> None:
+    def update(self, low_state, qj: np.ndarray, depth_raw, runner, redraw_plan: bool) -> None:
         self.base.update(low_state, qj, depth_raw)
         yaw_now = _yaw_of_wxyz(low_state.imu_state.quaternion)
         start = runner.planner.start_yaw
@@ -93,7 +93,7 @@ class Vigor2Viser:
         self.lat_h.value = round(float(runner.async_planner.last_latency_ms), 1) if runner.async_planner is not None else 0.0
         self.held_h.value = bool(runner.stand_held)
         states = runner.async_planner.latest_states if runner.async_planner is not None else runner.planner.latest_states
-        if states is None:
+        if states is None or not redraw_plan:
             return
         st = states[0].numpy()
         segs, cols = [], []
@@ -113,10 +113,14 @@ class ViserThread(threading.Thread):
         super().__init__(daemon=True, name="viser")
         self.view, self.robot, self.depth_client, self.runner, self.dt = view, robot, depth_client, runner, 1.0 / hz
         self.running = True
+        self._drawn_seq = -1
 
     def run(self) -> None:
         while self.running:
             state, _ = self.robot.low_state_snapshot_with_age()
             if state is not None and self.runner.planner.start_yaw is not None:
-                self.view.update(state, self.robot.qj, self.depth_client.latest_depth, self.runner)
+                seq = self.runner.async_planner.latest_seq if self.runner.async_planner is not None else self.runner.act_count
+                redraw = seq != self._drawn_seq  # FK for the figures only when a new plan landed; keeps the control loop's CPU
+                self.view.update(state, self.robot.qj, self.depth_client.latest_depth, self.runner, redraw)
+                self._drawn_seq = seq
             time.sleep(self.dt)
