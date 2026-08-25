@@ -224,14 +224,12 @@ def main():
             obs = depth_to_obs_vector_match_sim(full, args.obs_h, args.obs_w, args.min_d, args.max_d)
             obs_m = (obs.reshape(args.obs_h, args.obs_w) + 0.5) * (args.max_d - args.min_d) + args.min_d
             raw = grey(full.astype(np.float32), args.min_d, args.max_d)
-            small = grey(obs_m, args.min_d, args.max_d)
-            small = cv2.resize(small, (full.shape[1], full.shape[0]), interpolation=cv2.INTER_NEAREST)
-            panel = np.concatenate([raw, np.full((full.shape[0], 8), 128, np.uint8), small], axis=1)
-            cv2.putText(panel, f"raw {full.shape[1]}x{full.shape[0]}  {fps:.1f} Hz  valid {np.mean(full > 0) * 100:.0f}%",
+            cv2.putText(raw, f"{full.shape[1]}x{full.shape[0]}  {fps:.1f} Hz  valid {np.mean(full > 0) * 100:.0f}%",
                         (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 255, 1)
-            cv2.putText(panel, f"policy obs {args.obs_w}x{args.obs_h}  clip {args.min_d}-{args.max_d} m  0->max",
-                        (full.shape[1] + 18, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 255, 1)
-            cv2.imshow("depth: robot | policy obs", panel)
+            cv2.imshow(f"robot depth {full.shape[1]}x{full.shape[0]} (0.1-2 m, no-depth black)", raw)
+            obs_img = grey(obs_m, args.min_d, args.max_d)  # 64x48 as the policy sees it, shown 6x nearest
+            cv2.imshow(f"policy obs {args.obs_w}x{args.obs_h} (0->max, clip {args.min_d}-{args.max_d} m)",
+                       cv2.resize(obs_img, (args.obs_w * 6, args.obs_h * 6), interpolation=cv2.INTER_NEAREST))
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     except KeyboardInterrupt:
