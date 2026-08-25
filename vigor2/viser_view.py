@@ -42,7 +42,8 @@ def ghost_pose(row: np.ndarray, slices: dict, yaw_now: float):
 
 
 class Vigor2Viser:
-    def __init__(self, urdf_path: str, depth_min: float, depth_max: float, depth_scale: float, bundle) -> None:
+    def __init__(self, urdf_path: str, depth_min: float, depth_max: float, depth_scale: float, bundle, runner) -> None:
+        self.runner = runner
         urdf_path = Path(urdf_path)
         self.base = DeployViser(urdf_path=urdf_path, with_depth=True, depth_min=depth_min,
                                 depth_max=depth_max, depth_scale=depth_scale)
@@ -57,7 +58,9 @@ class Vigor2Viser:
             self.ghosts.append((k, frame, urdf))
         self.ghost_joints = set(self.ghosts[0][2].get_actuated_joint_names())
         with server.gui.add_folder("Planner"):
-            self.cmd_h = server.gui.add_number("yaw command (deg)", 0.0, disabled=True)
+            self.cmd_h = server.gui.add_slider("yaw command (deg)", min=-180.0, max=180.0, step=5.0,
+                                               initial_value=round(math.degrees(runner.yaw_command_rad)))
+            self.cmd_h.on_update(lambda _: setattr(runner, "yaw_command_rad", math.radians(float(self.cmd_h.value))))
             self.prog_h = server.gui.add_number("yaw progress (deg)", 0.0, disabled=True)
             self.age_h = server.gui.add_number("plan age (ticks)", 0, disabled=True)
             self.lat_h = server.gui.add_number("plan latency (ms)", 0.0, disabled=True)
@@ -67,7 +70,9 @@ class Vigor2Viser:
         self.base.update(low_state, qj, depth_raw)
         yaw_now = _yaw_of_wxyz(low_state.imu_state.quaternion)
         start = runner.planner.start_yaw
-        self.cmd_h.value = round(math.degrees(runner.yaw_command_rad), 1)
+        cmd_deg = math.degrees(runner.yaw_command_rad)
+        if abs(cmd_deg - float(self.cmd_h.value)) > 0.5:  # D-pad changed it: reflect without re-triggering
+            self.cmd_h.value = round(cmd_deg)
         self.prog_h.value = 0.0 if start is None else round(math.degrees((yaw_now - start + math.pi) % (2 * math.pi) - math.pi), 1)
         self.age_h.value = int(runner.plan_age)
         self.lat_h.value = round(float(runner.async_planner.last_latency_ms), 1) if runner.async_planner is not None else 0.0

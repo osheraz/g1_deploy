@@ -201,7 +201,7 @@ def main() -> None:
     viser_thread = None
     if config.viser_display:
         from vigor2.viser_view import Vigor2Viser, ViserThread
-        view = Vigor2Viser(str(config.urdf_path), config.min_d, config.max_d, config.depth_scale, runner.planner.bundle)
+        view = Vigor2Viser(str(config.urdf_path), config.min_d, config.max_d, config.depth_scale, runner.planner.bundle, runner)
         viser_thread = ViserThread(view, robot, depth_client, runner)
         viser_thread.start()
     while depth_client.latest_seq == 0:
