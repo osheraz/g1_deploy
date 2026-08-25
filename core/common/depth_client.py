@@ -73,14 +73,8 @@ class SimpleDepthClient(threading.Thread):
         self.latest_color_jpg = None
         self.latest_depth_png = None
         self.latest_seq = 0
-        self._shared_frame = None  # optional shared-memory mirror of latest_depth_full for another process (viser)
-        self._shared_seq = None
         self.running = True
         self.frame_count = 0
-
-    def attach_shared(self, frame: np.ndarray, seq: np.ndarray) -> None:
-        """Mirror every decoded full frame into these shared-memory arrays (written from this thread)."""
-        self._shared_frame, self._shared_seq = frame, seq
 
     def run(self):
         print("Depth client thread is running")
@@ -121,9 +115,6 @@ class SimpleDepthClient(threading.Thread):
                 self.latest_depth = depth_m[y0:y0 + crop, x0:x0 + crop]
                 self.frame_count += 1
                 self.latest_seq += 1
-                if self._shared_frame is not None:
-                    self._shared_frame[:] = depth_m
-                    self._shared_seq[0] = self.latest_seq
 
                 if self.show_debug:
 

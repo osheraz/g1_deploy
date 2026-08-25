@@ -20,7 +20,7 @@ import numpy as np
 import yaml
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-from core.common.depth_client import SimpleDepthClient
+from core.common.depth_process import DepthProcess
 from core.common.remote_controller import KeyMap
 from core.common.real_logger import RealLogger
 from core.config import Config
@@ -38,13 +38,12 @@ def load_fallrec_config(path: str) -> SimpleNamespace:
         return SimpleNamespace(**yaml.safe_load(handle))
 
 
-def init_depth_client(config: Config) -> SimpleDepthClient:
-    client = SimpleDepthClient(
+def init_depth_client(config: Config) -> DepthProcess:
+    client = DepthProcess(
         server_address=config.depth_server_ip,
         port=config.depth_server_port,
         height=config.depth_raw_height,
         width=config.depth_raw_width,
-        show_debug=False,
     )
     client.start()
     print("Depth client started.")
@@ -62,7 +61,7 @@ class _NoPublish:
 
 class FallRecController:
     def __init__(self, config: Config, robot: RobotInterface, runner: FallRecRunner,
-                 depth_client: SimpleDepthClient, fallrec_cfg: SimpleNamespace,
+                 depth_client: DepthProcess, fallrec_cfg: SimpleNamespace,
                  logger: Optional[RealLogger] = None):
         self.config = config
         self.robot = robot
@@ -218,9 +217,8 @@ def main() -> None:
             str(HV2_ROOT), dict(urdf_path=str(config.urdf_path), depth_min=config.min_d, depth_max=config.max_d,
                                 depth_scale=config.depth_scale, feature_layout=list(runner.planner.bundle.feature_layout),
                                 dof_names=list(runner.planner.bundle.dof_names), fk_urdf_path=str(runner.fk_urdf_path)),
-            (config.depth_raw_height, config.depth_raw_width),
+            depth_client.frames, depth_client.seq,
             config.num_actions, ap.resp_states, ap.ctl, ap.stat, runner.yaw_command_rad)
-        depth_client.attach_shared(viser.depth_frame.numpy(), viser.depth_seq.numpy())
         controller.viser = viser
     while depth_client.latest_seq == 0:
         time.sleep(0.01)
