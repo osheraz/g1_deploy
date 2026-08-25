@@ -173,8 +173,8 @@ def depth_to_obs_vector_match_sim(
 
 
 def main():
-    """Viewer: left = raw depth from the robot (0.1-2 m grey, no-depth black), right = the obs the
-    policy sees (64x48 after resize, 0 -> max_d, clip, normalise), upscaled. q quits."""
+    """Viewer (viser, browser): left = raw depth from the robot (0.1-2 m grey, no-depth black), right = the
+    obs the policy sees (64x48 after resize, 0 -> max_d, clip, normalise), upscaled. Ctrl-C stops."""
     import argparse
     import time
     import cv2
@@ -189,6 +189,7 @@ def main():
     parser.add_argument("--min-d", type=float, default=0.1)   # must equal training clipping_range
     parser.add_argument("--max-d", type=float, default=2.0)
     parser.add_argument("--no-window", action="store_true")
+    parser.add_argument("--viser-port", type=int, default=8081)  # the venv's cv2 is headless: the panel is served by viser
     args = parser.parse_args()
 
     client = SimpleDepthClient(
@@ -197,6 +198,12 @@ def main():
     )
     client.start()
     print("Depth client started.")
+    viewer = None
+    if not args.no_window:
+        import viser
+        server = viser.ViserServer(port=args.viser_port)
+        viewer = server.gui.add_image(np.zeros((args.height, 2 * args.width + 8, 3), np.uint8), label="robot depth | policy obs")
+        print(f"Viewer: http://localhost:{args.viser_port}  (left: raw 0.1-2 m, no-depth black; right: the 64x48 policy obs upscaled). Ctrl-C to stop.")
 
     def grey(depth_m, lo, hi):
         g = np.clip((depth_m - lo) / (hi - lo), 0.0, 1.0)
@@ -231,16 +238,12 @@ def main():
                         (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 255, 1)
             cv2.putText(panel, f"policy obs {args.obs_w}x{args.obs_h}  clip {args.min_d}-{args.max_d} m  0->max",
                         (full.shape[1] + 18, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 255, 1)
-            cv2.imshow("depth: robot | policy obs", panel)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
+            viewer.image = np.repeat(panel[..., None], 3, axis=-1)
     except KeyboardInterrupt:
         pass
     finally:
         client.running = False
         client.join()
-        if not args.no_window:
-            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
