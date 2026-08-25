@@ -3,7 +3,7 @@
 Separate from `deploy_g1.py` (VIGOR) and from the SONIC runners; shares only the robot
 interface, depth client and logging.
 
-  python deploy_fallrec.py --config g1_23dof_sonic.yaml --fallrec fallrec.yaml
+  python deploy_vigor2.py --config g1_23dof_sonic.yaml --cfg fallrec.yaml
 """
 
 from __future__ import annotations
