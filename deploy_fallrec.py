@@ -180,11 +180,12 @@ def main() -> None:
     imu_quat, _ = robot.get_imu()
     secs = runner.warmup(*robot.get_base_features_scaled(), depth_client.latest_depth_full, imu_quat)
     gc.collect(); gc.freeze(); gc.disable()  # a gen-2 collection stalls the DDS thread 70-120 ms (measured); nothing in the loop needs the collector
-    print(f"Warm-up {secs:.2f} s. Fall recovery ready. START to run, SELECT to damp and exit.")
+    print(f"Warm-up {secs:.2f} s. Fall recovery ready. Press A to run, SELECT to damp and exit.")
     try:
-        while True:
-            if robot.remote_controller.button[KeyMap.select] == 1:
-                break
+        rc = robot.remote_controller
+        while rc.button[KeyMap.A] != 1 and rc.button[KeyMap.select] != 1:  # nothing is published until A
+            time.sleep(0.02)
+        while rc.button[KeyMap.select] != 1:
             controller.step()
     finally:
         runner.close()
