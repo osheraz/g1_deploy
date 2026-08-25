@@ -179,8 +179,7 @@ def main() -> None:
     parser.add_argument("--config", type=str, default="g1_23dof_sonic.yaml")
     parser.add_argument("--cfg", type=str, default="fallrec.yaml", help="vigor2/ config: fallrec.yaml (new stack) or fallrec_old.yaml (old stack)")
     parser.add_argument("--log", type=str, default="FALLREC.npz")
-    parser.add_argument("--no-publish", action="store_true", help="run everything but publish no LowCmd (motors never receive a command)")
-    parser.add_argument("--keep-planning", action="store_true", help="no stand takeover: the planner keeps replanning (viewing only; requires --no-publish)")
+    parser.add_argument("--no-publish", action="store_true", help="publish no LowCmd (motors never receive a command); the stand latch is off so the planner keeps running for viewing")
     args = parser.parse_args()
 
     config = Config(args.config)
@@ -194,11 +193,8 @@ def main() -> None:
         print("[NO-PUBLISH] LowCmd publisher replaced: the robot receives no command in this run.")
     runner = FallRecRunner(fallrec_cfg)
     runner.verify_robot_config(config)
-    if args.keep_planning:
-        if not args.no_publish:
-            raise ValueError("--keep-planning is for watching the planner; it needs --no-publish")
+    if args.no_publish:
         runner.stand_takeover = False
-        print("[KEEP-PLANNING] stand takeover off: the planner replans for the whole run.")
 
     logger = RealLogger(args.log)
     logger.start()
@@ -207,7 +203,7 @@ def main() -> None:
     viser_thread = None
     if config.viser_display:
         from vigor2.viser_view import Vigor2Viser, ViserThread
-        view = Vigor2Viser(str(config.urdf_path), config.min_d, config.max_d, config.depth_scale, runner.planner.bundle, runner)
+        view = Vigor2Viser(str(config.urdf_path), config.min_d, config.max_d, config.depth_scale, runner)
         viser_thread = ViserThread(view, robot, depth_client, runner)
         viser_thread.start()
     while depth_client.latest_seq == 0:

@@ -66,6 +66,7 @@ class FallRecRunner:
             "${robot.asset.robot_type}", str(asset.robot_type)
         )
         urdf_path = HV2_ROOT / "humanoidverse2/data/robots" / urdf
+        self.fk_urdf_path = urdf_path
         fk = build_pyroki_fk_model(load_fk_urdf_for_mesh(urdf_path), self.dof_names)
         self.state = DeployStateHistory(
             self.planner.bundle, fk, self.dof_names,
