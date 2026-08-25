@@ -95,7 +95,7 @@ class FallRecRunner:
             self.async_planner = PlannerProcess(
                 str(HV2_ROOT), self._planner_kwargs, {k: tuple(v.shape) for k, v in w.items()},
                 self.depth_h * self.depth_w, 6, self.planner.H, self.planner.F,
-                self.planner.action_dim, self.num_actions, device,
+                self.planner.action_dim, self.num_actions, int(self.planner.bundle.state_out_dim), device,
             )
 
     def verify_robot_config(self, robot_config) -> None:

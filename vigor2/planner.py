@@ -36,6 +36,7 @@ class DeployPlanner:
         self.plan = None
         self.cursor = 0
         self.start_yaw = None
+        self.latest_states = None  # predicted future states of the last plan (viser only)
 
     def reset(self, yaw_now: float) -> None:
         self.hist_action.zero_()
@@ -117,17 +118,20 @@ class DeployPlanner:
         return self.advance()
 
     @torch.no_grad()
-    def plan_from(self, state_window: dict, depth_flat, command) -> torch.Tensor:
+    def plan_from(self, state_window: dict, depth_flat, command):
+        """(z_g plan [1, F, action_dim], predicted states [1, F, state_out_dim])."""
         return sample_actions_from_unified(
             self.model, self._encode_state(state_window), self.hist_action,
             self._condition(depth_flat, command),
             num_plans=1, sampler=self.sampler,
             num_inference_steps=self.num_inference_steps,
             horizon=self.F, mode="full",  # decode the full chunk (sim horizon_steps = F); action_horizon is the cadence
+            return_states=True,
         )
 
     def _replan(self, state_window, depth_flat, command) -> None:
-        self.install_plan(self.plan_from(state_window, depth_flat, command))
+        plan, self.latest_states = self.plan_from(state_window, depth_flat, command)
+        self.install_plan(plan)
 
 
 def _wrap_pi(a: float) -> float:

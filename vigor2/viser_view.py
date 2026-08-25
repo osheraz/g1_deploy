@@ -1,0 +1,97 @@
+"""Viser view for deploy_vigor2: the measured robot (IMU + joints), the depth image, and ghost
+robots at a few horizons of the planner's predicted states, so the plan is visible while it runs."""
+from __future__ import annotations
+import math
+import threading
+import time
+from pathlib import Path
+
+import numpy as np
+from core.common.viser_display import DeployViser
+from viser.extras import ViserUrdf
+
+GHOST_FRAMES = (8, 16, 24)  # ticks ahead (20 ms each)
+
+
+def _yaw_of_wxyz(q) -> float:
+    w, x, y, z = (float(v) for v in q)
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+def _wxyz_from_rpy(roll: float, pitch: float, yaw: float):
+    cr, sr, cp, sp, cy, sy = (math.cos(roll / 2), math.sin(roll / 2), math.cos(pitch / 2),
+                              math.sin(pitch / 2), math.cos(yaw / 2), math.sin(yaw / 2))
+    return (cr * cp * cy + sr * sp * sy, sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy, cr * cp * sy - sr * sp * cy)
+
+
+def ghost_pose(row: np.ndarray, slices: dict, yaw_now: float):
+    """World pose of one predicted state: offsets are in the current heading frame (ref frame = newest history frame)."""
+    h = float(row[slices["anchor_height"]][0])
+    x, y = (float(v) for v in row[slices["anchor_xy_rel"]])
+    yaw_rel = 0.0
+    if "anchor_yaw_rel" in slices:
+        c, s = (float(v) for v in row[slices["anchor_yaw_rel"]])
+        yaw_rel = math.atan2(s, c)
+    gx, gy, gz = (float(v) for v in row[slices["projected_gravity"]])
+    pitch = math.asin(max(-1.0, min(1.0, gx)))
+    roll = math.atan2(-gy, -gz)
+    cy, sy = math.cos(yaw_now), math.sin(yaw_now)
+    pos = (cy * x - sy * y, sy * x + cy * y, h)
+    return pos, _wxyz_from_rpy(roll, pitch, yaw_now + yaw_rel)
+
+
+class Vigor2Viser:
+    def __init__(self, urdf_path: str, depth_min: float, depth_max: float, depth_scale: float, bundle) -> None:
+        urdf_path = Path(urdf_path)
+        self.base = DeployViser(urdf_path=urdf_path, with_depth=True, depth_min=depth_min,
+                                depth_max=depth_max, depth_scale=depth_scale)
+        server = self.base.server
+        self.slices = {r["name"]: slice(int(r["start"]), int(r["end"])) for r in bundle.feature_layout}
+        self.dof_names = list(bundle.dof_names)
+        self.ghosts = []
+        for i, k in enumerate(GHOST_FRAMES):
+            frame = server.scene.add_frame(f"/plan/{k}", show_axes=False)
+            urdf = ViserUrdf(server, urdf_or_path=urdf_path, root_node_name=f"/plan/{k}",
+                             mesh_color_override=(0.2, 0.55, 1.0, 0.25 + 0.15 * i), load_collision_meshes=False)
+            self.ghosts.append((k, frame, urdf))
+        self.ghost_joints = set(self.ghosts[0][2].get_actuated_joint_names())
+        with server.gui.add_folder("Planner"):
+            self.cmd_h = server.gui.add_number("yaw command (deg)", 0.0, disabled=True)
+            self.prog_h = server.gui.add_number("yaw progress (deg)", 0.0, disabled=True)
+            self.age_h = server.gui.add_number("plan age (ticks)", 0, disabled=True)
+            self.lat_h = server.gui.add_number("plan latency (ms)", 0.0, disabled=True)
+            self.held_h = server.gui.add_checkbox("stand held", False, disabled=True)
+
+    def update(self, low_state, qj: np.ndarray, depth_raw, runner) -> None:
+        self.base.update(low_state, qj, depth_raw)
+        yaw_now = _yaw_of_wxyz(low_state.imu_state.quaternion)
+        start = runner.planner.start_yaw
+        self.cmd_h.value = round(math.degrees(runner.yaw_command_rad), 1)
+        self.prog_h.value = 0.0 if start is None else round(math.degrees((yaw_now - start + math.pi) % (2 * math.pi) - math.pi), 1)
+        self.age_h.value = int(runner.plan_age)
+        self.lat_h.value = round(float(runner.async_planner.last_latency_ms), 1) if runner.async_planner is not None else 0.0
+        self.held_h.value = bool(runner.stand_held)
+        states = runner.async_planner.latest_states if runner.async_planner is not None else runner.planner.latest_states
+        if states is None:
+            return
+        st = states[0].numpy()
+        for k, frame, urdf in self.ghosts:
+            row = st[min(k, st.shape[0] - 1)]
+            frame.position, frame.wxyz = ghost_pose(row, self.slices, yaw_now)
+            dof = row[self.slices["dof_pos"]]
+            urdf.update_cfg({n: float(v) for n, v in zip(self.dof_names, dof) if n in self.ghost_joints})
+
+
+class ViserThread(threading.Thread):
+    def __init__(self, view: Vigor2Viser, robot, depth_client, runner, hz: float = 20.0) -> None:
+        super().__init__(daemon=True, name="viser")
+        self.view, self.robot, self.depth_client, self.runner, self.dt = view, robot, depth_client, runner, 1.0 / hz
+        self.running = True
+
+    def run(self) -> None:
+        while self.running:
+            state, _ = self.robot.low_state_snapshot_with_age()
+            if state is not None and self.runner.planner.start_yaw is not None:
+                self.view.update(state, self.robot.qj, self.depth_client.latest_depth, self.runner)
+            time.sleep(self.dt)

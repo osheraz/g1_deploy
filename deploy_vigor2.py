@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from typing import Optional
 import argparse
 import gc
+import math
 import time
 
 import numpy as np
@@ -24,6 +25,7 @@ from core.common.remote_controller import KeyMap
 from core.common.real_logger import RealLogger
 from core.config import Config
 from core.robot.robot_interface import RobotInterface
+from vigor2.planner import _wrap_pi
 from vigor2.robot import WatchdogRobot
 from vigor2.runner import FallRecRunner
 
@@ -69,6 +71,8 @@ class FallRecController:
         self.logger = logger
         self.counter = 0
         self.elapsed_time = 0.0
+        self._dpad = (0, 0)
+        self.yaw_step_rad = math.radians(float(fallrec_cfg.yaw_step_deg))
         self._t_next = time.perf_counter()
         self._last_seq = -1
         self._last_depth_t = time.perf_counter()
@@ -102,6 +106,12 @@ class FallRecController:
             raise RuntimeError(f"LowState stale for {age:.3f} s at tick {self.counter}.")
         self.robot.update_joint_state(state)
         imu_quat, _ = self.robot.get_imu()
+        rc = self.robot.remote_controller
+        dpad = (int(rc.button[KeyMap.left]), int(rc.button[KeyMap.right]))
+        if dpad != self._dpad and any(dpad):  # D-pad left/right: turn the commanded heading, relative to the heading at start
+            self.runner.yaw_command_rad = _wrap_pi(self.runner.yaw_command_rad + self.yaw_step_rad * (dpad[1] - dpad[0]))
+            print(f"[cmd] yaw command {math.degrees(self.runner.yaw_command_rad):+.0f} deg")
+        self._dpad = dpad
         base_ang_vel, projected_gravity, dof_pos, dof_vel = (
             self.robot.get_base_features_scaled()
         )
@@ -153,6 +163,7 @@ class FallRecController:
                 "target_dof_pos": target_dof_pos.copy().astype(np.float32),
                 "imu_quat_wxyz": np.asarray(imu_quat, dtype=np.float32),
                 "plan_age": np.float32(self.runner.plan_age),
+                "yaw_cmd_deg": np.float32(math.degrees(self.runner.yaw_command_rad)),
             })
 
         self._t_next += self.config.control_dt
@@ -187,6 +198,12 @@ def main() -> None:
     logger.start()
 
     controller = FallRecController(config, robot, runner, depth_client, fallrec_cfg, logger)
+    viser_thread = None
+    if config.viser_display:
+        from vigor2.viser_view import Vigor2Viser, ViserThread
+        view = Vigor2Viser(str(config.urdf_path), config.min_d, config.max_d, config.depth_scale, runner.planner.bundle)
+        viser_thread = ViserThread(view, robot, depth_client, runner)
+        viser_thread.start()
     while depth_client.latest_seq == 0:
         time.sleep(0.01)
     robot.update_joint_state()
@@ -201,6 +218,8 @@ def main() -> None:
         while rc.button[KeyMap.select] != 1:
             controller.step()
     finally:
+        if viser_thread is not None:
+            viser_thread.running = False
         runner.close()
         robot.send_damping_now()
         logger.stop()

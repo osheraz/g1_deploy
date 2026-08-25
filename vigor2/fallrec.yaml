@@ -21,4 +21,5 @@ depth_max_d: 2.0
 depth_crop_px: [32, 8]     # px cut per side (x, y) before the 64x48 resize = sim ego_camera.crop_px (D435 left stereo shadow 8-25 px standing, wider prone; edge artefacts)
 
 yaw_command_deg: 0.0
+yaw_step_deg: 15.0        # D-pad left/right changes the commanded heading by this much per press
 control_dt: 0.02

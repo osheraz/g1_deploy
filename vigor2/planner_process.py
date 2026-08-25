@@ -13,7 +13,7 @@ REQ_BEGIN, REQ_END, REQ_TICK, RESP_BEGIN, RESP_END, RESP_TICK, READY, ERROR, STO
 
 
 def _child_main(repo_root, planner_kwargs, req_state, req_hist, req_exec, req_depth, req_cmd,
-                resp_plan, ctl, stat, err_text):
+                resp_plan, resp_states, ctl, stat, err_text):
     try:
         os.chdir(repo_root)
         sys.path.insert(0, repo_root)
@@ -35,10 +35,11 @@ def _child_main(repo_root, planner_kwargs, req_state, req_hist, req_exec, req_de
             depth, cmd, tick = req_depth.to(dev), req_cmd.to(dev), int(ctl[REQ_TICK])
             t0 = time.perf_counter()
             with torch.no_grad():
-                plan = planner.plan_from(window, depth, cmd)
+                plan, states = planner.plan_from(window, depth, cmd)
             torch.cuda.synchronize()
             ctl[RESP_BEGIN] = s
             resp_plan.copy_(plan.cpu())
+            resp_states.copy_(states.cpu())
             ctl[RESP_TICK] = tick
             stat[0] = (time.perf_counter() - t0) * 1000.0
             ctl[RESP_END] = s
@@ -50,7 +51,7 @@ def _child_main(repo_root, planner_kwargs, req_state, req_hist, req_exec, req_de
 
 class PlannerProcess:
     def __init__(self, repo_root: str, planner_kwargs: dict, window_shapes: dict, depth_dim: int,
-                 cmd_dim: int, H: int, F: int, action_dim: int, num_dof: int, device: str,
+                 cmd_dim: int, H: int, F: int, action_dim: int, num_dof: int, state_dim: int, device: str,
                  ready_timeout_s: float = 120.0):
         ctx = mp.get_context("spawn")
         self.device = device
@@ -60,16 +61,18 @@ class PlannerProcess:
         self.req_depth = torch.zeros(1, depth_dim).share_memory_()
         self.req_cmd = torch.zeros(1, cmd_dim).share_memory_()
         self.resp_plan = torch.zeros(1, F, action_dim).share_memory_()
+        self.resp_states = torch.zeros(1, F, state_dim).share_memory_()
         self.ctl = torch.zeros(9, dtype=torch.int64).share_memory_()
         self.stat = torch.zeros(2, dtype=torch.float64).share_memory_()  # [latency_ms, heartbeat]
         self.err_text = ctx.Array("c", 4096)
         self.proc = ctx.Process(
             target=_child_main,
             args=(repo_root, planner_kwargs, self.req_state, self.req_hist, self.req_exec, self.req_depth,
-                  self.req_cmd, self.resp_plan, self.ctl, self.stat, self.err_text),
+                  self.req_cmd, self.resp_plan, self.resp_states, self.ctl, self.stat, self.err_text),
             daemon=True,
         )
         self.latest_plan = None
+        self.latest_states = None
         self.latest_tick = 0
         self.latest_seq = 0
         self.last_latency_ms = 0.0
@@ -113,6 +116,7 @@ class PlannerProcess:
         if s == self.latest_seq or int(self.ctl[RESP_BEGIN]) != s:
             return False
         self.latest_plan = self.resp_plan.to(self.device)
+        self.latest_states = self.resp_states.clone()
         self.latest_tick = int(self.ctl[RESP_TICK])
         self.last_latency_ms = float(self.stat[0])
         self.latest_seq = s
