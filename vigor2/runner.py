@@ -16,7 +16,8 @@ HV2_ROOT = Path(__file__).resolve().parents[2]
 if str(HV2_ROOT) not in sys.path:
     sys.path.insert(0, str(HV2_ROOT))
 
-from vigor2.planner import AsyncPlanner, DeployPlanner  # noqa: E402
+from vigor2.planner import DeployPlanner  # noqa: E402
+from vigor2.planner_process import PlannerProcess  # noqa: E402
 from vigor2.state import DeployStateHistory  # noqa: E402
 from vigor2.tracker import ACTOR_OBS_KEYS, DeployTracker  # noqa: E402
 
@@ -41,13 +42,15 @@ class FallRecRunner:
 
     def _build(self, config, device) -> None:
         self.tracker = DeployTracker(config.tracker_checkpoint, device)
-        self.planner = DeployPlanner(
-            config.planner_model, config.planner_cfg, device,
+        self._planner_kwargs = dict(
+            model_path=config.planner_model, cfg_path=config.planner_cfg, device=device,
             sampler=config.planner_sampler,
             num_inference_steps=config.planner_inference_steps,
             action_horizon=config.planner_action_horizon,
             num_dof=self.tracker.num_actions,
+            blend_frames=config.planner_blend_frames,
         )
+        self.planner = DeployPlanner(**self._planner_kwargs)
         tcfg = self.tracker.config
         self.dof_names = [str(n) for n in tcfg.robot.dof_names]
         self.num_actions = self.tracker.num_actions
@@ -78,12 +81,21 @@ class FallRecRunner:
             raise ValueError(f"depth_source must be full or square, got {self.depth_source!r}")
         self._started = False
         self._plan_seq = 0
+        self._last_submit_tick = -10**9
         self.plan_age = 0
+        self.stand_takeover = bool(config.stand_takeover)
+        self.stand_up_threshold = float(config.stand_up_threshold)
+        self.stand_held = False
+        self.stand_held_tick = 0
         self.async_planner = None
-        self.first_plan_timeout_s = 1.0
+        self.first_plan_timeout_s = 5.0  # the first plan includes the child's CUDA warm-up
         if bool(config.planner_async):
-            self.async_planner = AsyncPlanner(self.planner)
-            self.async_planner.start()
+            w = self.state.window()
+            self.async_planner = PlannerProcess(
+                str(HV2_ROOT), self._planner_kwargs, {k: tuple(v.shape) for k, v in w.items()},
+                self.depth_h * self.depth_w, 6, self.planner.H, self.planner.F,
+                self.planner.action_dim, self.num_actions, device,
+            )
 
     def verify_robot_config(self, robot_config) -> None:
         """The robot yaml must carry the gains the tracker was trained with."""
@@ -109,6 +121,14 @@ class FallRecRunner:
                 f"{deploy_default[bad]:.4f} vs training {train_default[bad]:.4f}"
             )
 
+    def warmup(self, base_ang_vel, projected_gravity, dof_pos, dof_vel, depth, base_quat_wxyz) -> float:
+        """Compile FK and run one plan on real data before the loop (first ticks otherwise take ~0.9 s); returns seconds."""
+        t0 = time.perf_counter()
+        for _ in range(int(self.planner.bundle.H) + 1):
+            self.compute_action(base_ang_vel, projected_gravity, dof_pos, dof_vel,
+                                depth_raw=depth, depth_full=depth, base_quat_wxyz=base_quat_wxyz)
+        self.reset()
+        return time.perf_counter() - t0
     def reset(self, yaw_now: float = 0.0) -> None:
         self.state.reset()
         self.planner.reset(yaw_now)
@@ -116,12 +136,14 @@ class FallRecRunner:
         self.act_count = 0
         self._started = False
         self._plan_seq = 0
+        self._last_submit_tick = -10**9
         self.plan_age = 0
+        self.stand_held = False
+        self.stand_held_tick = 0
 
     def close(self) -> None:
-        if self.async_planner is not None:  # join, or the daemon dies mid-CUDA-call at exit
+        if self.async_planner is not None:
             self.async_planner.stop()
-            self.async_planner.join(timeout=2.0)
 
     def compute_action(self, base_ang_vel, projected_gravity, dof_pos, dof_vel,
                        depth_raw=None, base_quat_wxyz=None, depth_full=None) -> np.ndarray:
@@ -133,8 +155,8 @@ class FallRecRunner:
             )
         if base_quat_wxyz is None:
             raise ValueError("Fall recovery needs the IMU quaternion for FK placement.")
-        if self.async_planner is not None and self.async_planner.error is not None:
-            raise RuntimeError("Planner thread died") from self.async_planner.error
+        if self.async_planner is not None:
+            self.async_planner.check()
 
         t = lambda a: torch.as_tensor(np.asarray(a), dtype=torch.float32,  # noqa: E731
                                       device=self.device).reshape(1, -1)
@@ -150,12 +172,18 @@ class FallRecRunner:
         if not self.state.ready:
             return np.zeros_like(self.action)
 
+        # sim's stand_takeover criterion, latched: stop planning, hold the last z_g, fade the action to 0
+        if self.stand_takeover and not self.stand_held and -float(projected_gravity[2]) > self.stand_up_threshold:
+            self.stand_held = True
+            self.stand_held_tick = self.act_count
         depth_flat = self.normalize_depth(depth)
         command = self.planner.command_vector(self.yaw_command_rad, yaw_now)
-        zg = (
-            self._zg_async(depth_flat, command) if self.async_planner is not None
-            else self.planner.step(self.state.window(), depth_flat, command)
-        )
+        if self.stand_held and self.planner.plan is not None:
+            zg = self.planner.advance()
+        elif self.async_planner is not None:
+            zg = self._zg_async(depth_flat, command)
+        else:
+            zg = self.planner.step(self.state.window(), depth_flat, command)
         if not bool(torch.isfinite(zg).all()):
             raise FloatingPointError(f"Planner produced non-finite z_g at tick {self.act_count}")
 
@@ -170,40 +198,38 @@ class FallRecRunner:
         action = self.tracker.act(proprio, zg).squeeze(0).cpu().numpy()
         if not np.isfinite(action).all():
             raise FloatingPointError(f"Tracker produced non-finite actions at tick {self.act_count}")
+        if self.stand_held:  # action 0 = physical default angles; the launcher ramps onto it
+            action = np.zeros_like(action)
         self.action = action.astype(np.float32)
         self.planner.push_exec_action(torch.from_numpy(self.action))
         self.act_count += 1
         return self.action
 
+    def _install_latest(self) -> None:
+        self._plan_seq = self.async_planner.latest_seq
+        age = self.act_count - self.async_planner.latest_tick  # ticks since the plan's origin state
+        self.planner.install_plan(self.async_planner.latest_plan, cursor=age)
+        self.plan_age = age
     def _zg_async(self, depth_flat, command) -> torch.Tensor:
-        if self.act_count % self.planner.action_horizon == 0:
-            self.async_planner.submit(self.state.window(), depth_flat, command)
-        if self.async_planner.latest_seq != self._plan_seq:
-            self._plan_seq = self.async_planner.latest_seq
-            self.planner.plan = self.async_planner.latest_plan
-            self.planner.cursor = 0
-            self.plan_age = 0
+        # replan as soon as the planner is free, at most every action_horizon ticks (SONIC: replan ahead, never wait)
+        if self.async_planner.poll():
+            self._install_latest()
+        if self.async_planner.idle and self.act_count - self._last_submit_tick >= self.planner.action_horizon:
+            self.async_planner.submit(self.state.window(), depth_flat, command,
+                                      self.planner.hist_action, self.planner.exec_action, self.act_count)
+            self._last_submit_tick = self.act_count
         if self.planner.plan is None:  # first plan only: wait for it, bounded, then raise
             deadline = time.perf_counter() + self.first_plan_timeout_s
-            while self.async_planner.latest_seq == self._plan_seq:
-                if self.async_planner.error is not None:
-                    raise RuntimeError("Planner thread died") from self.async_planner.error
+            while not self.async_planner.poll():
+                self.async_planner.check()
                 if time.perf_counter() > deadline:
                     raise RuntimeError(
-                        f"No plan after {self.first_plan_timeout_s:.1f}s; planner thread stalled."
+                        f"No plan after {self.first_plan_timeout_s:.1f}s; planner process stalled."
                     )
                 time.sleep(0.001)
-            self._plan_seq = self.async_planner.latest_seq
-            self.planner.plan = self.async_planner.latest_plan
-            self.planner.cursor = 0
-            self.plan_age = 0
+            self._install_latest()
         self.plan_age += 1
-        idx = min(self.planner.cursor, self.planner.plan.shape[1] - 1)
-        zg = self.planner.plan[:, idx]
-        self.planner.cursor += 1
-        self.planner.hist_action = torch.roll(self.planner.hist_action, shifts=1, dims=1)
-        self.planner.hist_action[:, 0] = zg
-        return zg
+        return self.planner.advance()
 
     def normalize_depth(self, depth_m) -> torch.Tensor:
         """full = whole frame, matches sim; square = student-era centre crop."""

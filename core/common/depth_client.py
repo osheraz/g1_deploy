@@ -151,6 +151,7 @@ def depth_to_obs_vector_match_sim(
     _require_cv2()
 
     depth_m = depth_raw.astype(np.float32)
+    depth_m[depth_m <= 0.0] = max_d  # RealSense "no depth" = 0; the sim renders a miss as max_d
 
     H, W = depth_m.shape
     if (H, W) != (out_h, out_w):

@@ -19,11 +19,11 @@ import yaml
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
 from core.common.depth_client import SimpleDepthClient
-from core.common.command_helper import create_damping_cmd
 from core.common.remote_controller import KeyMap
 from core.common.real_logger import RealLogger
 from core.config import Config
 from core.robot.robot_interface import RobotInterface
+from vigor2.robot import WatchdogRobot
 from vigor2.runner import FallRecRunner
 
 
@@ -36,8 +36,6 @@ def load_fallrec_config(path: str) -> SimpleNamespace:
 
 
 def init_depth_client(config: Config) -> SimpleDepthClient:
-    if not config.use_depth_obs:
-        raise ValueError("Fall recovery needs use_depth_obs=true in the robot config.")
     client = SimpleDepthClient(
         server_address=config.depth_server_ip,
         port=config.depth_server_port,
@@ -52,7 +50,8 @@ def init_depth_client(config: Config) -> SimpleDepthClient:
 
 class FallRecController:
     def __init__(self, config: Config, robot: RobotInterface, runner: FallRecRunner,
-                 depth_client: SimpleDepthClient, logger: Optional[RealLogger] = None):
+                 depth_client: SimpleDepthClient, fallrec_cfg: SimpleNamespace,
+                 logger: Optional[RealLogger] = None):
         self.config = config
         self.robot = robot
         self.runner = runner
@@ -62,24 +61,49 @@ class FallRecController:
         self.elapsed_time = 0.0
         self._t_next = time.perf_counter()
         self._last_seq = -1
+        self._last_depth_t = time.perf_counter()
+        self.depth_max_age_s = float(fallrec_cfg.depth_max_age_s)
+        self.handover_ticks = int(fallrec_cfg.handover_ticks)
+        self.stand_blend_ticks = int(fallrec_cfg.stand_blend_ticks)
+        self._ramp_origin = None
+        self._ramp_k = 0
+        self._ramp_n = 0
+        self._was_held = False
+
+    def _start_ramp(self, n: int) -> None:
+        """Raised-cosine handover from the measured pose (SONIC): the first command is where the joints are."""
+        self._ramp_origin = self.robot.qj.copy()
+        self._ramp_k, self._ramp_n = 0, max(1, int(n))
+
+    def _ramp(self, target: np.ndarray) -> np.ndarray:
+        if self._ramp_origin is None or self._ramp_k >= self._ramp_n:
+            return target
+        self._ramp_k += 1
+        a = 0.5 - 0.5 * np.cos(np.pi * self._ramp_k / self._ramp_n)
+        return (1.0 - a) * self._ramp_origin + a * target
 
     def step(self) -> None:
         t0 = time.perf_counter()
         self.counter += 1
         self.elapsed_time += self.config.control_dt
 
-        self.robot.update_joint_state()
+        state, age = self.robot.low_state_snapshot_with_age()
+        if age > self.config.max_low_state_age_s:
+            raise RuntimeError(f"LowState stale for {age:.3f} s at tick {self.counter}.")
+        self.robot.update_joint_state(state)
         imu_quat, _ = self.robot.get_imu()
         base_ang_vel, projected_gravity, dof_pos, dof_vel = (
             self.robot.get_base_features_scaled()
         )
 
         seq = self.depth_client.latest_seq
-        if seq == self._last_seq:
+        now = time.perf_counter()
+        if seq != self._last_seq:
+            self._last_seq, self._last_depth_t = seq, now
+        elif now - self._last_depth_t > self.depth_max_age_s:
             raise RuntimeError(
-                f"Stale depth at tick {self.counter}: seq {seq} unchanged since the last step."
+                f"Stale depth at tick {self.counter}: no new frame for {now - self._last_depth_t:.3f} s."
             )
-        self._last_seq = seq
 
         action = self.runner.compute_action(
             base_ang_vel=base_ang_vel,
@@ -94,8 +118,12 @@ class FallRecController:
         target_dof_pos = (
             action * self.config.action_scale + self.config.physical_default_angles
         )
-        if self.runner.act_count < 50:
-            target_dof_pos = 0.5 * target_dof_pos + 0.5 * self.robot.qj
+        if self.counter == 1:  # first command of any kind (history warm-up sends the default pose)
+            self._start_ramp(self.handover_ticks)
+        if self.runner.stand_held and not self._was_held:  # takeover: ramp onto the default pose
+            self._start_ramp(self.stand_blend_ticks)
+        self._was_held = self.runner.stand_held
+        target_dof_pos = self._ramp(target_dof_pos)
         self.robot.apply_target_dof_pos(target_dof_pos)
 
         loop_dt_ms = (time.perf_counter() - t0) * 1000.0
@@ -137,15 +165,20 @@ def main() -> None:
     depth_client = init_depth_client(config)
 
     ChannelFactoryInitialize(0)
-    robot = RobotInterface(config)
+    robot = WatchdogRobot(config)
     runner = FallRecRunner(fallrec_cfg)
     runner.verify_robot_config(config)
 
     logger = RealLogger(args.log)
     logger.start()
 
-    controller = FallRecController(config, robot, runner, depth_client, logger)
-    print("Fall recovery ready. START to run, SELECT to damp and exit.")
+    controller = FallRecController(config, robot, runner, depth_client, fallrec_cfg, logger)
+    while depth_client.latest_seq == 0:
+        time.sleep(0.01)
+    robot.update_joint_state()
+    imu_quat, _ = robot.get_imu()
+    secs = runner.warmup(*robot.get_base_features_scaled(), depth_client.latest_depth_full, imu_quat)
+    print(f"Warm-up {secs:.2f} s. Fall recovery ready. START to run, SELECT to damp and exit.")
     try:
         while True:
             if robot.remote_controller.button[KeyMap.select] == 1:
@@ -153,10 +186,10 @@ def main() -> None:
             controller.step()
     finally:
         runner.close()
-        create_damping_cmd(robot.low_cmd)
-        robot.send_cmd()
+        robot.send_damping_now()
         logger.stop()
         logger.save()
+        robot.stop_rewriter()
         print("Damped and stopped.")
 
 

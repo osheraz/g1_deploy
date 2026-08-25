@@ -67,7 +67,7 @@ python sonic/scripts/analyze_sonic_episode.py episodes/episode_001
 | [configs/](configs/) | per-robot yamls (`g1_23dof_sonic.yaml` for both VIGOR2 teachers) |
 | [core/](core/) | config loader, DDS interface, camera / depth / viser / logging |
 | [vigor/](vigor/) | VIGOR policy runner + student model |
-| [vigor2/](vigor2/) | planner, tracker, runner, `fallrec.yaml` |
+| [vigor2/](vigor2/) | planner (own process), tracker, runner, watchdog robot, `fallrec.yaml` |
 | [sonic/model/](sonic/model/) | SONIC tracker + vendored ONNX |
 | [sonic/common/](sonic/common/) | tactile, gamepad, SONIC-only clients |
 | [sonic/workflows/](sonic/workflows/) | canonical operator launchers grouped by operation |
