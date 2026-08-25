@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
 import argparse
+import gc
 import time
 
 import numpy as np
@@ -178,6 +179,7 @@ def main() -> None:
     robot.update_joint_state()
     imu_quat, _ = robot.get_imu()
     secs = runner.warmup(*robot.get_base_features_scaled(), depth_client.latest_depth_full, imu_quat)
+    gc.collect(); gc.freeze(); gc.disable()  # a gen-2 collection stalls the DDS thread 70-120 ms (measured); nothing in the loop needs the collector
     print(f"Warm-up {secs:.2f} s. Fall recovery ready. START to run, SELECT to damp and exit.")
     try:
         while True:
