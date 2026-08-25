@@ -75,6 +75,7 @@ class FallRecRunner:
         self.depth_w = int(self.planner.bundle.depth_width)
         self.min_d = float(config.depth_min_d)
         self.max_d = float(config.depth_max_d)
+        self.crop_px = tuple(int(v) for v in config.depth_crop_px)
         self.yaw_command_rad = math.radians(float(config.yaw_command_deg))
         self.depth_source = str(config.depth_source)
         if self.depth_source not in ("full", "square"):
@@ -236,7 +237,7 @@ class FallRecRunner:
         from core.common.depth_client import depth_to_obs_vector_match_sim
 
         vec = depth_to_obs_vector_match_sim(
-            depth_m, self.depth_h, self.depth_w, self.min_d, self.max_d
+            depth_m, self.depth_h, self.depth_w, self.min_d, self.max_d, self.crop_px
         )
         return torch.as_tensor(vec, dtype=torch.float32, device=self.device).reshape(1, -1)
 

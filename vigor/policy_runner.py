@@ -110,6 +110,7 @@ class PolicyRunner:
             out_w=self.config.depth_img_width,
             min_d=self.config.min_d,
             max_d=self.config.max_d,
+            crop_px=(0, 0),
         ).astype(np.float32)
 
     def _update_history_long(
