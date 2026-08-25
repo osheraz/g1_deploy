@@ -1,0 +1,23 @@
+# Old stack (old_TEACHER_ZMERGE_STILL + old_zg_depth): the pair every deploy check ran on. Same keys as fallrec.yaml.
+
+tracker_checkpoint: "/nfs/turbo/coe-stellayu/osher/projects/hv2/shared_checkpoints/old_TEACHER_ZMERGE_STILL/model_last.pt"
+planner_model: "/nfs/turbo/coe-stellayu/osher/projects/hv2/shared_checkpoints/old_zg_depth/model.pt"
+planner_cfg: null         # null = use the config embedded in the checkpoint
+
+planner_sampler: ddim
+planner_inference_steps: 12
+planner_action_horizon: 2  # ticks between replans; 2 is what every eval uses, not the 12 default
+planner_async: true        # planner in its own process (SONIC): no shared GIL or CUDA queue with the loop
+planner_blend_frames: 8    # ramp a new plan in from the old one's continuation, as in sim
+depth_max_age_s: 0.1       # raise if no new depth frame for this long (camera 30 fps, loop 50 Hz)
+stand_takeover: true       # once -proj_grav_z > threshold: latch, stop planning, action 0 (= default pose)
+stand_up_threshold: 0.9
+stand_blend_ticks: 25      # raised-cosine ramp from the measured pose onto the default pose
+handover_ticks: 50         # raised-cosine ramp from the measured pose onto the first policy targets
+
+depth_source: full         # full = whole frame like sim; square = student-era centre crop
+depth_min_d: 0.1
+depth_max_d: 2.0
+
+yaw_command_deg: 0.0
+control_dt: 0.02
