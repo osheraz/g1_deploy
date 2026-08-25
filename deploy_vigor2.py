@@ -166,13 +166,13 @@ class FallRecController:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="g1_23dof_sonic.yaml")
-    parser.add_argument("--fallrec", type=str, default="fallrec.yaml")
+    parser.add_argument("--cfg", type=str, default="fallrec.yaml", help="vigor2/ config: fallrec.yaml (new stack) or fallrec_old.yaml (old stack)")
     parser.add_argument("--log", type=str, default="FALLREC.npz")
     parser.add_argument("--no-publish", action="store_true", help="run everything but publish no LowCmd (motors never receive a command)")
     args = parser.parse_args()
 
     config = Config(args.config)
-    fallrec_cfg = load_fallrec_config(args.fallrec)
+    fallrec_cfg = load_fallrec_config(args.cfg)
     depth_client = init_depth_client(config)
 
     ChannelFactoryInitialize(0)

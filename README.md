@@ -61,7 +61,7 @@ python sonic/scripts/analyze_sonic_episode.py episodes/episode_001
 | Path | What |
 | --- | --- |
 | [deploy_g1.py](deploy_g1.py) | VIGOR reactive policy runtime |
-| [deploy_fallrec.py](deploy_fallrec.py) | VIGOR2: diffusion planner -> z_g -> tracker |
+| [deploy_vigor2.py](deploy_vigor2.py) | VIGOR2: diffusion planner -> z_g -> tracker (`--cfg vigor2/fallrec.yaml`; `--no-publish` = full flow, no LowCmd) |
 | [deploy_eskin.py](deploy_eskin.py) | SONIC teleop + tactile + episode recording |
 | [sonic/check_streams.py](sonic/check_streams.py) | read-only stream checker |
 | [configs/](configs/) | per-robot yamls (`g1_23dof_sonic.yaml` for both VIGOR2 teachers) |
