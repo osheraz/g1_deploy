@@ -201,7 +201,7 @@ def main() -> None:
 
     controller = FallRecController(config, robot, runner, depth_client, fallrec_cfg, logger)
     viser_thread = None
-    if config.viser_display:
+    if config.viser_display and args.no_publish:  # viewing only: the viser thread costs loop time, never in a real run
         from vigor2.viser_view import Vigor2Viser, ViserThread
         view = Vigor2Viser(str(config.urdf_path), config.min_d, config.max_d, config.depth_scale, runner)
         viser_thread = ViserThread(view, robot, depth_client, runner)
