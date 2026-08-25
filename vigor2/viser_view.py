@@ -1,10 +1,9 @@
-"""Viser view for deploy_vigor2: the measured robot (IMU + joints), the depth image, and the planner's
-predicted motion drawn from the observed robot as stick figures (URDF joint tree through FK) at several
-horizon frames, green (now) -> red (+0.5 s), with the predicted pelvis path."""
+"""Viser drawing for deploy_vigor2 (runs inside vigor2/viser_process.py, never in the control process):
+the measured robot (IMU + joints), the depth image, the planner's predicted motion as stick figures from
+the observed robot (FK of the predicted joints at several horizon frames, green now -> red +0.5 s), the
+predicted pelvis path, and the yaw-command slider."""
 from __future__ import annotations
 import math
-import threading
-import time
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +13,7 @@ from core.common.viser_display import DeployViser
 SKELETON_FRAMES = (0, 6, 12, 18, 24)  # ticks ahead (20 ms each)
 
 
-def _yaw_of_wxyz(q) -> float:
+def yaw_of_wxyz(q) -> float:
     w, x, y, z = (float(v) for v in q)
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
@@ -49,78 +48,58 @@ def ghost_pose(row: np.ndarray, slices: dict, yaw_now: float):
     return pos, _wxyz_from_rpy(roll, pitch, yaw_now + yaw_rel)
 
 
-class Vigor2Viser:
-    def __init__(self, urdf_path: str, depth_min: float, depth_max: float, depth_scale: float, runner) -> None:
-        from motion_diffusion.terrain.robot_mesh import load_fk_urdf_for_mesh
-        self.runner = runner
+class PlanDrawer:
+    def __init__(self, urdf_path: str, depth_min: float, depth_max: float, depth_scale: float,
+                 feature_layout: list, dof_names: list, fk_urdf_path: str, yaw_cmd_deg: float, on_cmd) -> None:
+        from motion_diffusion.terrain.robot_mesh import build_pyroki_fk_model, load_fk_urdf_for_mesh
         self.base = DeployViser(urdf_path=Path(urdf_path), with_depth=True, depth_min=depth_min,
                                 depth_max=depth_max, depth_scale=depth_scale)
         self.server = self.base.server
-        bundle = runner.planner.bundle
-        self.slices = {r["name"]: slice(int(r["start"]), int(r["end"])) for r in bundle.feature_layout}
-        self.fk = runner.state.fk
-        urdf = load_fk_urdf_for_mesh(Path(runner.fk_urdf_path))
+        self.slices = {r["name"]: slice(int(r["start"]), int(r["end"])) for r in feature_layout}
+        self.dof_names = list(dof_names)
+        urdf = load_fk_urdf_for_mesh(Path(fk_urdf_path))
+        self.fk = build_pyroki_fk_model(urdf, self.dof_names)
         names = set(self.fk.link_names)
         self.edges = np.array([(self.fk.link_index(j.parent), self.fk.link_index(j.child))
                                for j in urdf.joint_map.values()
                                if j.type == "revolute" and j.parent in names and j.child in names], dtype=np.int64)
         with self.server.gui.add_folder("Planner"):
-            self.cmd_h = self.server.gui.add_slider("yaw command (deg)", min=-180.0, max=180.0, step=5.0,
-                                                    initial_value=round(math.degrees(runner.yaw_command_rad)))
-            self.cmd_h.on_update(lambda _: setattr(runner, "yaw_command_rad", math.radians(float(self.cmd_h.value))))
+            self.cmd_h = self.server.gui.add_slider("yaw command (deg)", min=-180.0, max=180.0, step=5.0, initial_value=round(yaw_cmd_deg))
+            self.cmd_h.on_update(lambda _: on_cmd(math.radians(float(self.cmd_h.value))))
             self.prog_h = self.server.gui.add_number("yaw progress (deg)", 0.0, disabled=True)
             self.age_h = self.server.gui.add_number("plan age (ticks)", 0, disabled=True)
             self.lat_h = self.server.gui.add_number("plan latency (ms)", 0.0, disabled=True)
             self.held_h = self.server.gui.add_checkbox("stand held", False, disabled=True)
 
     def _skeleton(self, row: np.ndarray, yaw_now: float) -> np.ndarray:
-        """(n_edges, 2, 3) world segments of one predicted frame: FK of the predicted joints, placed at the predicted root pose."""
+        """(n_edges, 2, 3) world segments of one predicted frame: FK of the predicted joints at the predicted root pose."""
         pos, q = ghost_pose(row, self.slices, yaw_now)
         dof = torch.as_tensor(row[self.slices["dof_pos"]], dtype=torch.float32).reshape(1, -1)
         link_pos = np.asarray(self.fk.forward_link_pos_rot_xyzw(dof)[0])[0]  # (n_links, 3) in the pelvis frame
         world = link_pos @ _rot_from_wxyz(q).T + np.asarray(pos, dtype=np.float32)
         return world[self.edges]
 
-    def update(self, low_state, qj: np.ndarray, depth_raw, runner, redraw_plan: bool) -> None:
+    def update_robot(self, low_state, qj: np.ndarray, depth_raw, yaw_cmd_rad: float, start_yaw: float,
+                     plan_age: int, latency_ms: float, held: bool) -> float:
         self.base.update(low_state, qj, depth_raw)
-        yaw_now = _yaw_of_wxyz(low_state.imu_state.quaternion)
-        start = runner.planner.start_yaw
-        cmd_deg = math.degrees(runner.yaw_command_rad)
-        if abs(cmd_deg - float(self.cmd_h.value)) > 0.5:  # the remote changed it: reflect without re-triggering
+        yaw_now = yaw_of_wxyz(low_state.imu_state.quaternion)
+        cmd_deg = math.degrees(yaw_cmd_rad)
+        if abs(cmd_deg - float(self.cmd_h.value)) > 0.5:  # changed from the remote: reflect without re-triggering
             self.cmd_h.value = round(cmd_deg)
-        self.prog_h.value = 0.0 if start is None else round(math.degrees((yaw_now - start + math.pi) % (2 * math.pi) - math.pi), 1)
-        self.age_h.value = int(runner.plan_age)
-        self.lat_h.value = round(float(runner.async_planner.last_latency_ms), 1) if runner.async_planner is not None else 0.0
-        self.held_h.value = bool(runner.stand_held)
-        states = runner.async_planner.latest_states if runner.async_planner is not None else runner.planner.latest_states
-        if states is None or not redraw_plan:
-            return
-        st = states[0].numpy()
+        self.prog_h.value = 0.0 if math.isnan(start_yaw) else round(math.degrees((yaw_now - start_yaw + math.pi) % (2 * math.pi) - math.pi), 1)
+        self.age_h.value = int(plan_age)
+        self.lat_h.value = round(float(latency_ms), 1)
+        self.held_h.value = bool(held)
+        return yaw_now
+
+    def update_plan(self, states: np.ndarray, yaw_now: float) -> None:
         segs, cols = [], []
         for i, k in enumerate(SKELETON_FRAMES):
-            s = self._skeleton(st[min(k, len(st) - 1)], yaw_now)
+            s = self._skeleton(states[min(k, len(states) - 1)], yaw_now)
             segs.append(s)
             t = i / max(1, len(SKELETON_FRAMES) - 1)
             cols.append(np.tile(np.array([255 * t, 200 * (1 - t), 0], dtype=np.uint8), (len(s), 2, 1)))
         self.server.scene.add_line_segments("/plan/skeleton", points=np.concatenate(segs), colors=np.concatenate(cols), line_width=3.0)
-        path = np.array([ghost_pose(r, self.slices, yaw_now)[0] for r in st], dtype=np.float32)
+        path = np.array([ghost_pose(r, self.slices, yaw_now)[0] for r in states], dtype=np.float32)
         self.server.scene.add_line_segments("/plan/path", points=np.stack([path[:-1], path[1:]], axis=1),
                                             colors=np.full((len(path) - 1, 2, 3), (255, 255, 255), dtype=np.uint8), line_width=2.0)
-
-
-class ViserThread(threading.Thread):
-    def __init__(self, view: Vigor2Viser, robot, depth_client, runner, hz: float = 20.0) -> None:
-        super().__init__(daemon=True, name="viser")
-        self.view, self.robot, self.depth_client, self.runner, self.dt = view, robot, depth_client, runner, 1.0 / hz
-        self.running = True
-        self._drawn_seq = -1
-
-    def run(self) -> None:
-        while self.running:
-            state, _ = self.robot.low_state_snapshot_with_age()
-            if state is not None and self.runner.planner.start_yaw is not None:
-                seq = self.runner.async_planner.latest_seq if self.runner.async_planner is not None else self.runner.act_count
-                redraw = seq != self._drawn_seq  # FK for the figures only when a new plan landed; keeps the control loop's CPU
-                self.view.update(state, self.robot.qj, self.depth_client.latest_depth, self.runner, redraw)
-                self._drawn_seq = seq
-            time.sleep(self.dt)

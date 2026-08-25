@@ -27,7 +27,7 @@ from core.config import Config
 from core.robot.robot_interface import RobotInterface
 from vigor2.planner import _wrap_pi
 from vigor2.robot import WatchdogRobot
-from vigor2.runner import FallRecRunner
+from vigor2.runner import HV2_ROOT, FallRecRunner
 
 
 def load_fallrec_config(path: str) -> SimpleNamespace:
@@ -73,6 +73,7 @@ class FallRecController:
         self.elapsed_time = 0.0
         self._dpad = (0, 0)
         self.yaw_step_rad = math.radians(float(fallrec_cfg.yaw_step_deg))
+        self.viser = None
         self._t_next = time.perf_counter()
         self._last_seq = -1
         self._last_depth_t = time.perf_counter()
@@ -112,6 +113,11 @@ class FallRecController:
             self.runner.yaw_command_rad = _wrap_pi(self.runner.yaw_command_rad + self.yaw_step_rad * (dpad[1] - dpad[0]))
             print(f"[cmd] yaw command {math.degrees(self.runner.yaw_command_rad):+.0f} deg")
         self._dpad = dpad
+        if self.viser is not None:
+            slider = self.viser.slider_command()
+            if slider is not None:
+                self.runner.yaw_command_rad = slider
+                print(f"[cmd] yaw command {math.degrees(slider):+.0f} deg (slider)")
         base_ang_vel, projected_gravity, dof_pos, dof_vel = (
             self.robot.get_base_features_scaled()
         )
@@ -145,6 +151,8 @@ class FallRecController:
         self._was_held = self.runner.stand_held
         target_dof_pos = self._ramp(target_dof_pos)
         self.robot.apply_target_dof_pos(target_dof_pos)
+        if self.viser is not None:
+            self.viser.publish(state, self.robot.qj, self.runner.plan_age, self.runner.stand_held, self.runner.planner.start_yaw, self.runner.yaw_command_rad)
 
         loop_dt_ms = (time.perf_counter() - t0) * 1000.0
         if self.counter % 25 == 0:
@@ -179,7 +187,7 @@ def main() -> None:
     parser.add_argument("--config", type=str, default="g1_23dof_sonic.yaml")
     parser.add_argument("--cfg", type=str, default="fallrec.yaml", help="vigor2/ config: fallrec.yaml (new stack) or fallrec_old.yaml (old stack)")
     parser.add_argument("--log", type=str, default="FALLREC.npz")
-    parser.add_argument("--no-publish", action="store_true", help="publish no LowCmd (motors never receive a command); the stand latch is off so the planner keeps running for viewing")
+    parser.add_argument("--no-publish", action="store_true", help="publish no LowCmd (motors never receive a command); the stand latch is off so the planner keeps running, for viewing")
     args = parser.parse_args()
 
     config = Config(args.config)
@@ -200,12 +208,20 @@ def main() -> None:
     logger.start()
 
     controller = FallRecController(config, robot, runner, depth_client, fallrec_cfg, logger)
-    viser_thread = None
-    if config.viser_display and args.no_publish:  # viewing only: the viser thread costs loop time, never in a real run
-        from vigor2.viser_view import Vigor2Viser, ViserThread
-        view = Vigor2Viser(str(config.urdf_path), config.min_d, config.max_d, config.depth_scale, runner)
-        viser_thread = ViserThread(view, robot, depth_client, runner)
-        viser_thread.start()
+    viser = None
+    if config.viser_display:  # own process: own LowState/depth subscribers, plan from the planner's shared buffer
+        from vigor2.viser_process import ViserProcess
+        ap = runner.async_planner
+        if ap is None:
+            raise ValueError("viser_display needs planner_async: true (the view reads the planner process buffers)")
+        viser = ViserProcess(
+            str(HV2_ROOT), dict(urdf_path=str(config.urdf_path), depth_min=config.min_d, depth_max=config.max_d,
+                                depth_scale=config.depth_scale, feature_layout=list(runner.planner.bundle.feature_layout),
+                                dof_names=list(runner.planner.bundle.dof_names), fk_urdf_path=str(runner.fk_urdf_path)),
+            (config.depth_raw_height, config.depth_raw_width),
+            config.num_actions, ap.resp_states, ap.ctl, ap.stat, runner.yaw_command_rad)
+        depth_client.attach_shared(viser.depth_frame.numpy(), viser.depth_seq.numpy())
+        controller.viser = viser
     while depth_client.latest_seq == 0:
         time.sleep(0.01)
     robot.update_joint_state()
@@ -220,8 +236,8 @@ def main() -> None:
         while rc.button[KeyMap.select] != 1:
             controller.step()
     finally:
-        if viser_thread is not None:
-            viser_thread.running = False
+        if viser is not None:
+            viser.stop()
         runner.close()
         robot.send_damping_now()
         logger.stop()
