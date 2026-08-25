@@ -49,6 +49,15 @@ def init_depth_client(config: Config) -> SimpleDepthClient:
     return client
 
 
+class _NoPublish:
+    """Stands in for the LowCmd publisher: counts what would have been sent."""
+    def __init__(self) -> None:
+        self.count = 0
+
+    def Write(self, msg) -> None:
+        self.count += 1
+
+
 class FallRecController:
     def __init__(self, config: Config, robot: RobotInterface, runner: FallRecRunner,
                  depth_client: SimpleDepthClient, fallrec_cfg: SimpleNamespace,
@@ -159,6 +168,7 @@ def main() -> None:
     parser.add_argument("--config", type=str, default="g1_23dof_sonic.yaml")
     parser.add_argument("--fallrec", type=str, default="fallrec.yaml")
     parser.add_argument("--log", type=str, default="FALLREC.npz")
+    parser.add_argument("--no-publish", action="store_true", help="run everything but publish no LowCmd (motors never receive a command)")
     args = parser.parse_args()
 
     config = Config(args.config)
@@ -167,6 +177,9 @@ def main() -> None:
 
     ChannelFactoryInitialize(0)
     robot = WatchdogRobot(config)
+    if args.no_publish:
+        robot.lowcmd_publisher_ = _NoPublish()
+        print("[NO-PUBLISH] LowCmd publisher replaced: the robot receives no command in this run.")
     runner = FallRecRunner(fallrec_cfg)
     runner.verify_robot_config(config)
 
@@ -193,7 +206,7 @@ def main() -> None:
         logger.stop()
         logger.save()
         robot.stop_rewriter()
-        print("Damped and stopped.")
+        print("Damped and stopped." + (f" [NO-PUBLISH] {robot.lowcmd_publisher_.count} commands intercepted, none sent." if args.no_publish else ""))
 
 
 if __name__ == "__main__":
