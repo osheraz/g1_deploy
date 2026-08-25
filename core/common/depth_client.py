@@ -151,6 +151,11 @@ def depth_to_obs_vector_match_sim(
     _require_cv2()
 
     depth_m = depth_raw.astype(np.float32)
+    # D435 stereo shadow: the leftmost columns can never match (measured 18 px at 640 wide, one-sided).
+    # Fill them from the first valid column so the geometry stays the sim's; the sim has no such band.
+    valid_cols = np.where((depth_m > 0.0).mean(axis=0) > 0.5)[0]
+    if valid_cols.size and valid_cols[0] > 0:
+        depth_m[:, :valid_cols[0]] = depth_m[:, valid_cols[0]:valid_cols[0] + 1]
     depth_m[depth_m <= 0.0] = max_d  # RealSense "no depth" = 0; the sim renders a miss as max_d
 
     H, W = depth_m.shape
