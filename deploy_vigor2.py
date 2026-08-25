@@ -180,6 +180,7 @@ def main() -> None:
     parser.add_argument("--cfg", type=str, default="fallrec.yaml", help="vigor2/ config: fallrec.yaml (new stack) or fallrec_old.yaml (old stack)")
     parser.add_argument("--log", type=str, default="FALLREC.npz")
     parser.add_argument("--no-publish", action="store_true", help="run everything but publish no LowCmd (motors never receive a command)")
+    parser.add_argument("--keep-planning", action="store_true", help="no stand takeover: the planner keeps replanning (viewing only; requires --no-publish)")
     args = parser.parse_args()
 
     config = Config(args.config)
@@ -193,6 +194,11 @@ def main() -> None:
         print("[NO-PUBLISH] LowCmd publisher replaced: the robot receives no command in this run.")
     runner = FallRecRunner(fallrec_cfg)
     runner.verify_robot_config(config)
+    if args.keep_planning:
+        if not args.no_publish:
+            raise ValueError("--keep-planning is for watching the planner; it needs --no-publish")
+        runner.stand_takeover = False
+        print("[KEEP-PLANNING] stand takeover off: the planner replans for the whole run.")
 
     logger = RealLogger(args.log)
     logger.start()

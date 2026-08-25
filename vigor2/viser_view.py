@@ -1,5 +1,6 @@
-"""Viser view for deploy_vigor2: the measured robot (IMU + joints), the depth image, and ghost
-robots at a few horizons of the planner's predicted states, so the plan is visible while it runs."""
+"""Viser view for deploy_vigor2: the measured robot (IMU + joints), the depth image, the planner's
+predicted pelvis path over its horizon (line, green -> red = now -> +0.5 s) and a ghost robot at the
+end of the horizon."""
 from __future__ import annotations
 import math
 import threading
@@ -10,7 +11,7 @@ import numpy as np
 from core.common.viser_display import DeployViser
 from viser.extras import ViserUrdf
 
-GHOST_FRAMES = (8, 16, 24)  # ticks ahead (20 ms each)
+GHOST_FRAME = 24  # ticks ahead (20 ms each) of the ghost robot; the path line covers all frames
 
 
 def _yaw_of_wxyz(q) -> float:
@@ -50,13 +51,12 @@ class Vigor2Viser:
         server = self.base.server
         self.slices = {r["name"]: slice(int(r["start"]), int(r["end"])) for r in bundle.feature_layout}
         self.dof_names = list(bundle.dof_names)
-        self.ghosts = []
-        for i, k in enumerate(GHOST_FRAMES):
-            frame = server.scene.add_frame(f"/plan/{k}", show_axes=False)
-            urdf = ViserUrdf(server, urdf_or_path=urdf_path, root_node_name=f"/plan/{k}",
-                             mesh_color_override=(0.2, 0.55, 1.0, 0.25 + 0.15 * i), load_collision_meshes=False)
-            self.ghosts.append((k, frame, urdf))
-        self.ghost_joints = set(self.ghosts[0][2].get_actuated_joint_names())
+        self.server = server
+        self.ghost_frame = server.scene.add_frame("/plan/ghost", show_axes=False)
+        self.ghost = ViserUrdf(server, urdf_or_path=urdf_path, root_node_name="/plan/ghost",
+                               mesh_color_override=(0.2, 0.55, 1.0, 0.35), load_collision_meshes=False)
+        self.ghost_joints = set(self.ghost.get_actuated_joint_names())
+        self.path = None
         with server.gui.add_folder("Planner"):
             self.cmd_h = server.gui.add_slider("yaw command (deg)", min=-180.0, max=180.0, step=5.0,
                                                initial_value=round(math.degrees(runner.yaw_command_rad)))
@@ -81,11 +81,14 @@ class Vigor2Viser:
         if states is None:
             return
         st = states[0].numpy()
-        for k, frame, urdf in self.ghosts:
-            row = st[min(k, st.shape[0] - 1)]
-            frame.position, frame.wxyz = ghost_pose(row, self.slices, yaw_now)
-            dof = row[self.slices["dof_pos"]]
-            urdf.update_cfg({n: float(v) for n, v in zip(self.dof_names, dof) if n in self.ghost_joints})
+        pts = np.array([ghost_pose(row, self.slices, yaw_now)[0] for row in st], dtype=np.float32)
+        seg = np.stack([pts[:-1], pts[1:]], axis=1)  # (n-1, 2, 3)
+        n = len(seg)
+        col = np.stack([np.linspace(0, 255, n), np.linspace(200, 0, n), np.zeros(n)], axis=1).astype(np.uint8)
+        self.path = self.server.scene.add_line_segments("/plan/path", points=seg, colors=np.repeat(col[:, None, :], 2, axis=1), line_width=4.0)
+        row = st[min(GHOST_FRAME, n - 1)]
+        self.ghost_frame.position, self.ghost_frame.wxyz = ghost_pose(row, self.slices, yaw_now)
+        self.ghost.update_cfg({n_: float(v) for n_, v in zip(self.dof_names, row[self.slices["dof_pos"]]) if n_ in self.ghost_joints})
 
 
 class ViserThread(threading.Thread):
