@@ -4,6 +4,7 @@ the sequence number points at (a slot is rewritten only two frames later, ~66 ms
 from __future__ import annotations
 import multiprocessing as mp
 import os
+import signal
 import time
 import traceback
 
@@ -15,6 +16,7 @@ DEPTH_SCALE = 0.0010000000474974513
 
 def _child_main(server_address, port, H, W, frames, seq, stamp, stop, err_text):
     try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         cores = sorted(os.sched_getaffinity(0))
         os.sched_setaffinity(0, set(cores[-4:-2]))  # two cores of its own; viser takes the last two
         for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):

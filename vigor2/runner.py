@@ -46,6 +46,7 @@ class FallRecRunner:
             model_path=config.planner_model, cfg_path=config.planner_cfg, device=device,
             sampler=config.planner_sampler,
             num_inference_steps=config.planner_inference_steps,
+            seed=config.planner_seed,
             action_horizon=config.planner_action_horizon,
             num_dof=self.tracker.num_actions,
             blend_frames=config.planner_blend_frames,

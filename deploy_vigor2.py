@@ -116,7 +116,6 @@ class FallRecController:
             slider = self.viser.slider_command()
             if slider is not None:
                 self.runner.yaw_command_rad = slider
-                print(f"[cmd] yaw command {math.degrees(slider):+.0f} deg (slider)")
         base_ang_vel, projected_gravity, dof_pos, dof_vel = (
             self.robot.get_base_features_scaled()
         )

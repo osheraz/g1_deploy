@@ -12,7 +12,7 @@ from motion_diffusion.planner.core import load_planner, sample_actions_from_unif
 
 class DeployPlanner:
     def __init__(self, model_path, cfg_path, device, *, sampler="ddim",
-                 num_inference_steps=12, action_horizon=2, num_dof=23, blend_frames=8):
+                 num_inference_steps=12, action_horizon=2, num_dof=23, blend_frames=8, seed=None):
         self.bundle, self.model, self.kind = load_planner(model_path, cfg_path, device)
         if not self.bundle.use_ego_depth:
             raise ValueError("Deploy planner requires a depth-conditioned checkpoint.")
@@ -25,6 +25,7 @@ class DeployPlanner:
         self.exec_action = torch.zeros(1, int(self.bundle.H), int(num_dof), device=device)
         self.sampler = str(sampler)
         self.num_inference_steps = int(num_inference_steps)
+        self.seed = None if seed is None else int(seed)  # fixed: every replan starts from the same noise, so consecutive plans stay consistent
         self.blend_frames = int(blend_frames)
         # the plan feeds its own z_g back; keep it on the sqrt(dim) sphere the teacher put it on (as sim)
         self.zg_radius = float(self.bundle.action_dim) ** 0.5 if str(self.bundle.action_stream) == "zg" else 0.0
@@ -120,6 +121,8 @@ class DeployPlanner:
     @torch.no_grad()
     def plan_from(self, state_window: dict, depth_flat, command):
         """(z_g plan [1, F, action_dim], predicted states [1, F, state_out_dim])."""
+        if self.seed is not None:
+            torch.manual_seed(self.seed)
         return sample_actions_from_unified(
             self.model, self._encode_state(state_window), self.hist_action,
             self._condition(depth_flat, command),

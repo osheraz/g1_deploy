@@ -1,7 +1,7 @@
-"""Viser drawing for deploy_vigor2 (runs inside vigor2/viser_process.py, never in the control process):
-the measured robot (IMU + joints), the depth image, the planner's predicted motion as stick figures from
-the observed robot (FK of the predicted joints at several horizon frames, green now -> red +0.5 s), the
-predicted pelvis path, and the yaw-command slider."""
+"""Viser drawing for deploy_vigor2 (runs inside vigor2/viser_process.py, never in the control process).
+Same picture as the sim planner viz (motion_diffusion/planner/viz.py): the measured robot, one trail per
+body over the plan horizon (the planner's predicted states decoded by FK, green), the commanded heading
+(red) and the heading reached (grey) as arrows from the pelvis, the depth image, and the yaw slider."""
 from __future__ import annotations
 import math
 from pathlib import Path
@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from core.common.viser_display import DeployViser
 
-SKELETON_FRAMES = (0, 6, 12, 18, 24)  # ticks ahead (20 ms each)
+_FOLLOW, _GOAL, _DIM = (60, 255, 120), (255, 60, 60), (150, 150, 150)  # sim viz palette
 
 
 def yaw_of_wxyz(q) -> float:
@@ -60,9 +60,8 @@ class PlanDrawer:
         urdf = load_fk_urdf_for_mesh(Path(fk_urdf_path))
         self.fk = build_pyroki_fk_model(urdf, self.dof_names)
         names = set(self.fk.link_names)
-        self.edges = np.array([(self.fk.link_index(j.parent), self.fk.link_index(j.child))
-                               for j in urdf.joint_map.values()
-                               if j.type == "revolute" and j.parent in names and j.child in names], dtype=np.int64)
+        bodies = ["pelvis"] + [j.child for j in urdf.joint_map.values() if j.type == "revolute" and j.child in names]
+        self.body_idx = np.array([self.fk.link_index(b) for b in bodies], dtype=np.int64)
         with self.server.gui.add_folder("Planner"):
             self.cmd_h = self.server.gui.add_slider("yaw command (deg)", min=-180.0, max=180.0, step=5.0, initial_value=round(yaw_cmd_deg))
             self.cmd_h.on_update(lambda _: on_cmd(math.radians(float(self.cmd_h.value))))
@@ -71,13 +70,15 @@ class PlanDrawer:
             self.lat_h = self.server.gui.add_number("plan latency (ms)", 0.0, disabled=True)
             self.held_h = self.server.gui.add_checkbox("stand held", False, disabled=True)
 
-    def _skeleton(self, row: np.ndarray, yaw_now: float) -> np.ndarray:
-        """(n_edges, 2, 3) world segments of one predicted frame: FK of the predicted joints at the predicted root pose."""
-        pos, q = ghost_pose(row, self.slices, yaw_now)
-        dof = torch.as_tensor(row[self.slices["dof_pos"]], dtype=torch.float32).reshape(1, -1)
-        link_pos = np.asarray(self.fk.forward_link_pos_rot_xyzw(dof)[0])[0]  # (n_links, 3) in the pelvis frame
-        world = link_pos @ _rot_from_wxyz(q).T + np.asarray(pos, dtype=np.float32)
-        return world[self.edges]
+    def _body_trajectories(self, states: np.ndarray, yaw_now: float) -> np.ndarray:
+        """(F, n_bodies, 3) world positions over the plan: FK of the predicted joints at each frame's predicted root pose."""
+        dof = torch.as_tensor(states[:, self.slices["dof_pos"]], dtype=torch.float32)
+        link_pos = np.asarray(self.fk.forward_link_pos_rot_xyzw(dof)[0])[:, self.body_idx]  # (F, n_bodies, 3) pelvis frame
+        out = np.empty_like(link_pos)
+        for k, row in enumerate(states):
+            pos, q = ghost_pose(row, self.slices, yaw_now)
+            out[k] = link_pos[k] @ _rot_from_wxyz(q).T + np.asarray(pos, dtype=np.float32)
+        return out
 
     def update_robot(self, low_state, qj: np.ndarray, depth_raw, yaw_cmd_rad: float, start_yaw: float,
                      plan_age: int, latency_ms: float, held: bool) -> float:
@@ -90,16 +91,14 @@ class PlanDrawer:
         self.age_h.value = int(plan_age)
         self.lat_h.value = round(float(latency_ms), 1)
         self.held_h.value = bool(held)
+        if not math.isnan(start_yaw):  # arrows from the pelvis: commanded heading (red), heading reached (grey)
+            for name, yaw, color in (("goal_command", start_yaw + yaw_cmd_rad, _GOAL), ("goal_progress", yaw_now, _DIM)):
+                tip = np.array([[[0.0, 0.0, 0.0], [math.cos(yaw), math.sin(yaw), 0.0]]], dtype=np.float32)
+                self.server.scene.add_line_segments(f"/plan/{name}", points=tip, colors=np.full((1, 2, 3), color, dtype=np.uint8), line_width=4.0)
         return yaw_now
 
     def update_plan(self, states: np.ndarray, yaw_now: float) -> None:
-        segs, cols = [], []
-        for i, k in enumerate(SKELETON_FRAMES):
-            s = self._skeleton(states[min(k, len(states) - 1)], yaw_now)
-            segs.append(s)
-            t = i / max(1, len(SKELETON_FRAMES) - 1)
-            cols.append(np.tile(np.array([255 * t, 200 * (1 - t), 0], dtype=np.uint8), (len(s), 2, 1)))
-        self.server.scene.add_line_segments("/plan/skeleton", points=np.concatenate(segs), colors=np.concatenate(cols), line_width=3.0)
-        path = np.array([ghost_pose(r, self.slices, yaw_now)[0] for r in states], dtype=np.float32)
-        self.server.scene.add_line_segments("/plan/path", points=np.stack([path[:-1], path[1:]], axis=1),
-                                            colors=np.full((len(path) - 1, 2, 3), (255, 255, 255), dtype=np.uint8), line_width=2.0)
+        """One trail per body across the plan's frames, as the sim viz draws a followed plan."""
+        pos = self._body_trajectories(states, yaw_now)  # (F, n_bodies, 3)
+        seg = np.stack([pos[:-1], pos[1:]], axis=2).reshape(-1, 2, 3)
+        self.server.scene.add_line_segments("/plan/trails", points=seg, colors=np.full((len(seg), 2, 3), _FOLLOW, dtype=np.uint8), line_width=2.5)

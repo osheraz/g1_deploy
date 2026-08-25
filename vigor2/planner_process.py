@@ -2,6 +2,7 @@
 the control loop. Requests and plans cross through shared CPU tensors guarded by seqlocks."""
 from __future__ import annotations
 import os
+import signal
 import sys
 import time
 import traceback
@@ -15,6 +16,7 @@ REQ_BEGIN, REQ_END, REQ_TICK, RESP_BEGIN, RESP_END, RESP_TICK, READY, ERROR, STO
 def _child_main(repo_root, planner_kwargs, req_state, req_hist, req_exec, req_depth, req_cmd,
                 resp_plan, resp_states, ctl, stat, err_text):
     try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)  # Ctrl+C is the control process's to handle; it stops us
         os.chdir(repo_root)
         sys.path.insert(0, repo_root)
         sys.path.insert(0, os.path.join(repo_root, "g1_deploy"))

@@ -5,6 +5,7 @@ messages."""
 from __future__ import annotations
 import math
 import os
+import signal
 import sys
 import time
 import traceback
@@ -23,6 +24,7 @@ _RESP_END = 4  # planner_process ctl index of the finished-plan sequence number
 
 def _child_main(repo_root, view_kwargs, depth_frames, depth_seq, states, plan_ctl, plan_stat, info, cmd, err_text):
     try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         # CPU only, single-threaded, on two cores: thread pools spinning on every core pre-empt the control loop
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
         os.environ["JAX_PLATFORMS"] = "cpu"
