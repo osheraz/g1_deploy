@@ -173,45 +173,74 @@ def depth_to_obs_vector_match_sim(
 
 
 def main():
+    """Viewer: left = raw depth from the robot (0.1-2 m grey, no-depth black), right = the obs the
+    policy sees (64x48 after resize, 0 -> max_d, clip, normalise), upscaled. q quits."""
     import argparse
     import time
+    import cv2
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", type=str, default="192.168.123.164")
-    parser.add_argument("--port", type=int, default=5555)
+    parser.add_argument("--port", type=int, default=5556)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--width", type=int, default=640)
-    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--obs-h", type=int, default=48)
+    parser.add_argument("--obs-w", type=int, default=64)
+    parser.add_argument("--min-d", type=float, default=0.1)   # must equal training clipping_range
+    parser.add_argument("--max-d", type=float, default=2.0)
+    parser.add_argument("--no-window", action="store_true")
     args = parser.parse_args()
 
     client = SimpleDepthClient(
-        server_address=args.server,
-        port=args.port,
-        height=args.height,
-        width=args.width,
-        show_debug=True,
+        server_address=args.server, port=args.port, height=args.height, width=args.width,
+        show_debug=False,
     )
     client.start()
     print("Depth client started.")
 
-    last_count = 0
-    last_time = time.time()
+    def grey(depth_m, lo, hi):
+        g = np.clip((depth_m - lo) / (hi - lo), 0.0, 1.0)
+        g = (g * 255).astype(np.uint8)
+        g[depth_m <= 0.0] = 0
+        return g
 
+    last_seq, last_time, fps = -1, time.time(), 0.0
     try:
         while True:
-            time.sleep(1.0)
+            if client.latest_seq == last_seq:
+                time.sleep(0.005)
+                continue
+            last_seq = client.latest_seq
             now = time.time()
-            frames = client.frame_count - last_count
-            dt = now - last_time
-            fps = frames / dt if dt > 0 else 0.0
-            print(f"[Depth FPS] {fps:.1f} Hz  (frames={client.frame_count})")
-            last_count = client.frame_count
+            fps = 0.9 * fps + 0.1 / max(now - last_time, 1e-6)
             last_time = now
+            full = client.latest_depth_full
+            if full is None:
+                continue
+            if args.no_window:
+                if last_seq % 30 == 0:
+                    print(f"[Depth] {fps:.1f} Hz seq={last_seq} valid={np.mean(full > 0) * 100:.0f}%", flush=True)
+                continue
+            obs = depth_to_obs_vector_match_sim(full, args.obs_h, args.obs_w, args.min_d, args.max_d)
+            obs_m = (obs.reshape(args.obs_h, args.obs_w) + 0.5) * (args.max_d - args.min_d) + args.min_d
+            raw = grey(full.astype(np.float32), args.min_d, args.max_d)
+            small = grey(obs_m, args.min_d, args.max_d)
+            small = cv2.resize(small, (full.shape[1], full.shape[0]), interpolation=cv2.INTER_NEAREST)
+            panel = np.concatenate([raw, np.full((full.shape[0], 8), 128, np.uint8), small], axis=1)
+            cv2.putText(panel, f"raw {full.shape[1]}x{full.shape[0]}  {fps:.1f} Hz  valid {np.mean(full > 0) * 100:.0f}%",
+                        (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 255, 1)
+            cv2.putText(panel, f"policy obs {args.obs_w}x{args.obs_h}  clip {args.min_d}-{args.max_d} m  0->max",
+                        (full.shape[1] + 18, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 255, 1)
+            cv2.imshow("depth: robot | policy obs", panel)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
     except KeyboardInterrupt:
-        print("Stopping depth client...")
+        pass
     finally:
         client.running = False
         client.join()
+        if not args.no_window:
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
