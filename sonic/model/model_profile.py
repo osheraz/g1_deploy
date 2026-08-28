@@ -22,6 +22,17 @@ class SonicModelProfile:
     smpl_future_stride: int = 1
     heading_normalized: bool = False
     include_root_height_terms: bool = True
+    encoder_anchor_order: str = "single_then_multi"
+
+    def __post_init__(self):
+        if self.encoder_anchor_order not in {
+            "single_then_multi",
+            "multi_then_single",
+        }:
+            raise ValueError(
+                "encoder_anchor_order must be single_then_multi or "
+                "multi_then_single"
+            )
 
     @property
     def expected_shapes(self):
@@ -34,7 +45,9 @@ class SonicModelProfile:
 
 
 MODEL_PROFILES = {
-    "default": SonicModelProfile("default", 1762),
+    "default": SonicModelProfile(
+        "default", 1762, encoder_anchor_order="single_then_multi"
+    ),
     "low_latency": SonicModelProfile(
         "low_latency",
         1247,
@@ -42,12 +55,14 @@ MODEL_PROFILES = {
         smpl_future_frames=4,
         heading_normalized=False,
         include_root_height_terms=False,
+        encoder_anchor_order="single_then_multi",
     ),
     "sonic_v1_1": SonicModelProfile(
         "sonic_v1_1",
         1751,
         heading_normalized=True,
         include_root_height_terms=False,
+        encoder_anchor_order="multi_then_single",
     ),
 }
 

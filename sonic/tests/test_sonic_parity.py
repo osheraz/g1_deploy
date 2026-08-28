@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from sonic.model import obs, robot_g1  # noqa: E402
-from sonic.model.model_profile import MODEL_PROFILES  # noqa: E402
+from sonic.model.model_profile import MODEL_PROFILES, get_model_profile  # noqa: E402
 from sonic.model.robot_profile import G1_23DOF, G1_29DOF  # noqa: E402
 from sonic.model.planner_onnx import (  # noqa: E402
     PlannerMotion,
@@ -281,12 +281,14 @@ class EncoderMaskTest(unittest.TestCase):
         self.body_quat = np.zeros((1, 14, 4))
         self.body_quat[..., 0] = 1.0
 
-    def build(self, mode):
+    def build(self, mode, model_profile="default"):
+        profile = get_model_profile(model_profile)
+        sf = profile.smpl_future_frames
         kwargs = {}
         if mode == "smpl":
             kwargs = {
-                "smpl_joints_fut": np.ones((1, 10, 24, 3)),
-                "smpl_rootq_fut": self.rootq.copy(),
+                "smpl_joints_fut": np.ones((1, sf, 24, 3)),
+                "smpl_rootq_fut": self.rootq[:, :sf].copy(),
             }
         return obs.build_encoder_obs(
             mode,
@@ -298,7 +300,8 @@ class EncoderMaskTest(unittest.TestCase):
             self.body_quat,
             np.ones(1),
             np.array([[1.0, 0.0, 0.0, 0.0]]),
-            np.ones((1, 10, 6)),
+            np.ones((1, sf, 6)),
+            model_profile=profile,
             **kwargs,
         )
 
@@ -316,6 +319,33 @@ class EncoderMaskTest(unittest.TestCase):
         self.assertFalse(x[:, 922:].any())
         self.assertTrue(x[:, 595:601].any())
         self.assertTrue(x[:, 661:922].any())
+
+    def test_no_height_profiles_use_graph_specific_anchor_offsets(self):
+        layouts = {
+            "low_latency": {
+                "order": "single_then_multi",
+                "single": slice(584, 590),
+                "multi": slice(590, 650),
+            },
+            "sonic_v1_1": {
+                "order": "multi_then_single",
+                "single": slice(644, 650),
+                "multi": slice(584, 644),
+            },
+        }
+        for name, expected in layouts.items():
+            with self.subTest(profile=name, mode="g1"):
+                profile = get_model_profile(name)
+                self.assertEqual(
+                    profile.encoder_anchor_order, expected["order"]
+                )
+                g1 = self.build("g1", name)
+                self.assertFalse(g1[:, expected["single"]].any())
+                self.assertTrue(g1[:, expected["multi"]].any())
+            with self.subTest(profile=name, mode="teleop"):
+                teleop = self.build("teleop", name)
+                self.assertTrue(teleop[:, expected["single"]].any())
+                self.assertFalse(teleop[:, expected["multi"]].any())
 
     def test_smpl_only_populates_official_terms(self):
         x = self.build("smpl")

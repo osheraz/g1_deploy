@@ -198,32 +198,59 @@ def build_encoder_obs(
         wrist[:, :, np.isin(WRIST_IL_IDX, np.asarray(hold_idx, dtype=np.int64))] = 0.0
     t12 = wrist.reshape(N, -1)
 
-    # Deploy encoder order: z + current-frame anchor BEFORE multi-future
-    # anchor. The official C++ gatherer clears all 1762 values, then populates
-    # only observations required by the selected encoder branch. Preserve the
-    # fixed flat layout while zeroing every non-selected term.
+    # The YAML listing order is artifact identity, not the exported graph's
+    # flat-input order.  In particular, Low Latency is single-anchor-first
+    # while v1.1 is multi-anchor-first even though neither has root-height
+    # terms.  Keep that as an explicit model-profile contract.
+    values = {
+        "mode": t1,
+        "joint_future": t2,
+        "root_height_future": t3,
+        "root_height_current": t9,
+        "anchor_single": t8,
+        "anchor_multi": t4,
+        "lower_body_future": t5,
+        "vr_position": t6,
+        "vr_orientation": t7,
+        "smpl_joints": t10,
+        "smpl_anchor": t11,
+        "smpl_wrists": t12,
+    }
+    anchors = {
+        "single_then_multi": ("anchor_single", "anchor_multi"),
+        "multi_then_single": ("anchor_multi", "anchor_single"),
+    }[profile.encoder_anchor_order]
     if profile.include_root_height_terms:
-        parts = [t1, t2, t3, t9, t8, t4, t5, t6, t7, t10, t11, t12]
-        required_parts = {
-            "g1": {0, 1, 5},
-            "teleop": {0, 4, 6, 7, 8},
-            "smpl": {0, 9, 10, 11},
-        }
+        layout = (
+            "mode", "joint_future", "root_height_future",
+            "root_height_current", *anchors,
+            "lower_body_future", "vr_position", "vr_orientation",
+            "smpl_joints", "smpl_anchor", "smpl_wrists",
+        )
     else:
-        parts = [t1, t2, t4, t8, t5, t6, t7, t10, t11, t12]
-        required_parts = {
-            "g1": {0, 1, 2},
-            "teleop": {0, 3, 4, 5, 6},
-            "smpl": {0, 7, 8, 9},
-        }
+        layout = (
+            "mode", "joint_future", *anchors, "lower_body_future",
+            "vr_position", "vr_orientation", "smpl_joints",
+            "smpl_anchor", "smpl_wrists",
+        )
+    required_parts = {
+        "g1": {"mode", "joint_future", "anchor_multi"},
+        "teleop": {
+            "mode", "anchor_single", "lower_body_future",
+            "vr_position", "vr_orientation",
+        },
+        "smpl": {"mode", "smpl_joints", "smpl_anchor", "smpl_wrists"},
+    }
     if mode not in required_parts:
         raise ValueError(
             f"unsupported SONIC encoder mode {mode!r}; expected one of "
             f"{sorted(required_parts)}"
         )
     keep = required_parts[mode]
-    masked_parts = [part if i in keep else np.zeros_like(part)
-                    for i, part in enumerate(parts)]
+    masked_parts = [
+        values[name] if name in keep else np.zeros_like(values[name])
+        for name in layout
+    ]
     obs = np.concatenate(masked_parts, axis=1).astype(np.float32)
     if obs.shape != (N, profile.encoder_input_dim):
         raise AssertionError(
