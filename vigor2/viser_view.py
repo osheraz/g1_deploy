@@ -1,14 +1,17 @@
 """Viser drawing for deploy_vigor2 (runs inside vigor2/viser_process.py, never in the control process).
-Same picture as the sim planner viz (motion_diffusion/planner/viz.py): the measured robot, one trail per
-body over the plan horizon (the planner's predicted states decoded by FK, green), the commanded heading
-(red) and the heading reached (grey) as arrows from the pelvis, the depth image, and the yaw slider."""
+The sim planner viz (motion_diffusion/planner/viz.py) on the robot: the measured robot, one trail per
+body over the plan horizon (green), the commanded heading (red) and the heading reached (grey) as arrows
+from the pelvis, the depth image, and the yaw slider. Trails are anchored on the measured bodies: each
+body's trail is its real position now plus the plan's predicted displacement (FK of the predicted joints
+at each frame minus FK at the plan's first frame). The planner's absolute first frame can sit decimetres
+off the robot when the pose is outside its data (the mount), which would otherwise hide the motion."""
 from __future__ import annotations
 import math
 from pathlib import Path
 
 import numpy as np
 import torch
-from core.common.viser_display import DeployViser
+from core.common.viser_display import JOINT_NAMES_BY_MOTOR_INDEX, DeployViser
 
 _FOLLOW, _GOAL, _DIM = (60, 255, 120), (255, 60, 60), (150, 150, 150)  # sim viz palette
 
@@ -62,6 +65,7 @@ class PlanDrawer:
         names = set(self.fk.link_names)
         bodies = ["pelvis"] + [j.child for j in urdf.joint_map.values() if j.type == "revolute" and j.child in names]
         self.body_idx = np.array([self.fk.link_index(b) for b in bodies], dtype=np.int64)
+        self.motor_idx = np.array([JOINT_NAMES_BY_MOTOR_INDEX.index(n) for n in self.dof_names], dtype=np.int64)  # qj (motor order) -> dof order
         with self.server.gui.add_folder("Planner"):
             self.cmd_h = self.server.gui.add_slider("yaw command (deg)", min=-180.0, max=180.0, step=5.0, initial_value=round(yaw_cmd_deg))
             self.cmd_h.on_update(lambda _: on_cmd(math.radians(float(self.cmd_h.value))))
@@ -97,8 +101,11 @@ class PlanDrawer:
                 self.server.scene.add_line_segments(f"/plan/{name}", points=tip, colors=np.full((1, 2, 3), color, dtype=np.uint8), line_width=4.0)
         return yaw_now
 
-    def update_plan(self, states: np.ndarray, yaw_now: float) -> None:
-        """One trail per body across the plan's frames, as the sim viz draws a followed plan."""
-        pos = self._body_trajectories(states, yaw_now)  # (F, n_bodies, 3)
+    def update_plan(self, states: np.ndarray, yaw_now: float, qj: np.ndarray, imu_wxyz) -> None:
+        """One trail per body across the plan's frames, anchored on the measured bodies."""
+        pos = self._body_trajectories(states, yaw_now)  # (F, n_bodies, 3) predicted, absolute
+        meas = torch.as_tensor(np.asarray(qj)[self.motor_idx], dtype=torch.float32).reshape(1, -1)
+        now = np.asarray(self.fk.forward_link_pos_rot_xyzw(meas)[0])[0][self.body_idx] @ _rot_from_wxyz(imu_wxyz).T
+        pos = pos - pos[0:1] + now[None]
         seg = np.stack([pos[:-1], pos[1:]], axis=2).reshape(-1, 2, 3)
         self.server.scene.add_line_segments("/plan/trails", points=seg, colors=np.full((len(seg), 2, 3), _FOLLOW, dtype=np.uint8), line_width=2.5)

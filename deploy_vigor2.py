@@ -170,6 +170,7 @@ class FallRecController:
                 "imu_quat_wxyz": np.asarray(imu_quat, dtype=np.float32),
                 "plan_age": np.float32(self.runner.plan_age),
                 "yaw_cmd_deg": np.float32(math.degrees(self.runner.yaw_command_rad)),
+                "depth_age_ms": np.float32((now - self._last_depth_t) * 1000.0),
             })
 
         self._t_next += self.config.control_dt
@@ -234,6 +235,8 @@ def main() -> None:
             controller.step()
     finally:
         if viser is not None:
+            if viser.error:
+                print("[viser process] " + viser.error.strip().splitlines()[-1])
             viser.stop()
         runner.close()
         robot.send_damping_now()

@@ -60,7 +60,7 @@ def _child_main(repo_root, view_kwargs, depth_frames, depth_seq, states, plan_ct
                                             int(snap[INFO_PLAN_AGE]), float(plan_stat[0]), bool(snap[INFO_HELD]))
                 seq = int(plan_ctl[_RESP_END])
                 if seq != drawn and seq > 0:
-                    view.update_plan(states[0].numpy(), yaw_now)
+                    view.update_plan(states[0].numpy(), yaw_now, qj, tuple(float(v) for v in snap[INFO_IMU:INFO_IMU + 4]))
                     drawn = seq
             time.sleep(0.05)
     except Exception:

@@ -2,6 +2,7 @@
 Frames land in a double-buffered shared array; the control loop and the viser process read the slot
 the sequence number points at (a slot is rewritten only two frames later, ~66 ms)."""
 from __future__ import annotations
+import gc
 import multiprocessing as mp
 import os
 import signal
@@ -30,6 +31,7 @@ def _child_main(server_address, port, H, W, frames, seq, stamp, stop, err_text):
         sock.setsockopt_string(zmq.SUBSCRIBE, "")
         sock.setsockopt(zmq.RCVTIMEO, 200)
         bufs = frames.numpy()
+        gc.collect(); gc.freeze(); gc.disable()  # two arrays per frame; a gen-2 collection stalled delivery ~100 ms
         n = 0
         while int(stop[0]) == 0:
             try:
