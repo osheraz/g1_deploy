@@ -39,7 +39,9 @@ class DeployStateHistory:
         q = base_quat_xyzw.to(self.device).reshape(1, 1, 4).expand(-1, pos_l.shape[1], -1)
         body_pos = quat_apply(q, pos_l)
         body_rot = quat_mul(q, rot_l)
-        ang_vel = base_ang_vel.to(self.device).reshape(1, 1, 3).expand_as(body_pos)
+        local_ang_vel = base_ang_vel.to(self.device).reshape(1, 1, 3)
+        world_ang_vel = quat_apply(base_quat_xyzw.to(self.device).reshape(1, 1, 4), local_ang_vel)
+        ang_vel = world_ang_vel.expand_as(body_pos)
 
         for buf, val in ((self.body_pos, body_pos), (self.body_rot, body_rot),
                          (self.body_ang_vel, ang_vel)):
@@ -62,6 +64,15 @@ class DeployStateHistory:
             "body_vel": self.body_vel, "body_ang_vel": self.body_ang_vel,
             "dof_pos": self.dof_pos, "dof_vel": self.dof_vel,
         }
+
+    @torch.no_grad()
+    def fk_poses(self, dof_pos: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Current raw URDF FK poses in the FK model's base frame."""
+        pos, rot = self.fk.forward_link_pos_rot_xyzw(dof_pos)
+        return (
+            torch.as_tensor(pos, device=self.device),
+            torch.as_tensor(rot, device=self.device),
+        )
 
     @property
     def ready(self) -> bool:

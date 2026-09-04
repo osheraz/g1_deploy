@@ -1,0 +1,29 @@
+# Native 29-DoF fall recovery: Mid-360 planner -> z_g -> paired RL tracker.
+# Set planner_model after training goal_steer_lidar_lafan_i9000_20260902.yaml.
+
+tracker_checkpoint: "/nfs/turbo/coe-stellayu/osher/projects/hv2/shared_checkpoints/TEACHER29_ALL_FT_LAFAN_I9000_20260902/model_last.pt"
+planner_model: null
+planner_cfg: null
+
+planner_sampler: ddim
+planner_inference_steps: 12
+planner_seed: 0
+planner_action_horizon: 2
+planner_async: true
+planner_blend_frames: 8
+
+# Retained for compatibility with the depth planner; unused by LiDAR models.
+depth_max_age_s: 0.1
+depth_source: full
+depth_min_d: 0.1
+depth_max_d: 2.0
+depth_crop_px: [32, 8]
+
+stand_takeover: true
+stand_up_threshold: 0.9
+stand_blend_ticks: 25
+handover_ticks: 50
+
+yaw_command_deg: 0.0
+yaw_step_deg: 15.0
+control_dt: 0.02

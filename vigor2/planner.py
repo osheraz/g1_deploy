@@ -1,4 +1,4 @@
-"""Env-free diffusion planner: depth + command -> z_g. Single-robot RolloutPlanner."""
+"""Env-free diffusion planner: one deployable geometric sensor + command -> z_g."""
 
 from __future__ import annotations
 
@@ -14,8 +14,11 @@ class DeployPlanner:
     def __init__(self, model_path, cfg_path, device, *, sampler="ddim",
                  num_inference_steps=12, action_horizon=2, num_dof=23, blend_frames=8, seed=None):
         self.bundle, self.model, self.kind = load_planner(model_path, cfg_path, device)
-        if not self.bundle.use_ego_depth:
-            raise ValueError("Deploy planner requires a depth-conditioned checkpoint.")
+        sources = int(self.bundle.use_ego_depth) + int(self.bundle.use_lidar)
+        if sources != 1:
+            raise ValueError(
+                "Deploy planner requires exactly one of ego depth or LiDAR conditioning."
+            )
         self.device = device
         self.state_in_mode = str(self.bundle.state_in_mode)
         self.adapter = WindowAdapter(
@@ -38,6 +41,13 @@ class DeployPlanner:
         self.cursor = 0
         self.start_yaw = None
         self.latest_states = None  # predicted future states of the last plan (viser only)
+        if self.bundle.use_ego_depth:
+            self.vision_dim = int(self.bundle.depth_height * self.bundle.depth_width)
+        else:
+            from motion_diffusion.models.lidar_encoder import LidarVoxelSpec
+
+            self.lidar_spec = LidarVoxelSpec.from_mapping(self.bundle.lidar_config)
+            self.vision_dim = int(self.lidar_spec.flat_input_dim)
 
     def reset(self, yaw_now: float) -> None:
         self.hist_action.zero_()
@@ -63,10 +73,23 @@ class DeployPlanner:
             )
         raise ValueError(f"unsupported state_in_mode {self.state_in_mode!r}")
 
-    def _condition(self, depth_flat: torch.Tensor, command: torch.Tensor) -> torch.Tensor:
+    def _condition(self, vision_flat: torch.Tensor, command: torch.Tensor) -> torch.Tensor:
         chunks = []
-        depth = depth_flat.reshape(1, 1, self.bundle.depth_height, self.bundle.depth_width)
-        chunks.append(self.model.encode_depth(depth))
+        if self.bundle.use_ego_depth:
+            depth = vision_flat.reshape(
+                1, 1, self.bundle.depth_height, self.bundle.depth_width
+            )
+            chunks.append(self.model.encode_depth(depth))
+        else:
+            spec = self.lidar_spec
+            point_values = spec.history_steps * spec.num_points * spec.point_dim
+            points = vision_flat[:, :point_values].reshape(
+                -1, spec.history_steps, spec.num_points, spec.point_dim
+            )
+            metadata = vision_flat[:, point_values:].reshape(
+                -1, spec.history_steps, spec.metadata_dim
+            )
+            chunks.append(self.model.encode_lidar(points, metadata))
         if self.model.goal_encoder is not None:
             chunks.append(self.model.encode_goal(command.to(self.device).reshape(1, -1), None))
         cond = chunks[0] if len(chunks) == 1 else torch.cat(chunks, dim=-1)
@@ -112,28 +135,28 @@ class DeployPlanner:
         self.hist_action[:, 0] = zg
         return zg
     @torch.no_grad()
-    def step(self, state_window: dict, depth_flat: torch.Tensor,
+    def step(self, state_window: dict, vision_flat: torch.Tensor,
              command: torch.Tensor) -> torch.Tensor:
         if self.plan is None or self.cursor >= self.action_horizon:  # sim: execute action_horizon frames, then replan
-            self._replan(state_window, depth_flat, command)
+            self._replan(state_window, vision_flat, command)
         return self.advance()
 
     @torch.no_grad()
-    def plan_from(self, state_window: dict, depth_flat, command):
+    def plan_from(self, state_window: dict, vision_flat, command):
         """(z_g plan [1, F, action_dim], predicted states [1, F, state_out_dim])."""
         if self.seed is not None:
             torch.manual_seed(self.seed)
         return sample_actions_from_unified(
             self.model, self._encode_state(state_window), self.hist_action,
-            self._condition(depth_flat, command),
+            self._condition(vision_flat, command),
             num_plans=1, sampler=self.sampler,
             num_inference_steps=self.num_inference_steps,
             horizon=self.F, mode="full",  # decode the full chunk (sim horizon_steps = F); action_horizon is the cadence
             return_states=True,
         )
 
-    def _replan(self, state_window, depth_flat, command) -> None:
-        plan, self.latest_states = self.plan_from(state_window, depth_flat, command)
+    def _replan(self, state_window, vision_flat, command) -> None:
+        plan, self.latest_states = self.plan_from(state_window, vision_flat, command)
         self.install_plan(plan)
 
 

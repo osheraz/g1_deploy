@@ -3,7 +3,7 @@
 Separate from `deploy_g1.py` (VIGOR) and from the SONIC runners; shares only the robot
 interface, depth client and logging.
 
-  python deploy_vigor2.py --config g1_23dof_sonic.yaml --cfg fallrec.yaml
+  python deploy_vigor2.py --config g1_29dof_sonic.yaml --cfg fallrec_lidar_29dof.yaml
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ import yaml
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
 from core.common.depth_process import DepthProcess
+from core.common.livox_process import LivoxProcess
 from core.common.remote_controller import KeyMap
 from core.common.real_logger import RealLogger
 from core.config import Config
@@ -61,12 +62,14 @@ class _NoPublish:
 
 class FallRecController:
     def __init__(self, config: Config, robot: RobotInterface, runner: FallRecRunner,
-                 depth_client: DepthProcess, fallrec_cfg: SimpleNamespace,
+                 depth_client: Optional[DepthProcess], lidar_client: Optional[LivoxProcess],
+                 fallrec_cfg: SimpleNamespace,
                  logger: Optional[RealLogger] = None):
         self.config = config
         self.robot = robot
         self.runner = runner
         self.depth_client = depth_client
+        self.lidar_client = lidar_client
         self.logger = logger
         self.counter = 0
         self.elapsed_time = 0.0
@@ -101,11 +104,11 @@ class FallRecController:
         self.counter += 1
         self.elapsed_time += self.config.control_dt
 
-        state, age = self.robot.low_state_snapshot_with_age()
+        state, age, torso_sample, torso_age = self.robot.sensor_snapshot_with_age()
         if age > self.config.max_low_state_age_s:
             raise RuntimeError(f"LowState stale for {age:.3f} s at tick {self.counter}.")
         self.robot.update_joint_state(state)
-        imu_quat, _ = self.robot.get_imu()
+        imu_quat, imu_gyro = self.robot.get_imu(state)
         rc = self.robot.remote_controller
         dpad = (int(rc.button[KeyMap.left]), int(rc.button[KeyMap.right]))
         if dpad != self._dpad and any(dpad):  # D-pad left/right: turn the commanded heading, relative to the heading at start
@@ -117,16 +120,54 @@ class FallRecController:
             if slider is not None:
                 self.runner.yaw_command_rad = slider
         base_ang_vel, projected_gravity, dof_pos, dof_vel = (
-            self.robot.get_base_features_scaled()
+            self.robot.get_base_features_scaled((imu_quat, imu_gyro))
         )
 
-        seq = self.depth_client.latest_seq
         now = time.perf_counter()
-        if seq != self._last_seq:
-            self._last_seq, self._last_depth_t = seq, now
-        elif now - self._last_depth_t > self.depth_max_age_s:
-            raise RuntimeError(
-                f"Stale depth at tick {self.counter}: no new frame for {now - self._last_depth_t:.3f} s."
+        sensor_kwargs = {}
+        depth_raw = depth_full = None
+        if self.runner.use_depth:
+            seq = self.depth_client.latest_seq
+            if seq != self._last_seq:
+                self._last_seq, self._last_depth_t = seq, now
+            elif now - self._last_depth_t > self.depth_max_age_s:
+                raise RuntimeError(
+                    f"Stale depth at tick {self.counter}: no new frame for "
+                    f"{now - self._last_depth_t:.3f} s."
+                )
+            depth_raw = self.depth_client.latest_depth
+            depth_full = self.depth_client.latest_depth_full
+        else:
+            if torso_age > self.config.max_torso_imu_age_s:
+                raise RuntimeError(f"Torso IMU stale for {torso_age:.3f} s")
+            lidar_scan, lidar_seq, lidar_age, scan_receipt, _ = (
+                self.lidar_client.snapshot()
+            )
+            if lidar_age > self.config.livox_max_age_s:
+                raise RuntimeError(f"Livox scan stale for {lidar_age:.3f} s")
+            if lidar_seq >= 10 and self.lidar_client.rate_hz < self.config.livox_min_rate_hz:
+                raise RuntimeError(
+                    f"Livox rolling-window rate {self.lidar_client.rate_hz:.1f} Hz < "
+                    f"required {self.config.livox_min_rate_hz:.1f} Hz"
+                )
+            torso_for_scan, torso_skew = self.robot.torso_imu_nearest(scan_receipt)
+            state_for_scan, state_skew = self.robot.low_state_nearest(scan_receipt)
+            max_skew = self.config.max_sensor_sync_skew_s
+            if torso_skew > max_skew or state_skew > max_skew:
+                raise RuntimeError(
+                    "LiDAR/state synchronization skew is too large: "
+                    f"torso={torso_skew * 1e3:.1f} ms, "
+                    f"LowState={state_skew * 1e3:.1f} ms"
+                )
+            torso_quat, torso_gyro, _ = self.robot.get_torso_imu(torso_for_scan)
+            lidar_q, _ = self.robot.active_joint_state(state_for_scan)
+            sensor_kwargs = dict(
+                lidar_scan=lidar_scan,
+                lidar_seq=lidar_seq,
+                lidar_age_s=lidar_age,
+                torso_quat_wxyz=torso_quat,
+                torso_gyro=torso_gyro,
+                lidar_physical_dof_pos=lidar_q,
             )
 
         action = self.runner.compute_action(
@@ -134,9 +175,13 @@ class FallRecController:
             projected_gravity=projected_gravity,
             dof_pos=dof_pos,
             dof_vel=dof_vel,
-            depth_raw=self.depth_client.latest_depth,
-            depth_full=self.depth_client.latest_depth_full,
+            depth_raw=depth_raw,
+            depth_full=depth_full,
             base_quat_wxyz=imu_quat,
+            physical_dof_pos=self.robot.qj,
+            physical_dof_vel=self.robot.dqj,
+            physical_base_ang_vel=imu_gyro,
+            **sensor_kwargs,
         )
 
         target_dof_pos = (
@@ -170,7 +215,11 @@ class FallRecController:
                 "imu_quat_wxyz": np.asarray(imu_quat, dtype=np.float32),
                 "plan_age": np.float32(self.runner.plan_age),
                 "yaw_cmd_deg": np.float32(math.degrees(self.runner.yaw_command_rad)),
-                "depth_age_ms": np.float32((now - self._last_depth_t) * 1000.0),
+                "vision_age_ms": np.float32(
+                    ((now - self._last_depth_t) if self.runner.use_depth
+                     else self.lidar_client.age_s) * 1000.0
+                ),
+                "torso_imu_age_ms": np.float32(torso_age * 1000.0),
             })
 
         self._t_next += self.config.control_dt
@@ -191,8 +240,6 @@ def main() -> None:
 
     config = Config(args.config)
     fallrec_cfg = load_fallrec_config(args.cfg)
-    depth_client = init_depth_client(config)
-
     ChannelFactoryInitialize(0)
     robot = WatchdogRobot(config)
     if args.no_publish:
@@ -200,15 +247,35 @@ def main() -> None:
         print("[NO-PUBLISH] LowCmd publisher replaced: the robot receives no command in this run.")
     runner = FallRecRunner(fallrec_cfg)
     runner.verify_robot_config(config)
+    depth_client = None
+    lidar_client = None
+    if runner.use_depth:
+        depth_client = init_depth_client(config)
+    else:
+        if not config.require_torso_imu:
+            raise ValueError("LiDAR deployment requires require_torso_imu: true")
+        lidar_client = LivoxProcess(
+            config.livox_topic,
+            config.livox_imu_topic,
+            config.livox_max_points,
+            config.livox_scan_duration_s,
+        )
+        lidar_client.start()
+        print(
+            f"Livox receiver started on {config.livox_topic} with IMU "
+            f"{config.livox_imu_topic}."
+        )
     if args.no_publish:
         runner.stand_takeover = False
 
     logger = RealLogger(args.log)
     logger.start()
 
-    controller = FallRecController(config, robot, runner, depth_client, fallrec_cfg, logger)
+    controller = FallRecController(
+        config, robot, runner, depth_client, lidar_client, fallrec_cfg, logger
+    )
     viser = None
-    if config.viser_display:  # own process: own LowState/depth subscribers, plan from the planner's shared buffer
+    if config.viser_display and runner.use_depth:  # current viser panel is depth-specific
         from vigor2.viser_process import ViserProcess
         ap = runner.async_planner
         if ap is None:
@@ -220,11 +287,59 @@ def main() -> None:
             depth_client.frames, depth_client.seq,
             config.num_actions, ap.resp_states, ap.ctl, ap.stat, runner.yaw_command_rad)
         controller.viser = viser
-    while depth_client.latest_seq == 0:
+    sensor_client = depth_client if runner.use_depth else lidar_client
+    sensor_deadline = time.monotonic() + (
+        float(config.livox_startup_timeout_s) if runner.use_lidar else 10.0
+    )
+    while sensor_client.latest_seq == 0:
+        if not sensor_client.running:
+            raise RuntimeError("Vision receiver exited:\n" + sensor_client.error)
+        if time.monotonic() >= sensor_deadline:
+            detail = (
+                " No synchronized /livox/imu samples were available for deskew."
+                if runner.use_lidar else ""
+            )
+            raise RuntimeError(
+                f"No {'Livox scan' if runner.use_lidar else 'depth frame'} after "
+                f"{(config.livox_startup_timeout_s if runner.use_lidar else 10.0):.1f} s."
+                + detail
+            )
         time.sleep(0.01)
     robot.update_joint_state()
-    imu_quat, _ = robot.get_imu()
-    secs = runner.warmup(*robot.get_base_features_scaled(), depth_client.latest_depth_full, imu_quat)
+    state, _, torso_sample, _ = robot.sensor_snapshot_with_age()
+    imu_quat, imu_gyro = robot.get_imu(state)
+    warmup_kwargs = {}
+    if runner.use_depth:
+        vision = depth_client.latest_depth_full
+        lidar_seq = None
+        lidar_age = None
+    else:
+        vision, lidar_seq, lidar_age, _, _ = lidar_client.snapshot()
+    if runner.use_lidar:
+        torso_quat, torso_gyro, _ = robot.get_torso_imu(torso_sample)
+        warmup_kwargs = dict(
+            lidar_scan=vision,
+            lidar_seq=lidar_seq,
+            lidar_age_s=lidar_age,
+            torso_quat_wxyz=torso_quat,
+            torso_gyro=torso_gyro,
+            lidar_physical_dof_pos=robot.qj,
+            physical_dof_pos=robot.qj,
+            physical_dof_vel=robot.dqj,
+            physical_base_ang_vel=imu_gyro,
+        )
+    else:
+        warmup_kwargs = {
+            "physical_dof_pos": robot.qj,
+            "physical_dof_vel": robot.dqj,
+            "physical_base_ang_vel": imu_gyro,
+        }
+    secs = runner.warmup(
+        *robot.get_base_features_scaled((imu_quat, imu_gyro)),
+        vision,
+        imu_quat,
+        **warmup_kwargs,
+    )
     gc.collect(); gc.freeze(); gc.disable()  # a gen-2 collection stalls the DDS thread 70-120 ms (measured); nothing in the loop needs the collector
     print(f"Warm-up {secs:.2f} s. Fall recovery ready. Press A to run, SELECT to damp and exit.")
     try:
@@ -239,6 +354,10 @@ def main() -> None:
                 print("[viser process] " + viser.error.strip().splitlines()[-1])
             viser.stop()
         runner.close()
+        if depth_client is not None:
+            depth_client.running = False
+        if lidar_client is not None:
+            lidar_client.stop()
         robot.send_damping_now()
         logger.stop()
         logger.save()

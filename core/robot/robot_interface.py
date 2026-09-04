@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections import deque
 from typing import Union
 import time
 import copy
@@ -13,12 +14,14 @@ from unitree_sdk2py.core.channel import (
 from unitree_sdk2py.idl.default import (
     unitree_hg_msg_dds__LowCmd_,
     unitree_hg_msg_dds__LowState_,
+    unitree_hg_msg_dds__IMUState_,
     unitree_go_msg_dds__LowCmd_,
     unitree_go_msg_dds__LowState_,
 )
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_ as LowCmdHG
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_ as LowCmdGo
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_ as LowStateHG
+from unitree_sdk2py.idl.unitree_hg.msg.dds_ import IMUState_ as IMUStateHG
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowState_ as LowStateGo
 from unitree_sdk2py.utils.crc import CRC
 
@@ -51,6 +54,10 @@ class RobotInterface:
         self.last_target_dof_pos = config.physical_default_angles.copy()
         self.last_target_saturated = np.zeros(config.num_actions, dtype=bool)
         self._low_state_monotonic = 0.0
+        self._low_state_history = deque(maxlen=256)
+        self._torso_imu = None
+        self._torso_imu_monotonic = 0.0
+        self._torso_imu_history = deque(maxlen=512)
         self._state_lock = threading.Lock()
         self.rejected_crc_count = 0
 
@@ -62,6 +69,8 @@ class RobotInterface:
             raise ValueError("Invalid msg_type")
 
         self.wait_for_low_state()
+        if self.config.require_torso_imu:
+            self.wait_for_torso_imu()
         if config.msg_type == "hg" and config.policy_type == "sonic":
             # Refuse a selected 23/29 command map before _init_low_cmd() or any
             # moving/default-pose target can be published to the wrong plant.
@@ -87,6 +96,12 @@ class RobotInterface:
             self.config.lowstate_topic, LowStateHG
         )
         self.lowstate_subscriber.Init(self._low_state_hg_handler, 10)
+        if self.config.require_torso_imu or self.config.imu_type == "torso":
+            self._torso_imu = unitree_hg_msg_dds__IMUState_()
+            self.torso_imu_subscriber = ChannelSubscriber(
+                self.config.torso_imu_topic, IMUStateHG
+            )
+            self.torso_imu_subscriber.Init(self._torso_imu_handler, 50)
 
     def _init_go(self):
         self.low_cmd = unitree_go_msg_dds__LowCmd_()
@@ -116,6 +131,7 @@ class RobotInterface:
         with self._state_lock:
             self.low_state = msg
             self._low_state_monotonic = time.monotonic()
+            self._low_state_history.append((self._low_state_monotonic, msg))
             self.mode_machine_ = msg.mode_machine
         self.remote_controller.set(msg.wireless_remote)
 
@@ -123,7 +139,15 @@ class RobotInterface:
         with self._state_lock:
             self.low_state = msg
             self._low_state_monotonic = time.monotonic()
+            self._low_state_history.append((self._low_state_monotonic, msg))
         self.remote_controller.set(msg.wireless_remote)
+
+    def _torso_imu_handler(self, msg: IMUStateHG):
+        now = time.monotonic()
+        with self._state_lock:
+            self._torso_imu = msg
+            self._torso_imu_monotonic = now
+            self._torso_imu_history.append((now, msg))
 
     def send_cmd(self):
         self.low_cmd.crc = CRC().Crc(self.low_cmd)
@@ -133,6 +157,21 @@ class RobotInterface:
         while self.low_state_snapshot().tick == 0:
             time.sleep(self.config.control_dt)
         print("Successfully connected to the robot.")
+
+    def wait_for_torso_imu(self):
+        deadline = time.monotonic() + self.config.torso_imu_startup_timeout_s
+        while True:
+            _, age = self.torso_imu_snapshot_with_age()
+            if np.isfinite(age):
+                print(f"Torso IMU live on {self.config.torso_imu_topic}.")
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"No torso IMU on {self.config.torso_imu_topic!r} after "
+                    f"{self.config.torso_imu_startup_timeout_s:.1f} s. "
+                    "The 29-DoF LiDAR deployment forbids pelvis fallback."
+                )
+            time.sleep(0.01)
 
     def low_state_snapshot(self):
         """Return one coherent SDK message reference for a control-step read."""
@@ -146,6 +185,37 @@ class RobotInterface:
             timestamp = self._low_state_monotonic
         age = float("inf") if timestamp <= 0.0 else time.monotonic() - timestamp
         return state, age
+
+    def torso_imu_snapshot_with_age(self):
+        with self._state_lock:
+            imu = self._torso_imu
+            timestamp = self._torso_imu_monotonic
+        age = float("inf") if timestamp <= 0.0 else time.monotonic() - timestamp
+        return imu, age
+
+    def sensor_snapshot_with_age(self):
+        """One lock acquisition for the controller's pelvis and torso samples."""
+        now = time.monotonic()
+        with self._state_lock:
+            state, state_t = self.low_state, self._low_state_monotonic
+            torso, torso_t = self._torso_imu, self._torso_imu_monotonic
+        state_age = float("inf") if state_t <= 0.0 else now - state_t
+        torso_age = float("inf") if torso_t <= 0.0 else now - torso_t
+        return state, state_age, torso, torso_age
+
+    def _nearest_history_sample(self, history, target_monotonic: float):
+        with self._state_lock:
+            samples = tuple(history)
+        if not samples:
+            return None, float("inf")
+        stamp, sample = min(samples, key=lambda item: abs(item[0] - target_monotonic))
+        return sample, abs(float(stamp) - float(target_monotonic))
+
+    def low_state_nearest(self, target_monotonic: float):
+        return self._nearest_history_sample(self._low_state_history, target_monotonic)
+
+    def torso_imu_nearest(self, target_monotonic: float):
+        return self._nearest_history_sample(self._torso_imu_history, target_monotonic)
 
     # -------- modes (same as before) --------
 
@@ -250,6 +320,18 @@ class RobotInterface:
             self.qj[i] = state.motor_state[motor_idx].q
             self.dqj[i] = state.motor_state[motor_idx].dq
 
+    def active_joint_state(self, state=None):
+        state = self.low_state_snapshot() if state is None else state
+        q = np.asarray(
+            [state.motor_state[i].q for i in self.config.action_joint2motor_idx],
+            dtype=np.float32,
+        )
+        dq = np.asarray(
+            [state.motor_state[i].dq for i in self.config.action_joint2motor_idx],
+            dtype=np.float32,
+        )
+        return q, dq
+
     @property
     def low_state_age_s(self) -> float:
         with self._state_lock:
@@ -298,6 +380,15 @@ class RobotInterface:
         ang_vel = np.array(state.imu_state.gyroscope, dtype=np.float32)
 
         if self.config.imu_type == "torso":
+            torso, age = self.torso_imu_snapshot_with_age()
+            if torso is not None and age <= self.config.max_torso_imu_age_s:
+                return (
+                    np.asarray(torso.quaternion, dtype=np.float32),
+                    np.asarray(torso.gyroscope, dtype=np.float32),
+                )
+            if self.config.require_torso_imu:
+                raise RuntimeError(f"Torso IMU stale for {age:.3f} s")
+            # Legacy 23-DoF approximation retained only for old configs.
             waist_idx = 12  # waist yaw; fixed[0] is waist roll on the 23-DoF profile
             waist_yaw = state.motor_state[waist_idx].q
             waist_yaw_omega = state.motor_state[waist_idx].dq
@@ -308,6 +399,22 @@ class RobotInterface:
                 imu_omega=ang_vel,
             )
         return quat, ang_vel
+
+    def get_torso_imu(self, sample=None):
+        """Return the physical secondary IMU. There is deliberately no fallback."""
+        if sample is None:
+            sample, age = self.torso_imu_snapshot_with_age()
+        else:
+            age = 0.0
+        if sample is None:
+            raise RuntimeError("Torso IMU has not produced a sample")
+        if age > self.config.max_torso_imu_age_s:
+            raise RuntimeError(f"Torso IMU stale for {age:.3f} s")
+        return (
+            np.asarray(sample.quaternion, dtype=np.float32),
+            np.asarray(sample.gyroscope, dtype=np.float32),
+            np.asarray(sample.accelerometer, dtype=np.float32),
+        )
 
     def get_base_features_scaled(self, imu=None):
 

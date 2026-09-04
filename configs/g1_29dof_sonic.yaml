@@ -6,6 +6,22 @@ sonic_robot_profile: "g1_29dof"
 sonic_mask_missing_reference: false
 sonic_mask_missing_action_history: false
 
+# The tracker still consumes the pelvis IMU from LowState. The physical torso
+# IMU is an additional mandatory sensor for gravity-aligned Mid-360 input.
+imu_type: "pelvis"
+torso_imu_topic: "rt/secondary_imu"
+require_torso_imu: true
+max_torso_imu_age_s: 0.05
+torso_imu_startup_timeout_s: 5.0
+max_sensor_sync_skew_s: 0.04
+livox_topic: "/livox/lidar"
+livox_imu_topic: "/livox/imu"
+livox_max_points: 1024
+livox_max_age_s: 0.06
+livox_scan_duration_s: 0.10
+livox_min_rate_hz: 20.0
+livox_startup_timeout_s: 5.0
+
 action_joint2motor_idx: [
   0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
   15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28

@@ -95,6 +95,25 @@ class Config:
 
         self.lowcmd_topic = config["lowcmd_topic"]
         self.lowstate_topic = config["lowstate_topic"]
+        self.torso_imu_topic = config.get("torso_imu_topic", "rt/secondary_imu")
+        self.require_torso_imu = bool(config.get("require_torso_imu", False))
+        self.max_torso_imu_age_s = float(config.get("max_torso_imu_age_s", 0.05))
+        self.torso_imu_startup_timeout_s = float(
+            config.get("torso_imu_startup_timeout_s", 5.0)
+        )
+        self.max_sensor_sync_skew_s = float(config.get("max_sensor_sync_skew_s", 0.04))
+
+        self.livox_topic = config.get("livox_topic", "/livox/lidar")
+        self.livox_imu_topic = config.get("livox_imu_topic", "/livox/imu")
+        self.livox_max_points = int(config.get("livox_max_points", 1024))
+        self.livox_max_age_s = float(config.get("livox_max_age_s", 0.12))
+        self.livox_scan_duration_s = float(
+            config.get("livox_scan_duration_s", 0.10)
+        )
+        self.livox_min_rate_hz = float(config.get("livox_min_rate_hz", 20.0))
+        self.livox_startup_timeout_s = float(
+            config.get("livox_startup_timeout_s", 5.0)
+        )
 
         # Relative to the repo root, not configs/: "policy/x.onnx" means
         # g1_deploy/sonic/x.onnx. Absolute and ~ paths pass through.

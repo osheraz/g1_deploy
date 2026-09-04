@@ -22,6 +22,8 @@ legacy policy commands below are not the reviewed robust 23-DoF SONIC preset.
 - [4. Cameras](tutorials/04_cameras.md) — viewing RGB and depth
 - [5. Run](tutorials/05_run.md) — stream check, then the policy
 - [6. Tactile](tutorials/06_tactile.md) — e-skin over ZMQ
+- [7. 29-DoF Mid-360 fall recovery](tutorials/07_lidar_fallrec.md) — LiDAR/IMU
+  streams, checkpoint contract, and no-publish validation
 - [PICO teleop and PLANNER/G1](tutorials/PICO_TELEOP.md) — VR teleop and
   planner-controlled locomotion
 - [SONIC parity changes and risk ledger](DEPLOYMENT_PARITY_CHANGES.md) — historical 23-DoF implementation ledger; current method is the learning guide
