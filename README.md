@@ -5,6 +5,13 @@ over Unitree DDS.
 
 ## Start here
 
+For the **current native diffusion/flow recovery**, use
+[`deploy_native.py`](deploy_native.py) and the
+[shared sim/robot guide](../commands/fall_recovery/deploy.md).
+This loads the paired action decoder, not the old VIGOR2 teacher-z_g tracker.
+It supports PyTorch, ONNX and TensorRT forwards. Real-sensor runs have **no motor
+publisher by default**; `--actuate` additionally requires commissioning.
+
 **[tutorials/GETTING_STARTED.md](tutorials/GETTING_STARTED.md)** — ethernet to the robot,
 environment, camera, stream checks, first run.
 
