@@ -20,7 +20,7 @@ def _child_main(repo_root, planner_kwargs, req_state, req_hist, req_exec, req_de
         os.chdir(repo_root)
         sys.path.insert(0, repo_root)
         sys.path.insert(0, os.path.join(repo_root, "g1_deploy"))
-        from vigor2.planner import DeployPlanner
+        from deprecated.vigor2.planner import DeployPlanner
         planner = DeployPlanner(**planner_kwargs)
         dev = planner.device
         ctl[READY] = 1

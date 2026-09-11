@@ -1,4 +1,4 @@
-# 6. Run
+# Legacy VIGOR run
 
 ## Check the streams first
 
@@ -10,7 +10,7 @@ python sonic/check_streams.py --config g1_23dof.yaml
 
 Want a `robot: ok` line with a rising `msgs=` and a fresh `age=`. Stuck on
 `waiting for low_state...` means the robot isn't publishing — recheck
-[1. Network](01_network.md) and that the robot isn't in a mode that suppresses
+[1. Network](../../tutorials/01_network.md) and that the robot isn't in a mode that suppresses
 `rt/lowstate`.
 
 `viser_display: true` opens a browser view of robot state.
@@ -20,13 +20,13 @@ Want a `robot: ok` line with a rising `msgs=` and a fresh `age=`. Stuck on
 **The robot moves the moment this starts.** Clear the area, remote in hand.
 
 ```bash
-python deploy_g1.py --net enp132s0 --config g1_23dof.yaml --log TEST.npz
+python deploy_vigor.py --net enp132s0 --config g1_23dof.yaml --log TEST.npz
 ```
 
 Sequence:
 
 1. Ramps every joint to the default pose over 2s —
-   [deploy_g1.py:377](../deploy_g1.py#L377). **No button gate; this happens on launch.**
+   [deploy_vigor.py:377](../../deploy_vigor.py#L377). **No button gate; this happens on launch.**
 2. Holds default, printing `Waiting for the Button A signal...`
 3. **A** → policy starts.
 4. **select** → stop; sends damping on the way out.
@@ -51,7 +51,7 @@ PYTHONPATH=. python sonic/scripts/replay_rollout.py --log TEST.npz
 
 | Symptom | Cause |
 | --- | --- |
-| `waiting for low_state...` | no DDS from robot — [1. Network](01_network.md) |
+| `waiting for low_state...` | no DDS from robot — [1. Network](../../tutorials/01_network.md) |
 | `LocoClient connection failed` | robot unreachable or refusing the client |
-| policy runs but behaves wrong | `obs_dim`/scales don't match the trained config — [3. Config](03_config.md) |
+| policy runs but behaves wrong | `obs_dim`/scales don't match the trained config — [3. Config](config_vigor.md) |
 | joint reads outside its URDF limit | encoder zero is off — mechanical, not config |

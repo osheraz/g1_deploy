@@ -1,3 +1,4 @@
+import json
 import threading
 import zmq
 import numpy as np
@@ -82,12 +83,21 @@ class SimpleDepthClient(threading.Thread):
         try:
             while self.running:
                 parts = self.socket.recv_multipart()
+                depth_scale = DEPTH_SCALE
                 if len(parts) == 2:
                     color_msg, depth_msg = parts
-                    self.latest_color = cv2.imdecode(
-                        np.frombuffer(color_msg, dtype=np.uint8), cv2.IMREAD_COLOR
-                    )
-                    self.latest_color_jpg = color_msg
+                    if color_msg.startswith(b"{"):
+                        metadata = json.loads(color_msg)
+                        if metadata["schema"] != "hv2.native_depth_packet.v1":
+                            raise ValueError("Unsupported native depth packet schema")
+                        depth_scale = float(metadata["depth_scale_m"])
+                        self.latest_color = None
+                        self.latest_color_jpg = None
+                    else:
+                        self.latest_color = cv2.imdecode(
+                            np.frombuffer(color_msg, dtype=np.uint8), cv2.IMREAD_COLOR
+                        )
+                        self.latest_color_jpg = color_msg
                 else:
                     depth_msg = parts[0]
                     self.latest_color_jpg = None
@@ -103,7 +113,7 @@ class SimpleDepthClient(threading.Thread):
                 if depth.size != self.H * self.W:
                     print(f"Unexpected depth shape: {depth.shape}")
 
-                depth_m = depth * DEPTH_SCALE
+                depth_m = depth * depth_scale
                 self.latest_depth_full = depth_m
 
                 # Centre crop to a square for the policy; keep the full frame

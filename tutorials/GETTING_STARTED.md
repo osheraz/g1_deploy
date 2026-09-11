@@ -1,30 +1,27 @@
 # Getting started
 
-In order. Each ends with a check you can run.
+For the current 29-joint diffusion/flow pipeline:
 
-| | | |
-| --- | --- | --- |
-| 1 | [Network](01_network.md) | ethernet to the robot, static IP, robot + internet on one port |
-| 2 | [Install](02_install.md) | uv venv, torch, Unitree SDK + CycloneDDS |
-| 3 | [Config](03_config.md) | which config, what to change, depth as policy input |
-| 4 | [Cameras](04_cameras.md) | viewing the RGB and depth streams |
-| 5 | [Run](05_run.md) | stream check, then the policy |
+1. [Connect to the robot](01_network.md). Preserve the workstation's Internet route.
+2. [Use the prepared environment](02_install.md).
+3. [View robot state and raw depth](04_cameras.md). This publishes no motor commands.
+4. [Configure the paired model bundle and hardware](03_config.md).
+5. Follow [diffusion deployment](deploy_diffusion.md): validate models, check
+   real sensors without motor output, then commission actuation separately.
 
-Optional:
+The [status page](deployment_status.md) separates completed checks from remaining
+hardware work. A working viewer is not permission or evidence to actuate.
 
-| | |
+| Component | Where it runs |
 | --- | --- |
-| [Tactile](06_tactile.md) | e-skin over ZMQ |
-| [PICO teleop](PICO_TELEOP.md) | VR teleop from a PICO headset |
-| [WiFi hotspot](wifi_hotspot.md) | robot with no wired internet |
+| `deploy_diffusion.py`: planner worker + action decoder + watchdog | Inference workstation |
+| LowState / optional LowCmd | Robot controller over Unitree DDS |
+| `native_depth_server.py` | Jetson connected to the RealSense |
+| `sonic/check_streams.py`: read-only Viser | Workstation |
 
-Nothing sends robot commands until [5. Run](05_run.md). `sonic/check_streams.py` is read-only.
+The raw depth publisher does not publish RGB. Its timestamped PNG packets are
+not the old filtered RGB-D stream.
 
-## What talks to what
-
-| Piece | Where it runs | Transport |
-| --- | --- | --- |
-| `deploy_g1.py` (policy) | your machine | Unitree DDS over ethernet |
-| robot state / motor commands | G1 onboard | DDS `rt/lowstate`, `rt/lowcmd` |
-| RealSense colour + depth | G1 onboard PC `192.168.123.164` | ZMQ port 5556 |
-| tactile | G1 onboard, system python | ZMQ port 5557 |
+Other workflows: [SONIC](../sonic/workflows/README.md),
+[optional tactile](06_tactile.md), [robot migration record](08_robot_migration.md).
+Old VIGOR2 instructions are isolated under [deprecated](../deprecated/README.md).

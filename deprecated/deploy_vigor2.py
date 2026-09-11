@@ -1,14 +1,18 @@
 """Fall-recovery deployment: diffusion planner -> z_g -> RL tracker.
 
-Separate from `deploy_g1.py` (VIGOR) and from the SONIC runners; shares only the robot
+Separate from `deploy_vigor.py` (VIGOR) and from the SONIC runners; shares only the robot
 interface, depth client and logging.
 
-  python deploy_vigor2.py --config g1_29dof_sonic.yaml --cfg fallrec_lidar_29dof.yaml
+  python deprecated/deploy_vigor2.py --config g1_29dof_sonic.yaml --cfg fallrec_lidar_29dof.yaml
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+
+# Archived launcher: shared sensor/robot modules remain at the deployment root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from types import SimpleNamespace
 from typing import Optional
 import argparse
@@ -20,15 +24,15 @@ import numpy as np
 import yaml
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-from core.common.depth_process import DepthProcess
+from deprecated.vigor2.depth_process import DepthProcess
 from core.common.livox_process import LivoxProcess
 from core.common.remote_controller import KeyMap
 from core.common.real_logger import RealLogger
 from core.config import Config
 from core.robot.robot_interface import RobotInterface
-from vigor2.planner import _wrap_pi
-from vigor2.robot import WatchdogRobot
-from vigor2.runner import HV2_ROOT, FallRecRunner
+from deprecated.vigor2.planner import _wrap_pi
+from deprecated.vigor2.robot import WatchdogRobot
+from deprecated.vigor2.runner import HV2_ROOT, FallRecRunner
 
 
 def load_fallrec_config(path: str) -> SimpleNamespace:
@@ -276,7 +280,7 @@ def main() -> None:
     )
     viser = None
     if config.viser_display and runner.use_depth:  # current viser panel is depth-specific
-        from vigor2.viser_process import ViserProcess
+        from deprecated.vigor2.viser_process import ViserProcess
         ap = runner.async_planner
         if ap is None:
             raise ValueError("viser_display needs planner_async: true (the view reads the planner process buffers)")

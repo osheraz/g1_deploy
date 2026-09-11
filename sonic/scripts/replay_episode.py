@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Replay a recorded episode in viser: robot pose, camera, tactile.
 
-Counterpart to replay_rollout.py, which reads deploy_g1's flat .npz. This one
+Counterpart to replay_rollout.py, which reads deploy_vigor's flat .npz. This one
 reads the episode directories deploy_eskin.py writes:
 
     episodes/episode_001/

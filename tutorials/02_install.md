@@ -1,63 +1,65 @@
-# 2. Install
+# Environment
 
-Python ≥ 3.11. Plain [uv](https://docs.astral.sh/uv/) — no pixi, no conda.
+## This workstation
+
+Use the existing hv2 environment. Do not reinstall Torch, Isaac, or the robot
+SDK merely to launch deployment.
 
 ```bash
-cd g1_deploy
-uv venv
+cd /home/osher/hv2
 source .venv/bin/activate
-uv pip install -e .
+python g1_deploy/deploy_diffusion.py --help
+python -c "import torch, numpy, cv2, zmq, unitree_sdk2py, viser"
 ```
 
-That covers numpy, opencv, onnxruntime, viser, omegaconf, scipy.
+The Python entrypoint adds the parent checkout and its bundled
+`dependencies/isaac_utils` helpers to the import path. Those helpers do not boot
+IsaacSim. The model implementation remains shared with simulation.
 
-## Torch
+## Matching source checkout
+
+Deployment needs both the parent hv2 code and its pinned `g1_deploy` submodule.
+In a clean deployment checkout following `master`:
 
 ```bash
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+git pull --ff-only
+git submodule update --init g1_deploy
 ```
 
-Required even for ONNX policies — `vigor/policy_runner.py` imports torch unconditionally.
-
-## Unitree SDK
-
-DDS comms. CycloneDDS has to be built first:
+This is not an instruction to merge or overwrite a separate training branch.
+For a fresh checkout, clone hv2 and initialize only this submodule:
 
 ```bash
-git clone https://github.com/eclipse-cyclonedds/cyclonedds -b releases/0.10.x ~/cyclonedds
-cd ~/cyclonedds && mkdir build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=~/cyclonedds/install && cmake --build . --target install
-
-export CYCLONEDDS_HOME=~/cyclonedds/install
-git clone https://github.com/unitreerobotics/unitree_sdk2_python.git ~/unitree_sdk2_python
-uv pip install -e ~/unitree_sdk2_python
+git clone https://github.com/osheraz/hv2.git hv2-deploy
+cd hv2-deploy
+git submodule update --init g1_deploy
 ```
 
-Keep `CYCLONEDDS_HOME` exported in your shell profile — the SDK needs it at import time.
+On Bluefin, the existing environment, model bundle and TensorRT exports are
+configured already. Another machine needs access to the bundle path in
+`configs/diffusion.yaml` (or a local materialized copy), its own network
+interface, and newly validated TensorRT engines. No private SSH control socket
+is required by the documented camera command. The camera host itself still
+requires authorized SSH access.
 
-## Check
+## Another workstation
 
-```bash
-python -c "import unitree_sdk2py, cv2, numpy, torch; print(numpy.__version__, cv2.__version__)"
-```
+Use Python 3.11 or newer and a CUDA/Torch environment appropriate for that
+machine. The model dependency list is
+[`requirements.in`](../../motion_diffusion/behavioral/hardware/requirements.in);
+it is not a pinned replacement for an existing training environment.
+`g1_deploy/pyproject.toml` lists viewer/robot-tool dependencies.
 
-## Running scripts under `sonic/scripts/`
+Real robot access additionally needs Unitree SDK2 Python and CycloneDDS.
+Preserve a working installation and its `CYCLONEDDS_HOME` configuration.
+Bundle checks do not require camera hardware or the robot SDK.
 
-Python puts the *script's* directory on `sys.path`, not your cwd, so scripts importing
-`common` need the repo root:
+For compiled inference, follow the [ONNX/TensorRT section](deploy_diffusion.md#onnx-and-tensorrt).
+Build/validate engines on the target GPU; copying an engine alone is insufficient.
 
-```bash
-PYTHONPATH=. python sonic/scripts/<script>.py
-```
+## Jetson camera host
 
-## Troubleshooting
-
-| Symptom | Cause |
-| --- | --- |
-| `_ARRAY_API not found` | numpy 2 with a conda opencv 4.6 built against the 1.x ABI — upgrade opencv or `pip install "numpy<2"`. Shouldn't happen in a clean uv venv. |
-| `No module named 'common'` | run with `PYTHONPATH=.` |
-| SDK import fails on cyclonedds | `CYCLONEDDS_HOME` not exported |
-
----
-
-Next: [3. Config](03_config.md)
+The isolated camera environment is
+`/home/unitree/osher/native_recovery/.venv`. It needs NumPy, OpenCV, pyzmq and
+pyrealsense2, not Torch or the robot SDK. See [camera commands](04_cameras.md)
+and the [migration record](08_robot_migration.md). Do not replace vendor Python.

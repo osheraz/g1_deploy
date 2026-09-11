@@ -5,7 +5,7 @@
 # TODO: all of this from the trained actor cfg
 
 use_depth_obs: true
-# Fall recovery only, run with deploy_g1.py. Tactile + teleop data collection
+# Legacy VIGOR recovery only, run with deploy_vigor.py. Tactile + teleop data collection
 # is deploy_eskin.py with configs/g1_23dof_sonic.yaml.
 use_tactile: false
 

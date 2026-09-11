@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "e_skin_remote"
 version = "0.1.0"
-description = "Remote G1 deploy runtime for the e-skin project"
+description = "G1 deployment tools: diffusion recovery, SONIC, and sensor viewing"
 requires-python = ">=3.11"
 dependencies = [
     "imageio>=2.37.0",
@@ -39,7 +39,7 @@ test = [
 managed = true
 
 [tool.setuptools]
-py-modules = ["deploy_g1", "deploy_eskin", "deploy_fallrec"]
+py-modules = ["deploy_diffusion", "deploy_vigor", "deploy_eskin"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "vigor*", "vigor2*", "sonic*"]
+include = ["core*", "vigor*", "sonic*"]

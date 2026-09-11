@@ -1,0 +1,32 @@
+# Robot geometry/limits only. Policy gains, default pose and action scale come
+# from the selected decoder checkpoint and its verified training config.
+extends: g1_29dof_sonic.yaml
+
+bundle: /nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/experiments/fallrec_latent_planner_20260902/deployments/native_recovery_20260910b
+network_interface: enp132s0
+mode_machine: 5
+tracker_device: cuda:0
+planner_device: cuda:0
+
+camera:
+  source: network
+  endpoint: tcp://127.0.0.1:15556
+  clock_endpoint: tcp://127.0.0.1:15558
+  serial: '247122073927'
+  base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
+  mount_confirmed: true
+  # Explicit preliminary test of the older bundle with the replacement lens.
+  # Difference is logged; checkpoint metadata is never rewritten.
+  allow_intrinsics_mismatch: true
+
+# Recovery can be prone: do not inherit SONIC's standing-only tilt restriction.
+# Reject unsafe commands instead of silently clipping/rate-limiting the policy.
+max_command_rate_rad_s: 12.0
+max_initial_target_error_rad: 0.45
+max_joint_velocity: 35.0
+max_command_age_s: 0.06
+
+exports:
+  controller: logs/native_recovery/exports_20260911/controller_checked
+  diffusion: logs/native_recovery/exports_20260911/diffusion
+  flow: logs/native_recovery/exports_20260911/flow

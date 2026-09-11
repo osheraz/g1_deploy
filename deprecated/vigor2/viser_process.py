@@ -37,7 +37,7 @@ def _child_main(repo_root, view_kwargs, depth_frames, depth_seq, states, plan_ct
         sys.path.insert(0, repo_root)
         sys.path.insert(0, os.path.join(repo_root, "g1_deploy"))
         torch.set_num_threads(1)
-        from vigor2.viser_view import PlanDrawer
+        from deprecated.vigor2.viser_view import PlanDrawer
 
         def on_cmd(yaw_rad: float) -> None:
             cmd[CMD_YAW] = yaw_rad

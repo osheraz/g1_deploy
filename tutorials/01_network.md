@@ -88,6 +88,33 @@ ip route | grep 192.168.123      # kernel scope link route
 Pings failing: robot powered and booted? link light on the switch? `ip neigh` shows
 `INCOMPLETE` for an address nothing answers at.
 
+## New G1-29: SSH over IPv6 (verified 2026-09-11)
+
+From **Bluefin**, connect to the new robot's Jetson with:
+
+```bash
+ssh -6 unitree@fe80::d150:4901:5a1a:cb5%enp132s0
+```
+
+Use the Jetson's login password. Verify its host-key fingerprint on first connection;
+do not bypass host-key checking. `enp132s0` is **Bluefin's** Ethernet interface, not
+the Jetson's. This address identifies this robot, not every G1.
+
+The local Jetson console showed `eth0` UP with `LOWER_UP`, IPv6 addresses but **no
+IPv4 address**, and SSH running/listening on port 22. Therefore the assumed
+`192.168.123.164` address was not configured. Bluefin successfully pinged the IPv6
+address, received an OpenSSH banner on port 22, and subsequently authenticated as
+`unitree` to inspect and stage sensor software. The Ethernet path works; missing
+IPv4 was not evidence of broken hardware.
+
+No Ethernet settings, SSH services or robot controls were changed by this check.
+Keep Bluefin's existing combined robot/Internet profile. IPv4 can be configured
+separately later; NoMachine is not required for this SSH connection.
+
+If the address changes, run `ip -br addr` **on the Jetson's local console** and find
+the `fe80::...` address on its connected Ethernet interface. Use that address without
+`/64`, followed by `%` and the connecting workstation's Ethernet interface.
+
 ## Troubleshooting
 
 | Symptom | Cause |

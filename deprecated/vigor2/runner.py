@@ -12,15 +12,15 @@ from pathlib import Path
 import numpy as np
 import torch
 
-HV2_ROOT = Path(__file__).resolve().parents[2]
+HV2_ROOT = Path(__file__).resolve().parents[3]
 if str(HV2_ROOT) not in sys.path:
     sys.path.insert(0, str(HV2_ROOT))
 
-from vigor2.planner import DeployPlanner  # noqa: E402
-from vigor2.planner_process import PlannerProcess  # noqa: E402
-from vigor2.state import DeployStateHistory  # noqa: E402
-from vigor2.lidar import DeployLidarHistory  # noqa: E402
-from vigor2.tracker import ACTOR_OBS_KEYS, DeployTracker  # noqa: E402
+from deprecated.vigor2.planner import DeployPlanner  # noqa: E402
+from deprecated.vigor2.planner_process import PlannerProcess  # noqa: E402
+from deprecated.vigor2.state import DeployStateHistory  # noqa: E402
+from deprecated.vigor2.lidar import DeployLidarHistory  # noqa: E402
+from deprecated.vigor2.tracker import ACTOR_OBS_KEYS, DeployTracker  # noqa: E402
 
 
 @contextlib.contextmanager

@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-import yaml
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowState_ as LowStateGo
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_ as LowStateHG
@@ -20,9 +19,9 @@ from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_ as LowStateHG
 from core.common.depth_client import SimpleDepthClient
 from core.common.remote_controller import KeyMap, RemoteController
 from sonic.common.tactile_client import TactileClient
-from sonic.common.tactile_render import render_sensor_panels
 from core.common.viser_display import DeployViser
-from core.config import CONFIGS_DIR, DEFAULT_URDF_PATH
+from core.config import CONFIGS_DIR, DEFAULT_URDF_PATH, _load_config, _resolve_path
+from sonic.model.robot_profile import MUJOCO_JOINT_NAMES
 
 
 @dataclass
@@ -52,8 +51,7 @@ def load_stream_config(file_path: str | Path) -> StreamConfig:
     if not path.is_absolute():
         path = (CONFIGS_DIR / path).resolve()
 
-    with path.open("r") as f:
-        data = yaml.load(f, Loader=yaml.FullLoader)
+    data = _load_config(path)
 
     return StreamConfig(
         msg_type=data["msg_type"],
@@ -77,7 +75,9 @@ def load_stream_config(file_path: str | Path) -> StreamConfig:
         min_d=data.get("min_d", 0.1),
         max_d=data.get("max_d", 2.0),
         depth_scale=data.get("depth_scale", 0.001),
-        urdf_path=data.get("urdf_path", DEFAULT_URDF_PATH),
+        urdf_path=_resolve_path(
+            data.get("urdf_path", DEFAULT_URDF_PATH), config_dir=path.parent
+        ),
     )
 
 
@@ -174,7 +174,7 @@ class ViserUpdateThread(threading.Thread):
                 self.viser_display.update(
                     low_state=msg,
                     qj=qj,
-                    depth_raw=self.depth_client.latest_depth if self.depth_client else None,
+                    depth_raw=self.depth_client.latest_depth_full if self.depth_client else None,
                     rgb_bgr=self.depth_client.latest_color if self.depth_client else None,
                 )
             if self.tactile_client is not None:
@@ -248,6 +248,8 @@ class TactileMonitor:
         return ("ON" if overall_on else "OFF"), parts
 
     def render_panels(self) -> dict[str, object]:
+        from sonic.common.tactile_render import render_sensor_panels
+
         snapshot = self.client.snapshot()
         panels = {}
         for sensor in self.sensor_names:
@@ -270,7 +272,7 @@ def summarize_depth(
     if client is None:
         return "depth: disabled", last_count
 
-    depth = client.latest_depth
+    depth = client.latest_depth_full
     new_frames = client.frame_count - last_count
     # measured over the real elapsed time, so --period does not skew it
     fps = new_frames / dt if dt > 0 else 0.0
@@ -308,6 +310,11 @@ def main():
     )
     parser.add_argument("--config", type=str, default="g1_23dof.yaml")
     parser.add_argument("--period", type=float, default=1.0)
+    parser.add_argument("--net", help="DDS network interface, e.g. enp132s0")
+    parser.add_argument("--viser", action="store_true", help="Show the read-only robot/depth viewer")
+    parser.add_argument("--depth-server", help="Enable depth from this IP or hostname")
+    parser.add_argument("--depth-port", type=int, help="Override the depth server port")
+    parser.add_argument("--no-tactile", action="store_true")
     parser.add_argument(
         "--urdf",
         type=str,
@@ -317,7 +324,18 @@ def main():
     args = parser.parse_args()
 
     config = load_stream_config(args.config)
+    if args.viser:
+        config.viser_display = True
+    if args.depth_server is not None:
+        config.use_depth_obs = True
+        config.depth_server_ip = args.depth_server
+    if args.depth_port is not None:
+        config.depth_server_port = args.depth_port
+    if args.no_tactile:
+        config.use_tactile = False
     urdf_path = Path(args.urdf or config.urdf_path).expanduser()
+    if config.viser_display and not urdf_path.is_file():
+        parser.error(f"URDF does not exist: {urdf_path}; supply --urdf")
 
     depth_client = None
     if config.use_depth_obs:
@@ -339,7 +357,7 @@ def main():
         )
         tactile_client.start()
 
-    ChannelFactoryInitialize(0)
+    ChannelFactoryInitialize(0, args.net)
     low_state_monitor = LowStateMonitor(config)
 
     viser_display = None
@@ -351,6 +369,7 @@ def main():
             depth_max=config.max_d,
             depth_scale=config.depth_scale,
             tactile_sensors=config.tactile_sensor_order if config.use_tactile else [],
+            joint_names=[MUJOCO_JOINT_NAMES[i] for i in config.action_joint2motor_idx],
         )
 
     print(f"Loaded config: {args.config}")

@@ -1,126 +1,70 @@
-# 4. Cameras
+# Camera and read-only robot viewer
 
-One **Intel RealSense on the robot**, serial `246422070545`. Both RGB and depth come from
-it. Neither goes through DDS — an image server on the robot's onboard PC
-(`192.168.123.164`) grabs frames and publishes them over ZMQ, and your machine subscribes.
+The current G1-29 has a D435I, serial `247122073927`, connected to its Jetson.
+Use the mounting position and rotation already in code, as confirmed by the
+operator. Lens intrinsics and timestamp alignment are separate checks.
 
-```
-RealSense (on robot)
-  └─ image server, ~/osher/image_server/ on the robot   ← robot side, not in this repo
-       └─ ZMQ PUB
-            └─ your machine subscribes
-```
+## Terminal 1: camera publisher and tunnel
 
-Nothing is plugged into your machine. Without the server running you get no frames and no
-error — the subscriber just waits.
-
-## The server
-
-Run **`img_server_rgbd.py`** on the robot. It publishes colour and depth as a 2-part
-message `[color_jpg, depth_png]` on port 5556, which covers both the deploy runtime and
-data collection.
-
-| Script | Port | Publishes | |
-| --- | --- | --- | --- |
-| `img_server_rgbd.py` | 5556 | color + depth, 2-part | use this |
-| `img_server_osher.py` | 5555 | depth only, single-part | older, redundant |
-
-Do not run both: they open the same camera, so the second gets `Device or resource busy`.
-[`depth_client.py`](../core/common/depth_client.py) accepts either message shape, so nothing
-downstream cares.
-
-## Depth encoding
-
-The RealSense filter chain runs on each frame (decimation → disparity → spatial → temporal
-→ hole-filling), then the 16-bit `z16` depth is PNG-encoded. PNG because JPEG would destroy
-the 16-bit values.
-
-View depth alone with the built-in viewer in
-[`core/common/depth_client.py`](../core/common/depth_client.py):
+Run on Bluefin. This starts only the camera publisher on the Jetson. Leave it
+running, and do not open the same camera with another server.
 
 ```bash
-PYTHONPATH=. python core/common/depth_client.py --server 192.168.123.164 --port 5556 --debug
+ssh -t -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:15556:127.0.0.1:5556 \
+  -L 127.0.0.1:15558:127.0.0.1:5558 \
+  unitree@fe80::d150:4901:5a1a:cb5%enp132s0 \
+  '/home/unitree/osher/native_recovery/.venv/bin/python /home/unitree/osher/native_recovery/native_depth_server.py --serial 247122073927 --bind tcp://127.0.0.1:5556'
 ```
 
-Grayscale window clipped to `0.1–2.0 m`. Press `q` to quit.
+Omit `-6` on this forwarding command: the literal remote address selects IPv6,
+while the local forward listens on IPv4 loopback. The old `g1` SSH alias may
+still point at the disconnected robot; use [the verified address](01_network.md#new-g1-29-ssh-over-ipv6-verified-2026-09-11).
 
-## RGB + depth
-
-On the robot:
+## Terminal 2: robot and depth in Viser
 
 ```bash
-ssh g1
-cd ~/osher/image_server && python3 img_server_rgbd.py
+cd /home/osher/hv2
+source .venv/bin/activate
+python g1_deploy/sonic/check_streams.py \
+  --config g1_29dof_sonic.yaml --net enp132s0 --viser --no-tactile \
+  --depth-server 127.0.0.1 --depth-port 15556 \
+  --urdf humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf
 ```
 
-This one enables the color stream and sends a 2-part message: color as JPEG (quality 80),
-depth as PNG so the `z16` values survive. At `480×640` that's roughly 18 KB color + 155 KB
-depth per frame.
+Open **http://localhost:8080**. Over remote VS Code, forward port 8080.
 
-**On alignment.** Color and depth are published *unaligned* (`align_to_depth: False`), so
-they are not pixel-corresponding — a pixel in the color image is not the same ray as that
-pixel in the depth image.
+This displays all 29 joints, pelvis IMU orientation and uncropped 640×480 raw
+depth. Position is anchored in the viewer, not measured odometry. RGB is blank
+because this publisher sends depth only. No policy or motor publisher is created.
+Stop both terminals with Ctrl+C.
 
-Set `align_to_depth: True` in the config dict to reproject color into the depth frame. Be
-aware of what that costs: on a D435 the **depth FOV (~87°) is wider than the color FOV
-(~69°)**, so aligning color to depth leaves a **black border** around the color image where
-there is simply no color data to fill the wider depth view. Anywhere depth is invalid goes
-black too.
+## Depth contract
 
-So: unaligned for looking at the streams, aligned only if you actually need
-pixel-corresponding RGB-D and can live with the border.
+Current lens at **640×480**: `[fx, fy, cx, cy] =
+[388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]`.
+The physical camera is configured in
+[`configs/diffusion.yaml`](../configs/diffusion.yaml), under
+`camera.base_intrinsics`. New simulated planner depth uses
+[`DEFAULT_DEPTH_CAPTURE`](../../motion_diffusion/terrain/planner_depth.py);
+the environment default is also updated in
+[`legged_base.yaml`](../../humanoidverse2/config/env/legged_base.yaml).
+These are full-resolution intrinsics, before cropping/resizing. Use the shared
+builder to derive the processed rays; do not paste these values as 64×48 intrinsics.
+Existing checkpoints keep their saved calibration. For new training, regenerate
+any cached depth with the new capture settings; changing metadata alone does
+not change old rendered images.
 
-View both from your machine:
+[`native_depth_server.py`](../core/common/native_depth_server.py) publishes
+`[JSON metadata, lossless uint16 PNG]` at 30 Hz. Metadata carries capture time,
+clock domain, sequence, serial, intrinsics and depth scale. It does not apply
+temporal smoothing, hole filling or color alignment.
 
-```bash
-python - <<'EOF'
-import zmq, cv2, numpy as np
-ctx = zmq.Context()
-s = ctx.socket(zmq.SUB)
-s.connect("tcp://192.168.123.164:5556")
-s.setsockopt_string(zmq.SUBSCRIBE, "")
-while True:
-    color_msg, depth_msg = s.recv_multipart()
-    color = cv2.imdecode(np.frombuffer(color_msg, np.uint8), cv2.IMREAD_COLOR)
-    depth = cv2.imdecode(np.frombuffer(depth_msg, np.uint8), cv2.IMREAD_UNCHANGED)
-    d = np.clip(depth * 0.001, 0.1, 2.0)
-    vis = ((d - 0.1) / 1.9 * 255).astype(np.uint8)
-    cv2.imshow("color", color)
-    cv2.imshow("depth", vis)
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
-cv2.destroyAllWindows()
-EOF
-```
+The viewer shows raw depth in metres. It is **not** the planner's processed
+image. Current inference uses the shared calibrated crop/ray sampler,
+64×48 range/mask and causal history; see [deployment](deploy_diffusion.md).
+The old square-crop VIGOR preprocessing is not used by the current planner.
 
-Depth arrives as raw uint16 counts — multiply by `0.001` for meters.
-
-## Config knobs
-
-In the server's `config` dict at the bottom of each file:
-
-```python
-"fps": 30,
-"head_camera_image_shape": [480, 640],   # capture resolution [h, w]
-"publish_shape": [480, 640],             # resize before publishing
-"jpeg_quality": 80,                      # rgbd server only
-```
-
-`head_camera_id_numbers` defaults to `["246422070545"]` — change it if you swap cameras
-(`rs-enumerate-devices` lists serials).
-
-## Troubleshooting
-
-| Symptom | Cause |
-| --- | --- |
-| subscriber hangs, no frames | server not running on the robot |
-| `Device or resource busy` | another image server already holds the RealSense |
-| `No module named 'zmq'` | `uv pip install pyzmq` |
-| depth all zeros | scene closer than the RealSense min range, or out past max |
-| color black, depth fine | color stream not enabled — you're running the depth-only server |
-
----
-
-Using depth as policy input: [3. Config](03_config.md#depth-as-policy-input).
-
-Next: [5. Run](05_run.md)
+A receive timestamp is not camera capture time. Deployment automatically uses
+the streamer's clock-reply endpoint (port 5558, forwarded as 15558) to align
+camera host time; the viewer itself does not require that second port.

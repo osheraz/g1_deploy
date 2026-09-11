@@ -6,9 +6,37 @@ the checkpoint's crop, sampling, range mask and capture history.
 """
 import argparse
 import json
+import threading
+import time
 
 import cv2
 import numpy as np
+
+
+class ClockServer:
+    """Independent clock replies; never waits for camera capture/PNG encoding."""
+    def __init__(self, context, endpoint):
+        self.context=context;self.endpoint=endpoint
+        self.stop=threading.Event();self.ready=threading.Event();self.error=None
+        self.thread=threading.Thread(target=self.run,daemon=True,name='depth-clock')
+        self.thread.start()
+        if not self.ready.wait(3):raise RuntimeError('Camera clock server failed to start')
+        if self.error:raise RuntimeError(self.error)
+
+    def run(self):
+        import zmq
+        socket=self.context.socket(zmq.REP);socket.setsockopt(zmq.LINGER,0)
+        try:
+            socket.bind(self.endpoint);self.ready.set()
+            while not self.stop.is_set():
+                if not socket.poll(100):continue
+                request=socket.recv_json()
+                socket.send_json(dict(clock_probe=request.get('clock_probe'),unix_s=time.time()))
+        except Exception as exc:self.error=str(exc);self.ready.set()
+        finally:socket.close()
+
+    def close(self):
+        self.stop.set();self.thread.join(timeout=1.)
 
 
 def packet(depth, *, serial, scale, intrinsics, stamp, domain, sequence):
@@ -30,6 +58,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serial', required=True)
     parser.add_argument('--bind', default='tcp://*:5556')
+    parser.add_argument('--clock-bind', default='tcp://127.0.0.1:5558')
     args = parser.parse_args()
     import pyrealsense2 as rs
     import zmq
@@ -39,8 +68,10 @@ def main():
     socket.setsockopt(zmq.LINGER, 0)
     pipeline = rs.pipeline()
     started = False
+    clock_server=None
     try:
         socket.bind(args.bind)
+        clock_server=ClockServer(context,args.clock_bind)
         config = rs.config()
         config.enable_device(args.serial)
         config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
@@ -54,6 +85,7 @@ def main():
             raise ValueError('Nonzero distortion requires calibrated rectification')
         print(f'Raw depth on {args.bind}: serial={args.serial}, 640x480 @ 30 Hz. No motors.', flush=True)
         while True:
+            if clock_server.error:raise RuntimeError(clock_server.error)
             frame = pipeline.wait_for_frames().get_depth_frame()
             if not frame:
                 continue
@@ -73,6 +105,7 @@ def main():
     finally:
         if started:
             pipeline.stop()
+        if clock_server:clock_server.close()
         socket.close()
         context.term()
 

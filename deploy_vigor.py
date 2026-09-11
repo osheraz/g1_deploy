@@ -1,3 +1,5 @@
+"""Legacy VIGOR reactive policy. This launcher moves the robot during startup."""
+
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING

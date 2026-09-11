@@ -1,4 +1,6 @@
-# 29-DoF Mid-360 fall recovery
+# Deprecated VIGOR2 Mid-360 deployment
+
+Historical reference only; use [current diffusion deployment](../../tutorials/deploy_diffusion.md) for the action-decoder pipeline.
 
 This path uses three independent Mid-360 scans, not an elevation map. Each scan
 is transformed into a pelvis-centred gravity/heading frame using the physical
@@ -51,7 +53,7 @@ IMU on `rt/secondary_imu`. The pelvis IMU remains the tracker input.
 
 ## Configure and validate without commands
 
-Copy `vigor2/fallrec_lidar_29dof.yaml` to a run-specific file and set:
+Copy `deprecated/vigor2/fallrec_lidar_29dof.yaml` to a run-specific file and set:
 
 - `planner_model` to the LiDAR-conditioned `model.pt` produced above.
 
@@ -63,9 +65,9 @@ Then run the complete sensor/planner/tracker path without publishing LowCmd:
 ```bash
 cd /home/osher/hv2/g1_deploy
 conda activate g1_deploy
-python deploy_vigor2.py \
+python deprecated/deploy_vigor2.py \
   --config g1_29dof_sonic.yaml \
-  --cfg vigor2/fallrec_lidar_29dof.yaml \
+  --cfg deprecated/vigor2/fallrec_lidar_29dof.yaml \
   --no-publish \
   --log LIDAR_NO_PUBLISH.npz
 ```

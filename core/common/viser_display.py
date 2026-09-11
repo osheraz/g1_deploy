@@ -42,9 +42,12 @@ class DeployViser:
         depth_max: float,
         depth_scale: float,
         tactile_sensors: Optional[list[str]] = None,
+        joint_names: Optional[list[str]] = None,
     ) -> None:
         self.server = viser.ViserServer()
-        self.joint_names_by_motor_index = list(JOINT_NAMES_BY_MOTOR_INDEX)
+        self.joint_names_by_motor_index = list(
+            JOINT_NAMES_BY_MOTOR_INDEX if joint_names is None else joint_names
+        )
         self.with_depth = with_depth
         self.depth_min = float(depth_min)
         self.depth_max = float(depth_max)
@@ -222,7 +225,7 @@ class DeployViser:
 
         joint_cfg = {
             name: float(qj[i])
-            for i, name in enumerate(JOINT_NAMES_BY_MOTOR_INDEX)
+            for i, name in enumerate(self.joint_names_by_motor_index)
             if i not in fixed_joint2motor_idx
         }
 
