@@ -20,9 +20,7 @@ camera:
   allow_intrinsics_mismatch: true
 
 # Recovery can be prone: do not inherit SONIC's standing-only tilt restriction.
-# Reject unsafe commands instead of silently clipping/rate-limiting the policy.
-max_command_rate_rad_s: 12.0
-max_initial_target_error_rad: 0.45
+# SONIC-style direct PD targets and measured-speed stop; joint positions are logged.
 max_joint_velocity: 35.0
 max_command_age_s: 0.06
 

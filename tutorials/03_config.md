@@ -8,11 +8,13 @@ Clock alignment is performed at startup. There is no separate hardware JSON
 or manual calibration-receipt workflow in the normal launcher.
 
 `--backend tensorrt` selects compiled inference; `--actuate` enables the motor
-path: START moves slowly to default, then A starts the policy. SELECT stops.
-`--default-pose --actuate` only moves to default and holds; A is ignored.
+path: startup is idle; A starts policy from the current pose, A again stops in
+damping and exits. Before starting only, START optionally moves to default over
+two seconds, then holds for A. SELECT cancels/stops; Ctrl+C also stops.
+`--default-pose --actuate` waits for START, moves and holds; SELECT or A stops.
 If the built-in controller is active, add `--release-controller` with the robot
-already supported. It requests the SDK handover before startup; otherwise the
-ownership guard rejects the launch.
+already supported. It requests the SDK handover on A/START, after the startup
+pose check and before motor output; otherwise an active controller blocks takeover.
 `--config` is optional and selects another YAML when needed.
 The current config explicitly permits testing the older bundle with the new
 lens, logs the mismatch, and does not rewrite saved model calibration.

@@ -13,7 +13,8 @@ DEFAULT_URDF_PATH = (
     "~/HumanoidVerse2/humanoidverse/data/robots/g1/g1_23dof_rev_1_0.urdf"
 )
 
-OmegaConf.register_new_resolver("eval", lambda x: eval(x))
+if not OmegaConf.has_resolver("eval"):
+    OmegaConf.register_new_resolver("eval", lambda x: eval(x))
 
 
 def _resolve_config_path(file_path: str | Path) -> Path:

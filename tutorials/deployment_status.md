@@ -4,7 +4,101 @@ Goal: use the paired planner/action decoder through one inference core in
 our simulator and `g1_deploy`. Teacher training and curation remain separate.
 Operator commands: [deployment guide](deploy_diffusion.md).
 
-## Implemented, 11 September
+## Original-training implementation audit, 12 September
+
+The latest default move stopped on an added 0.35 rad tracking-error gate, before
+any policy command. Removed that gate, the initial 0.2 rad/s stillness gate, the
+move-specific 2 rad/s speed gate, the 0.12 rad/two-second settling gate, and the
+separate startup-hold tracking gate. The existing two-second ramp now holds its
+target and waits for A without requiring measured joints to match spring targets.
+Operator stops and the normal measured-speed check remain.
+
+Replayed actual startup inputs with C10k weights through the actor implementation
+at the recorded training commit `b035d36bedbf5971c476351ffa6abd9f3ddc4c11`.
+The training actor and deployment actor agree exactly, including raw maxima of
+37,990.83 and 11,464.05 in the failed sessions. All 29 outputs reach the action
+clip. Changing only the failed input's joint-position history to the successful
+run's history reduces its largest action to 2.90. This identifies a learned
+pose/code failure, not an actor input-order or TensorRT discrepancy. Default
+pose is not a universal cure: the latest recorded code still gives 430.25 with
+default joint positions and zero velocities/gyro. These are counterfactual
+decoder probes, not physical deployment tests.
+
+The saturation block remains because these recorded failures would command
+approximately 55 rad offsets after clipping/scaling. No new robot trial is needed
+to reproduce them. Full evidence, crossed-input experiments, original-source
+replay script and recorded fixtures are in
+`logs/native_recovery/implementation_audit_20260912/` in the parent repository.
+This supersedes the earlier inference that bad native codes alone explain all
+saturation: the new failures depend strongly on the measured joint pose.
+
+## Startup repair, 12 September
+
+Follow-up after runs `1789231138051950622`, `1789231169466261666`, and
+`1789231194146162447`: the first two recorded all 29 requested actions at +/-100
+on the very first preview in both TensorRT and PyTorch. This is a real rejected
+proposal, distinct from the earlier delayed-preview bug. Preflight now remains
+idle and retries instead of crashing, allowing START to request default pose
+and SELECT to stop. Actual saturated motor commands remain rejected. Clock
+alignment now retries a rolling one-second window after excessive startup
+delivery jitter; it does not accept an uncertain mapping or require an immediate
+process restart. Persistent failure still ends at the existing startup timeout.
+
+The normal TensorRT launch now checks live first plans before A, releases the
+built-in controller only on A/START, and holds the current joints while the
+first policy plan arrives. START remains optional and its default-pose hold
+rechecks inference before A. The release itself still requires physical support;
+a current-joint PD hold is not a balance controller.
+
+Preflight previously reset history while an old planner request was in flight.
+The rejected reply could then leave it waiting for the 22-tick replan interval,
+advancing a recovery against a stationary robot. It now drains that reply and
+restarts from initial measured history. Actual bootstrap retries immediately
+when the worker becomes free. Preview sampling preserves the live RNG state.
+
+Offline replay of checks 1616/1617 from
+`robot_diffusion_tensorrt_1789228951186081786` isolates the saturated output to
+the supplied code: good history/good code gives raw action max 2.8302; good
+history/bad code gives 4356.9063; bad history/good code gives 2.8307; both bad
+gives 4288.9004. The outlier has ten varying measured rows with zero issued
+requests, versus two varying rows in the preceding normal startup checks.
+Continuing an unexecuted recovery is not a valid closed-loop decoder test.
+
+The command path follows
+[SONIC's direct PD mapping and separate writer](https://github.com/NVlabs/GR00T-WholeBodyControl/blob/main/gear_sonic_deploy/src/g1/g1_deploy_onnx_ref/src/g1_deploy_onnx_ref.cpp).
+There is no target-angle/jump rejection or measured URDF-position shutdown.
+Positions remain logged. The 35 rad/s speed check applies in both directions;
+finite/saturation checks, operator stops, fresh sensor data, transport faults,
+and the 60 ms command watchdog remain. An occasional >20 ms completion is
+counted rather than immediately stopped: inputs must still be under 40 ms old,
+publication no later than 40 ms after its scheduled tick, and the next step
+less than one whole period late. Histories and code cursors never skip ticks.
+
+Evidence from this repair:
+
+- `resumed_standing_20260912/`: two eight-second simulation episodes, 800 physics
+  steps, zero rejected plans; maximum requested action 15.6563 and measured
+  speed 16.6319 rad/s, with no saturation. These are integration traces, not a
+  standing/recovery success score. URDF-position excursions reached 0.0679 rad;
+  the removed measured-position rule would have interrupted these traces.
+- `resumed_preflight_connected_20260912/`: 60 seconds with live robot and camera,
+  2,386 first-plan proposals, max requested action 2.6886, no saturation, no motor
+  output. Three timing misses were restarted; median/p95 control work was
+  2.24/6.94 ms and maximum 33.01 ms. This motivated bounded overrun handling.
+- `final_preflight_20260912/`: second 60-second live check, 2,398 first-plan
+  proposals, max requested action 2.6773, no saturation, no motor output. One
+  strict preview timing miss; median/p95/max work 2.42/7.07/22.30 ms. Preflight
+  still counts >20 ms as a miss and restarts; actual command publication accepts
+  the bounded overrun described above.
+- `resumed_full_suite_20260912.log`: 347 passed, one skipped. Includes synthetic
+  operator handover, current-pose hold through the first plan, failed release
+  with zero publication, late preview generations, recoverable 25 ms inference
+  overrun, and rejected 45 ms stale inference. No physical actuation was used.
+
+Physical policy behavior still needs the operator's supported test. No robot
+recovery or hard real-time guarantee is claimed by these checks.
+
+## Earlier implementation and validation
 
 - One normal [`configs/diffusion.yaml`](../configs/diffusion.yaml) selects the
   bundle, backend exports, network and new D435I intrinsics. No separate hardware
@@ -17,10 +111,17 @@ Operator commands: [deployment guide](deploy_diffusion.md).
 - The live sensor path avoids the SDK's extra FIFO (which drops new packets
   while retaining stale ones), unnecessary whole-message copies and Torch
   dispatch for packet gravity. CRC checks and timestamp/command limits remain.
-- `--actuate` waits for START, moves slowly from measured joints to default,
-  checks settling, then waits for a fresh A press to start the policy. SELECT
-  stops in damping. `--default-pose --actuate` only moves and holds, with A
-  disabled. This new transition has synthetic tests, not a physical validation.
+- `--actuate` starts idle without motor commands. A starts the policy from the
+  current pose; A again stops in damping and exits. Before the first start only,
+  START optionally moves to default using VIGOR's two-second
+  linear blend, checks settling and holds for A. During the move A cancels;
+  during policy execution START is ignored. SELECT cancels/stops in any stage.
+  Pose-only mode also waits for START and never starts a policy. Stops are latched by the DDS
+  callback and honored by the motor watchdog even if inference is busy.
+  The operator reported that the two-second move worked on the new robot;
+  this does not validate the full policy or other starting poses.
+- Console messages show readable startup stages and one-second health summaries.
+  Complete structured telemetry remains in the per-session journal.
 - The first pose-only launch correctly stopped before creating a motor
   publisher because `CheckMode` still reported `ai`. L2+R2 did not establish
   ownership release. `--release-controller` now explicitly invokes the existing
@@ -65,12 +166,49 @@ Operator commands: [deployment guide](deploy_diffusion.md).
 - Gradient-based steering retains the PyTorch planner. It may use a TensorRT
   decoder. Guided flow remains blocked by the bundle's existing timing profile.
 
-Both PyTorch and TensorRT completed 30-second live-sensor planner/decoder sessions
-on the new G1-29. **Actuation is not qualified:** proposals fail command limits
-from the current pose. The read-only viewer receives 640×480 depth at 30 Hz and
+Both PyTorch and TensorRT completed live-sensor planner/decoder sessions on the
+new G1-29. **Full-policy actuation is not qualified:** the 12 September motor
+trial stopped on its first proposal with zero commands issued, despite an
+upright, near-default robot. The read-only viewer receives 640×480 depth at 30 Hz and
 maps all 29 joints. See [camera commands](04_cameras.md) and
 [migration record](08_robot_migration.md).
 Generated exports and test logs remain local, outside source control.
+
+### Earlier command-limit diagnosis, before the startup repair
+
+- Failed session: `logs/native_recovery/robot_diffusion_tensorrt_1789226546958594952`.
+  The original rejected proposal was not recorded because validation preceded
+  control journaling. The path now records rejected requests/targets and measured
+  joints, and names the offending joints in the error before any publication.
+- Fresh five-second sensor-only check:
+  `logs/native_recovery/robot_diffusion_tensorrt_1789226746607410827`.
+  First proposal: right ankle pitch target +0.643 rad, allowed upper +0.5236,
+  measured -0.417. This is evidence from the new check, not a reconstruction of
+  the missing original command. These limits agree with the
+  [official G1 URDF](https://raw.githubusercontent.com/unitreerobotics/unitree_ros/master/robots/g1_description/g1_29dof.urdf).
+- Native joint order, default positions and action scales agree with the bound
+  decoder contract. Offline replay of all 249 recorded input histories/codes
+  through PyTorch and TensorRT reproduces the same problem. First command
+  maximum normalized-action difference: 1.91e-6. Some later sensor-only outputs
+  reach the checkpoint's +/-100 action clip in both backends; this is not a
+  small joint-limit rounding issue or a TensorRT-only conversion problem.
+- At the operator's request, hardware now follows
+  [SONIC's direct position-target path](https://github.com/NVlabs/GR00T-WholeBodyControl/blob/main/gear_sonic_deploy/src/g1/g1_deploy_onnx_ref/src/g1_deploy_onnx_ref.cpp):
+  `target = default + action_scale * action`. The added target-angle and
+  first/subsequent target-jump rejection have been removed, not replaced with
+  clipping. Gains, action scale, model and requested-action feedback are unchanged.
+  Simulation clips PD torque; matching SONIC's target mapping does not establish
+  identical hardware torque limiting.
+- At this stage, measured-position and velocity violations latched a fault on LowState receipt;
+  the writer switches to damping independently of inference. Finite/action-bound
+  checks, watchdog and operator stops remain. These checks detect violations;
+  they do not guarantee prevention of overshoot. Default-pose tracking/speed
+  checks remain separate. No motor trial was run for this change.
+- Work remaining at that stage was to explain excessive outputs on these measured
+  histories/codes and validate the resulting command path in simulation before
+  another motor trial. Removing target rejection does not solve that issue.
+  Sensor-only trials have no executed-action feedback and are not closed-loop
+  behavior tests.
 
 ## Models and depth contract
 
@@ -97,13 +235,14 @@ Real-sensor diffusion runs on Bluefin (30 seconds each):
 | PyTorch | 1,500 / 1,498 | 0 | 3.96 / 12.77 ms |
 | TensorRT | 1,500 / 1,499 | 0 | 3.71 / 11.70 ms |
 
-These are inference results with the robot uncommanded, not recovery tests.
-Every proposal failed the configured initial-jump or joint-limit check. For
+These are historical inference results with the robot uncommanded, not recovery
+tests; they predate the direct-target change above. Every proposal failed the
+then-configured initial-jump or joint-limit check. For
 TensorRT: 1,395 initial-jump rejections and 104 joint-limit rejections. Right hip
 yaw targets differ from measured position by about 2.55 rad median; some
 ankle-roll/waist targets exceed configured limits. Verify the physical starting
-posture/joint readings and inspect proposals before a motor trial; do not loosen
-limits just to obtain a passing dry run.
+posture/joint readings and inspect proposals before a motor trial. The removal
+of these target guards does not retrospectively qualify the outputs.
 
 TensorRT camera/robot pairing error stayed below 0.50 ms under the estimated
 clock maps; median capture-to-packet latency was 57.6 ms. Neither independently
@@ -131,17 +270,18 @@ Ctrl+C: 688 proposals, zero rejected planner replies and one late publication
 opportunity. It was an operator stop, not a completed long-duration check.
 New launcher sessions record Ctrl+C as `STOPPED.json`, not `FAILED.json`.
 
-Current startup/hardware/bundle/backend/camera and handover suite: **84 passed**;
-`logs/native_recovery/deploy_startup_tests.log`. This includes duplicate ticks,
-clock alignment, packet gravity, remote START edges/SELECT stop, and stale
-camera-pair rejection, plus smooth default-pose targets, blocked-move rejection,
-and the separate A/pose-only gates. Tests use synthetic motor transport, not
-physical commands.
-
-Pre-push motion-diffusion suite plus camera and handover tests: **334 passed,
-one skipped** (`logs/native_recovery/deploy_push_tests.log`). The handover tests
-also verify explicit opt-in, release-before-robot ordering, and stopping on a
-failed release. None calls the physical robot's release API.
+Current motion-diffusion suite plus camera and handover tests: **359 passed,
+one skipped** (`logs/native_recovery/sonic_direct_targets_tests.log`). This
+includes duplicate ticks, clocks, gravity, stale camera-pair rejection, the
+two-second default-pose path, idle startup without commands, optional
+START movement, SELECT cancel/stop, blocked-move rejection, A start/stop, held-button and
+double-press handling, readable console with complete journals, and watchdog
+damping without polling the policy loop. It also checks unchanged SONIC targets
+(no target clipping or jump limit), measured-joint faults, and damping on sensor
+receipt without another policy tick. Operator stops
+write `STOPPED.json`, not `FAILED.json`. Handover tests verify opt-in,
+release-before-robot ordering and stopping on failed release. All motor transport
+in these tests is synthetic; no physical commands or release API calls occur.
 
 Exports: `logs/native_recovery/exports_20260911/`:
 `controller_checked/`, `diffusion/`, `flow/`. Each contains ONNX, validation
@@ -183,13 +323,11 @@ these include the simulator and sensor work, not just inference. They are not
 50-Hz wall-clock passes. The guided mixed-backend trace is saved at
 `logs/native_recovery/trt_guided_sim_20260911/`.
 
-## Remaining before a robot trial
+## Remaining validation
 
-1. Resolve the proposed-target/initial-posture violations above. Longer no-action
-   checks must also establish timing headroom. Command limits remain enforced.
-2. Qualify controlled actuation separately with the supported robot and remote.
+1. Qualify controlled actuation separately with the supported robot and remote.
    No physical recovery/steering/safety result is claimed.
-3. Broader simulation evaluation still needs the recovery/drift/smoothness/contact
+2. Broader simulation evaluation still needs the recovery/drift/smoothness/contact
    and steering callbacks wired to a fixed panel; no success result is claimed.
 
 ## Shared runtime access

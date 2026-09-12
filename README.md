@@ -7,7 +7,12 @@ what has actually been verified.
 
 | Entrypoint | Purpose |
 | --- | --- |
-| `deploy_diffusion.py` | Current diffusion/flow planner + paired action decoder. `--actuate`: START moves to default, A starts policy. Default is no motor output. |
+| `sim_diffusion.py` | Flat-ground MuJoCo comparison: diffusion full horizon and flow replanning, live viewer or headless videos. [Guide](tutorials/sim_diffusion.md). No hardware transport. |
+| `benchmark_diffusion.py` | Offline inference parity, warmed latency and concurrent planner/tracker benchmark. [Guide](tutorials/inference_latency.md). |
+| `evaluate_recovery.py` | Matched ground-posture/seed comparison across PyTorch, TRT FP32 and experimental TRT TF32. |
+| `compare_diffusion_samples.py` | Identical resting pose and sensing, different planner seeds: sampled Z plots and a simultaneous recovery video grid. |
+| `deploy_diffusion.py` | Current diffusion/flow planner + paired action decoder. `--actuate`: initially idle, A starts policy, A again stops. START optionally moves to default before starting; SELECT stops. Without `--actuate`, no motor output. |
+| `zero_torque.py` | Release the built-in controller and continuously send zero torque, stiffness and damping. Support the robot and stop other motor publishers first. Ctrl+C stops publication. |
 | `sonic/check_streams.py` | Read-only robot and camera Viser viewer. No policy or motor commands. |
 | `deploy_eskin.py` | Separate SONIC teleoperation and sensor recording workflow. Can actuate. |
 | `deploy_vigor.py` | Legacy VIGOR reactive policy. **Moves during startup.** |
