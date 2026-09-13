@@ -82,8 +82,8 @@ def main():
         help='Wait for START to move to default and hold; SELECT/A stops; requires --actuate; no policy')
     parser.add_argument('--duration-s',type=float,default=30.)
     parser.add_argument('--output',type=Path)
-    parser.add_argument('--record-sensors',action=argparse.BooleanOptionalAction,default=True,
-        help='Automatically record raw LiDAR + robot state with policy A (default for actuation)')
+    parser.add_argument('--record-sensors',action=argparse.BooleanOptionalAction,default=None,
+        help='Record raw LiDAR + robot state; default for actuation/live odometry, opt-in for sensor-only inference')
     parser.add_argument('--existing-lidar-driver',action='store_true',help='Use an already-running Livox driver')
     parser.add_argument('--record-label',default='supported_hoist',help='Operator description stored with the capture')
     parser.add_argument('--live-odometry',action='store_true',help='Run DLIO alongside deployment and log live XYZ; depth remains the planner input')
@@ -94,11 +94,12 @@ def main():
         help='Explicit diagnostic mount candidate used by live odometry')
     parser.add_argument('--odometry-clock',type=Path,help='Independent clock calibration JSON; never infer qualification from arrival jitter')
     args=parser.parse_args()
+    if args.record_sensors is None:args.record_sensors=args.actuate or args.live_odometry
     if args.backend!='tensorrt' and args.planner_precision!='fp32':parser.error('TF32 engine precision requires TensorRT')
     if args.default_pose and not args.actuate:parser.error('--default-pose moves motors: add --actuate explicitly')
     if args.preflight and (args.actuate or args.default_pose):parser.error('--preflight is sensor-only')
     if args.release_controller and not args.actuate:parser.error('--release-controller requires --actuate; it changes robot control ownership')
-    if args.actuate and args.record_sensors and not args.default_pose and not 0<args.duration_s<=300:
+    if args.record_sensors and not args.default_pose and not args.preflight and not 0<args.duration_s<=300:
         parser.error('Recorded policy sessions require --duration-s in (0, 300]')
     if args.live_odometry:
         if args.default_pose or args.preflight:parser.error('--live-odometry uses normal sensor-only or actuated deployment')
@@ -158,7 +159,7 @@ def main():
             run_default_pose(config,checkpoint['action_vae']['model_contract'],
                 release_controller=release_control if args.release_controller else None)
             return
-        if (args.actuate and args.record_sensors) or args.live_odometry:
+        if args.record_sensors and not args.preflight:
             from record_motion import PolicyRecording
             if not config['robot'].get('require_remote_start'):
                 raise ValueError('A-triggered recording requires require_remote_start')
