@@ -196,7 +196,7 @@ def load_episode(ep_dir, decode: bool = True):
     return state, get_frame
 
 
-def load_native_recovery(path):
+def load_native_recovery(path,*,live_estimates=False):
     """Adapt an existing diffusion telemetry log to the episode player's fields.
 
     No recording/conversion pass and no invented world position or camera frames.
@@ -240,6 +240,19 @@ def load_native_recovery(path):
     meta=dict(source=str(path.resolve()),physical_joint_names=names,duration_s=float(stamps[-1]-stamps[0]),
         sensors=[],world_translation_measured=False,
         explanation='Measured joints and pelvis IMU orientation. Pelvis position is fixed: this log has no validated odometry. No raw depth frames in this log.')
+    if live_estimates:
+        poses=[r.get('pelvis_odometry') or {} for r in controls]
+        if not any(p.get('position_reset_m') is not None for p in poses):
+            raise ValueError('No A-relative live XYZ in this log; the estimate must be available at policy start')
+        positions=np.array([p.get('position_reset_m') if p.get('position_reset_m') is not None else [np.nan]*3 for p in poses])
+        valid=np.isfinite(positions).all(axis=1)&np.array([p.get('available',False) for p in poses])
+        positions[~valid]=np.nan
+        state.update(pelvis_position_relative_m=positions,position_valid=valid,
+            position_geometry_valid=valid,position_tracking_qualified=np.array([p.get('tracking_valid',False) for p in poses]))
+        meta.update(world_translation_measured=True,explanation=
+            'Actual live A-relative XYZ, joints and pelvis IMU orientation. No offline interpolation. '
+            'Unavailable estimates hide the robot and break its trace. Fixed world camera. '
+            'XYZ and timing remain unqualified unless the recorded status says otherwise; no independent position truth.')
     return state,lambda _: (None,None),meta
 
 

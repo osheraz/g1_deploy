@@ -44,15 +44,17 @@ def main():
     ap.add_argument('--validation-output',type=Path)
     ap.add_argument("--port",type=int,default=8080)
     ap.add_argument("--measured-pose",type=Path,help="Offline measured_pose.jsonl for relative XYZ; requires --telemetry")
+    ap.add_argument('--live-estimates',action='store_true',help='Display only XYZ recorded by the live runtime')
     ap.add_argument("--fps", type=float, default=50.0)
     ap.add_argument("--urdf", default=DEFAULT_URDF_PATH)
     ap.add_argument("--deadzone", type=int, default=12,
                     help="tactile: suppress values within this of the resting baseline")
     args = ap.parse_args()
+    if args.live_estimates and (not args.telemetry or args.measured_pose):ap.error('--live-estimates requires telemetry and no offline measured-pose')
 
     ep = Path(args.telemetry or args.capture or args.episode).expanduser()
     if args.telemetry or args.capture:
-        state,get_frame,meta=load_native_recovery(ep) if args.telemetry else load_raw_motion(ep)
+        state,get_frame,meta=load_native_recovery(ep,live_estimates=args.live_estimates) if args.telemetry else load_raw_motion(ep)
         if args.measured_pose:attach_measured_translation(state,meta,args.measured_pose)
     else:
         if args.measured_pose:ap.error('--measured-pose requires --telemetry or --capture')

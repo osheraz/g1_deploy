@@ -1,7 +1,7 @@
 """Record recovery sensors and measured pelvis motion alongside normal deployment.
 
 Read-only robot subscriptions. Owns only its sensor/estimator child processes.
-The planner keeps depth. No odometry is sent to the motor runtime by this script.
+The planner keeps depth. Optional live odometry publishes to the runtime receiver.
 """
 import argparse
 import json
@@ -24,7 +24,7 @@ class RecorderProcesses:
         self.children=[];self.logs=[]
 
     def launch(self,plan,output,workspace,*,controlled=False):
-        env_script='set -e; source /opt/ros/humble/setup.bash; source "$1"; shift; export ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=7; export PYTHONPATH=/home/osher/unitree_sdk2_python:${PYTHONPATH:-}; exec "$@"'
+        env_script='set -e; source /opt/ros/humble/setup.bash; source "$1"; shift; export ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=7 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1; export PYTHONPATH=/home/osher/unitree_sdk2_python:${PYTHONPATH:-}; exec "$@"'
         for name,command in plan:
             log=open(output/(name+'.log'),'w');self.logs.append(log)
             proc=subprocess.Popen(['nice','-n','10','bash','-c',env_script,'motion-env',str(workspace/'install/setup.bash'),*command],
@@ -67,12 +67,20 @@ class RecorderProcesses:
 
 class PolicyRecording:
     """Prepare off-thread sensor capture; policy start writes one small pipe message."""
-    def __init__(self,output,*,interface,seconds,existing_driver=False,label='supported_hoist'):
+    def __init__(self,output,*,interface,seconds,existing_driver=False,label='supported_hoist',live_odometry=None,automatic_start=False):
         self.output=Path(output);self.started=False;self.processes=RecorderProcesses()
         self.error=None;self.monitor_stop=threading.Event();self.monitor=None
         self.args=SimpleNamespace(interface=interface,seconds=seconds,label=label,
             existing_driver=existing_driver,record_only=True,mount_calibration=None,
             driver_config=ROOT/'g1_deploy/config/lidar/MID360_bluefin.json')
+        self.live_odometry=live_odometry
+        self.automatic_start=automatic_start
+        if live_odometry is not None:
+            self.args.record_only=False;self.args.scan_packets=3
+            self.args.dlio_config=ROOT/'g1_deploy/config/lidar/dlio.yaml'
+            self.args.mount_calibration=Path(live_odometry['mount_calibration'])
+            self.args.odometry_port=int(live_odometry['port'])
+            self.args.clock_calibration=live_odometry.get('clock_calibration')
         self.workspace=Path(os.environ.get('LIDAR_WS',DEFAULT_WS))
 
     def prepare(self):
@@ -88,13 +96,15 @@ class PolicyRecording:
         self.output.mkdir(parents=True,exist_ok=False)
         plan=commands(self.args,self.output);plan[-1][1].append('--controlled')
         (self.output/'session.json').write_text(json.dumps(dict(commands=plan,label=self.args.label,
-            motor_publisher=False,trigger='accepted policy A',planner_terrain='depth',
-            policy_session=str(self.output.parent),raw_only=True),indent=2)+'\n')
+            motor_publisher=False,trigger='sensor-only inference start' if self.automatic_start else 'accepted policy A',planner_terrain='depth',
+            policy_session=str(self.output.parent),raw_only=self.args.record_only,
+            live_odometry=self.live_odometry),indent=2)+'\n')
         print('Starting recorder in background; loading policy without waiting for it.',flush=True)
         self.processes.launch(plan,self.output,self.workspace,controlled=True)
         os.set_blocking(self.processes.children[-1][1].stdin.fileno(),False)
         self.monitor=threading.Thread(target=self._monitor,daemon=True);self.monitor.start()
-        print(f'A starts policy + recording. Raw sensors: {self.output}',flush=True)
+        print(('Recording starts with sensor-only inference.' if self.automatic_start else 'A starts policy + recording.')+
+            f' Raw sensors: {self.output}',flush=True)
 
     def _monitor(self):
         previous=None
@@ -108,6 +118,13 @@ class PolicyRecording:
                     message=('Recorder: robot + LiDAR streams ready.' if not missing else
                         'Recorder waiting for '+', '.join(missing)+'. Policy is unaffected; incomplete sensors cannot validate XYZ.')
                 else:message='Recorder initializing in background; policy is unaffected.'
+                if self.live_odometry is not None:
+                    path=self.output/'measured_pose.status.json'
+                    pose=json.loads(path.read_text()) if path.is_file() else {}
+                    fresh=time.monotonic()-pose.get('arrival_monotonic_s',0)<1.
+                    if fresh and pose.get('geometry_valid'):
+                        message+=' Live XYZ ready'+(' (qualified).' if pose.get('tracking_valid') else ' for monitoring (clock unqualified).')
+                    else:message+=' Live XYZ initializing; keep the robot still.'
             except Exception as exc:
                 self.error=str(exc)
                 message=f'Recorder error: {exc}. Policy is unaffected.'
@@ -179,6 +196,10 @@ def commands(args, output):
         ])
     if args.mount_calibration is not None and not args.record_only:
         result[-1][1].extend(['--mount-calibration',str(args.mount_calibration.resolve())])
+    if getattr(args,'odometry_port',None) is not None and not args.record_only:
+        result[-1][1].extend(['--odometry-port',str(args.odometry_port),'--publish-diagnostics'])
+    if getattr(args,'clock_calibration',None) is not None and not args.record_only:
+        result[-1][1].extend(['--clock-calibration',str(Path(args.clock_calibration).resolve())])
     result.append(('capture',['/usr/bin/python3',str(validation/'record_lidar_live.py'),
         '--interface',args.interface,'--seconds',str(args.seconds),'--pose',args.label,'--output',str(output/'raw')]))
     return result

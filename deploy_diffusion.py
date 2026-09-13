@@ -86,6 +86,13 @@ def main():
         help='Automatically record raw LiDAR + robot state with policy A (default for actuation)')
     parser.add_argument('--existing-lidar-driver',action='store_true',help='Use an already-running Livox driver')
     parser.add_argument('--record-label',default='supported_hoist',help='Operator description stored with the capture')
+    parser.add_argument('--live-odometry',action='store_true',help='Run DLIO alongside deployment and log live XYZ; depth remains the planner input')
+    parser.add_argument('--odometry-port',type=int,default=15560)
+    parser.add_argument('--odometry-mode',choices=['monitor','required'],default='monitor',
+        help='Monitor labels unqualified estimates; required enforces the existing steering receiver contract')
+    parser.add_argument('--odometry-mount',type=Path,default=ROOT/'g1_deploy/config/lidar/mount_candidate_20260912.json',
+        help='Explicit diagnostic mount candidate used by live odometry')
+    parser.add_argument('--odometry-clock',type=Path,help='Independent clock calibration JSON; never infer qualification from arrival jitter')
     args=parser.parse_args()
     if args.backend!='tensorrt' and args.planner_precision!='fp32':parser.error('TF32 engine precision requires TensorRT')
     if args.default_pose and not args.actuate:parser.error('--default-pose moves motors: add --actuate explicitly')
@@ -93,6 +100,14 @@ def main():
     if args.release_controller and not args.actuate:parser.error('--release-controller requires --actuate; it changes robot control ownership')
     if args.actuate and args.record_sensors and not args.default_pose and not 0<args.duration_s<=300:
         parser.error('Recorded policy sessions require --duration-s in (0, 300]')
+    if args.live_odometry:
+        if args.default_pose or args.preflight:parser.error('--live-odometry uses normal sensor-only or actuated deployment')
+        if not args.record_sensors or not 0<args.duration_s<=300:parser.error('Live odometry evaluation requires recording and duration in (0, 300]')
+        if not 1<=args.odometry_port<=65535:parser.error('Invalid odometry UDP port')
+        if not args.odometry_mount.is_file():parser.error('Missing odometry mount calibration')
+        if args.odometry_clock is not None:
+            from motion_diffusion.behavioral.hardware.pelvis_odometry import load_clock_calibration
+            load_clock_calibration(args.odometry_clock)
     # DDS, depth and journaling share this interpreter. The default 5 ms GIL
     # timeslice is a quarter of a control tick; give I/O threads shorter turns.
     sys.setswitchinterval(.001)
@@ -106,6 +121,13 @@ def main():
     checkpoint=torch.load(bundle.asset_path(root,row['controller']),map_location='cpu',weights_only=True,mmap=True)
     hardware=hardware_settings(settings,checkpoint['action_vae']['model_contract'])
     config,receipt=bundle.resolve_session(root,manifest,args.model,config_path,hardware_config=hardware)
+    live_odometry=None
+    if args.live_odometry:
+        live_odometry=dict(port=args.odometry_port,mode=args.odometry_mode,
+            mount_calibration=str(args.odometry_mount.resolve()),
+            clock_calibration=None if args.odometry_clock is None else str(args.odometry_clock.resolve()))
+        config.update(pelvis_odometry_port=args.odometry_port,pelvis_odometry_mode=args.odometry_mode)
+        config['live_odometry']=live_odometry
     if args.backend!='pytorch' and not args.default_pose:
         for component,key in [('controller','controller'),('planner',args.model)]:
             export=Path(settings['exports'][key])
@@ -136,12 +158,13 @@ def main():
             run_default_pose(config,checkpoint['action_vae']['model_contract'],
                 release_controller=release_control if args.release_controller else None)
             return
-        if args.actuate and args.record_sensors:
+        if (args.actuate and args.record_sensors) or args.live_odometry:
             from record_motion import PolicyRecording
             if not config['robot'].get('require_remote_start'):
                 raise ValueError('A-triggered recording requires require_remote_start')
             recording=PolicyRecording(output/'sensors',interface=config['robot']['interface'],
-                seconds=args.duration_s,existing_driver=args.existing_lidar_driver,label=args.record_label)
+                seconds=args.duration_s,existing_driver=args.existing_lidar_driver,label=args.record_label,
+                live_odometry=live_odometry,automatic_start=not args.actuate)
             recording.prepare()
         result=run(config,enable_actuation=args.actuate,duration_s=args.duration_s,
             telemetry_jsonl=output/'telemetry.jsonl.gz',preflight_only=args.preflight,

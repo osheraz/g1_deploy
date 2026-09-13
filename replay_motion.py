@@ -43,10 +43,12 @@ def main():
     p.add_argument('session',type=Path,help='The Session directory printed by deploy_diffusion.py')
     p.add_argument('--port',type=int,default=8081)
     p.add_argument('--pose-only',action='store_true',help='Only joints and IMU orientation; no estimated translation')
+    p.add_argument('--live-estimates',action='store_true',help='Use the XYZ actually logged during deployment; do not rerun DLIO')
     p.add_argument('--prepare-only',action='store_true',help='Compute offline motion without starting Viser')
     p.add_argument('--capture-only',action='store_true',help='Session is a standalone sensor recording, with raw/ and no policy telemetry')
     p.add_argument('--mount-calibration',type=Path,help='Optional explicit fixed-mount calibration candidate')
     a=p.parse_args();session=a.session.expanduser().resolve()
+    if a.live_estimates and (a.capture_only or a.pose_only or a.mount_calibration):p.error('--live-estimates requires a policy session and no offline pose options')
     telemetry=session/'telemetry.jsonl.gz'
     if not a.capture_only and not telemetry.is_file():p.error(f'Missing {telemetry}')
     if not a.capture_only:save_timing_report(telemetry,session/'motion_replay/deployment_timing.json')
@@ -54,7 +56,8 @@ def main():
         *(['--capture',str(session/'raw')] if a.capture_only else ['--telemetry',str(telemetry)]),
         '--urdf',str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'),
         '--port',str(a.port)]
-    if not a.pose_only:
+    if a.live_estimates:viewer+=['--live-estimates']
+    if not a.pose_only and not a.live_estimates:
         raw=session/('raw' if a.capture_only else 'sensors/raw');replay=session/'motion_replay';odom=replay/'dlio'
         pose=replay/('pose_calibrated' if a.mount_calibration else 'pose_nominal')
         if not (raw/'sensors.npz').is_file() or not (raw/'bag/metadata.yaml').is_file():

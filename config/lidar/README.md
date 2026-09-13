@@ -23,8 +23,10 @@ crop/voxel settings remain enabled; dynamic robot self-return rejection is not
 qualified by these tests.
 
 `mount_candidate_20260912.json` is an explicit **diagnostic candidate**, copied
-unchanged from `logs/lidar_live/mount_candidate.json` on bluefin. Use it only with
-`--mount-calibration`; it is not the default mount. It preserves fit/validation
+unchanged from `logs/lidar_live/mount_candidate.json` on bluefin. The opt-in
+`deploy_diffusion.py --live-odometry` path explicitly selects this candidate and
+records its path; the standalone bridge still uses its nominal mount unless
+passed `--mount-calibration`. It preserves fit/validation
 provenance and limitations. For cached replay outputs, continue using the original
 calibration argument or regenerate in a fresh output directory: replay cache
 provenance includes the calibration path as well as its contents.
