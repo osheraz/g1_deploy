@@ -194,3 +194,117 @@ def load_episode(ep_dir, decode: bool = True):
         return color, depth
 
     return state, get_frame
+
+
+def load_native_recovery(path):
+    """Adapt an existing diffusion telemetry log to the episode player's fields.
+
+    No recording/conversion pass and no invented world position or camera frames.
+    Joint order comes from the recorded planner contract, not a 23-DoF default.
+    """
+    import gzip
+    path=Path(path).expanduser()
+    if path.is_dir():path=path/'telemetry.jsonl.gz'
+    opener=gzip.open if path.suffix=='.gz' else open
+    controls=[];contract=None
+    with opener(path,'rt') as stream:
+        for line in stream:
+            row=json.loads(line)
+            if row.get('event')=='session_contract':contract=row.get('planner_contract')
+            elif row.get('event')=='control':controls.append(row)
+    if not controls:raise ValueError('Telemetry has no recorded control observations')
+    names=[] if contract is None else contract.get('dof_names',[])
+    q=np.asarray([row['q'] for row in controls],dtype=np.float32)
+    quat=np.asarray([row['pelvis_quat_xyzw'] for row in controls],dtype=np.float64)
+    stamps=np.asarray([row['observation_capture_s'] for row in controls],dtype=float)
+    if q.ndim!=2 or len(names)!=q.shape[1] or len(set(names))!=len(names):
+        raise ValueError('Telemetry must declare the measured joint order')
+    if quat.shape!=(len(q),4) or not np.isfinite(q).all() or not np.isfinite(quat).all() or np.any(np.linalg.norm(quat,axis=1)<1e-6):
+        raise ValueError('Invalid recorded joints or pelvis quaternion')
+    if not np.isfinite(stamps).all() or np.any(np.diff(stamps)<=0):
+        raise ValueError('Control capture times must increase')
+    quat=quat/np.linalg.norm(quat,axis=1,keepdims=True)
+    for i in range(1,len(quat)):
+        if np.dot(quat[i-1],quat[i])<0:quat[i]*=-1
+    from scipy.spatial.transform import Rotation
+    heading=np.asarray([float(np.asarray(row['causal_heading_rad']).reshape(-1)[0]) for row in controls])
+    if not np.isfinite(heading).all():raise ValueError('Nonfinite recorded causal heading')
+    attitude=Rotation.from_quat(quat)
+    displayed=(Rotation.from_euler('z',-heading[0])*attitude).as_quat()
+    relative=(attitude[0].inv()*attitude).as_quat()
+    state=dict(t=stamps-stamps[0],qj=q,imu_quat_wxyz=quat[:,[3,0,1,2]].astype(np.float32),
+               capture_monotonic_s=stamps,
+               receipt_monotonic_s=np.asarray([row['observation_arrival_s'] for row in controls]),
+               causal_heading_rad=heading,yaw_relative_rad=np.arctan2(np.sin(heading-heading[0]),np.cos(heading-heading[0])),
+               orientation_relative_xyzw=relative,display_quat_wxyz=displayed[:,[3,0,1,2]])
+    meta=dict(source=str(path.resolve()),physical_joint_names=names,duration_s=float(stamps[-1]-stamps[0]),
+        sensors=[],world_translation_measured=False,
+        explanation='Measured joints and pelvis IMU orientation. Pelvis position is fixed: this log has no validated odometry. No raw depth frames in this log.')
+    return state,lambda _: (None,None),meta
+
+
+def attach_measured_translation(state,meta,path,*,max_gap_s=.25):
+    """Offline interpolation in the provider's IMU world frame, never extrapolation.
+
+    The bridge/evaluator maps LiDAR stamps onto workstation receipt time. Pair to
+    observation *arrival*, not the separately corrected robot capture clock.
+    Missing samples hide the robot; geometric disagreement is shown as a diagnostic.
+    """
+    with open(path) as stream:rows=[json.loads(line) for line in stream if line.strip()]
+    rows=[r for r in rows if r.get('frame')=='pelvis_imu_gravity_frame']
+    if len(rows)<2:raise ValueError('Need at least two pelvis estimates in pelvis_imu_gravity_frame')
+    t=np.asarray([r['capture_monotonic_s'] for r in rows],float)
+    p=np.asarray([r['position_m'] for r in rows],float)
+    geometry=np.asarray([r.get('geometry_valid',r.get('tracking_valid',False)) for r in rows],bool)
+    if p.shape!=(len(t),3) or not np.isfinite(t).all() or np.any(np.diff(t)<=0):
+        raise ValueError('Measured pose timestamps must be finite and strictly increasing')
+    good=np.isfinite(p).all(axis=1)
+    query=np.asarray(state['receipt_monotonic_s'])
+    right=np.clip(np.searchsorted(t,query,side='left'),1,len(t)-1);left=right-1
+    valid=(query>=t[0])&(query<=t[-1])&good[left]&good[right]&((t[right]-t[left])<=max_gap_s)
+    if not valid[0]:raise ValueError('No valid measured translation at policy start; cannot set episode origin')
+    values=np.column_stack([np.interp(query,t,p[:,k]) for k in range(3)])
+    values-=values[0]
+    # Match steering's fixed gravity-aligned episode axes, not arbitrary IMU yaw.
+    h0=float(state['causal_heading_rad'][0]);c,s=np.cos(h0),np.sin(h0)
+    values=values @ np.array([[c,s,0.],[-s,c,0.],[0.,0.,1.]]).T
+    values[~valid]=np.nan
+    state['pelvis_position_relative_m']=values;state['position_valid']=valid
+    state['position_geometry_valid']=geometry[left]&geometry[right]&valid
+    meta.update(world_translation_measured=True,translation_source=str(path),
+        explanation='XYZ is an offline LiDAR/FK estimate in steering axes: origin at policy start, '
+        'XY aligned to its recorded initial causal heading, Z up. '
+        'Joints and orientation come from robot telemetry. Fixed world camera; grid is a ruler, not measured ground. '
+        'Missing estimates hide the robot; tilt disagreement is flagged but remains visible for diagnosis. '
+        'Absolute clock timing and dynamic position accuracy remain unqualified.')
+
+
+def load_raw_motion(path):
+    """Replay a sensor-only capture without inventing a policy telemetry log."""
+    import torch
+    from scipy.spatial.transform import Rotation
+    from motion_diffusion.behavioral.hardware.sensors import G1_MOTOR_NAMES
+    from humanoidverse2.agents.action_vae.heading import replay_heading
+    path=Path(path);data=np.load(path/'sensors.npz')
+    report=json.loads((path/'summary.json').read_text())
+    times=data['state_receipt_monotonic_s']
+    if len(times)<2 or np.any(np.diff(times)<=0):raise ValueError('Need increasing raw state receipt times')
+    start=report.get('trigger',{}).get('request_monotonic_s',times[0])
+    query=np.arange(max(start,times[0]),times[-1],.02)
+    indices=np.maximum(np.searchsorted(times,query,side='right')-1,0)
+    if len(query)<2:raise ValueError('Insufficient raw state after the recording trigger')
+    quat=data['pelvis_quat_wxyz'][indices][:,[1,2,3,0]]
+    quat=quat/np.linalg.norm(quat,axis=1,keepdims=True)
+    heading=replay_heading(torch.from_numpy(quat)).numpy()
+    attitude=Rotation.from_quat(quat)
+    displayed=(Rotation.from_euler('z',-heading[0])*attitude).as_quat()
+    relative=(attitude[0].inv()*attitude).as_quat()
+    state=dict(t=query-query[0],qj=data['q'][indices],imu_quat_wxyz=quat[:,[3,0,1,2]],
+        receipt_monotonic_s=query,causal_heading_rad=heading,
+        yaw_relative_rad=np.arctan2(np.sin(heading-heading[0]),np.cos(heading-heading[0])),
+        orientation_relative_xyzw=relative,display_quat_wxyz=displayed[:,[3,0,1,2]])
+    meta=dict(source=str(path.resolve()),physical_joint_names=list(G1_MOTOR_NAMES),duration_s=float(state['t'][-1]),
+        sensors=[],world_translation_measured=False,
+        explanation='Sensor-only recording. Joint/IMU samples replayed at 50 Hz using receipt times; '
+        'origin is the recording trigger. No policy was run. Translation requires measured pose input.')
+    return state,lambda _: (None,None),meta

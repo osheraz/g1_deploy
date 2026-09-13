@@ -1,0 +1,53 @@
+# DLIO (feature/ros2) on the G1 Mid-360. base_link := the Mid-360 point-cloud frame.
+# IMU position in the point-cloud frame from the Livox Mid-360 manual
+# (same numbers FAST-LIO's mid360.yaml uses, sign flipped: they store lidar-in-imu).
+/**:
+  ros__parameters:
+    use_sim_time: false
+    version: 1.1.1
+    adaptive: true
+    pointcloud/deskew: true
+    pointcloud/voxelize: true
+    imu/calibration: true
+    imu/intrinsics/accel/bias: [0.0, 0.0, 0.0]
+    imu/intrinsics/accel/sm: [1., 0., 0., 0., 1., 0., 0., 0., 1.]
+    imu/intrinsics/gyro/bias: [0.0, 0.0, 0.0]
+    extrinsics/baselink2imu/t: [0.011, 0.02329, -0.04412]
+    extrinsics/baselink2imu/R: [1., 0., 0., 0., 1., 0., 0., 0., 1.]
+    extrinsics/baselink2lidar/t: [0., 0., 0.]
+    extrinsics/baselink2lidar/R: [1., 0., 0., 0., 1., 0., 0., 0., 1.]
+    frames/odom: odom
+    frames/baselink: base_link
+    frames/lidar: lidar
+    frames/imu: imu
+    map/waitUntilMove: false
+    map/dense/filtered: false
+    map/sparse/leafSize: 0.25
+    odom/gravity: 9.80665
+    odom/computeTimeOffset: true
+    odom/imu/approximateGravity: true
+    odom/imu/calibration/gyro: true
+    odom/imu/calibration/accel: true
+    odom/imu/calibration/time: 3.0
+    odom/imu/bufferSize: 5000
+    odom/preprocessing/cropBoxFilter/size: 0.3
+    odom/preprocessing/voxelFilter/res: 0.1
+    odom/keyframe/threshD: 0.5
+    odom/keyframe/threshR: 30.0
+    odom/submap/keyframe/knn: 10
+    odom/submap/keyframe/kcv: 10
+    odom/submap/keyframe/kcc: 10
+    odom/gicp/minNumPoints: 64
+    odom/gicp/kCorrespondences: 16
+    odom/gicp/maxCorrespondenceDistance: 0.5
+    odom/gicp/maxIterations: 32
+    odom/gicp/transformationEpsilon: 0.01
+    odom/gicp/rotationEpsilon: 0.01
+    odom/gicp/initLambdaFactor: 1e-9
+    odom/geo/Kp: 4.5
+    odom/geo/Kv: 11.25
+    odom/geo/Kq: 4.0
+    odom/geo/Kab: 2.25
+    odom/geo/Kgb: 1.0
+    odom/geo/abias_max: 5.0
+    odom/geo/gbias_max: 0.5

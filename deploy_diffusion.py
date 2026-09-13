@@ -82,11 +82,17 @@ def main():
         help='Wait for START to move to default and hold; SELECT/A stops; requires --actuate; no policy')
     parser.add_argument('--duration-s',type=float,default=30.)
     parser.add_argument('--output',type=Path)
+    parser.add_argument('--record-sensors',action=argparse.BooleanOptionalAction,default=True,
+        help='Automatically record raw LiDAR + robot state with policy A (default for actuation)')
+    parser.add_argument('--existing-lidar-driver',action='store_true',help='Use an already-running Livox driver')
+    parser.add_argument('--record-label',default='supported_hoist',help='Operator description stored with the capture')
     args=parser.parse_args()
     if args.backend!='tensorrt' and args.planner_precision!='fp32':parser.error('TF32 engine precision requires TensorRT')
     if args.default_pose and not args.actuate:parser.error('--default-pose moves motors: add --actuate explicitly')
     if args.preflight and (args.actuate or args.default_pose):parser.error('--preflight is sensor-only')
     if args.release_controller and not args.actuate:parser.error('--release-controller requires --actuate; it changes robot control ownership')
+    if args.actuate and args.record_sensors and not args.default_pose and not 0<args.duration_s<=300:
+        parser.error('Recorded policy sessions require --duration-s in (0, 300]')
     # DDS, depth and journaling share this interpreter. The default 5 ms GIL
     # timeslice is a quarter of a control tick; give I/O threads shorter turns.
     sys.setswitchinterval(.001)
@@ -116,7 +122,7 @@ def main():
     bundle.write_json(output/'session.json',receipt);bundle.write_json(output/'resolved.json',config)
     print(f'Session: {output}',flush=True)
     from motion_diffusion.behavioral.hardware.cli import run
-    motion_switcher=None
+    motion_switcher=None;recording=None
     def release_control():
         nonlocal motion_switcher
         from unitree_sdk2py.core.channel import ChannelFactoryInitialize
@@ -130,9 +136,17 @@ def main():
             run_default_pose(config,checkpoint['action_vae']['model_contract'],
                 release_controller=release_control if args.release_controller else None)
             return
+        if args.actuate and args.record_sensors:
+            from record_motion import PolicyRecording
+            if not config['robot'].get('require_remote_start'):
+                raise ValueError('A-triggered recording requires require_remote_start')
+            recording=PolicyRecording(output/'sensors',interface=config['robot']['interface'],
+                seconds=args.duration_s,existing_driver=args.existing_lidar_driver,label=args.record_label)
+            recording.prepare()
         result=run(config,enable_actuation=args.actuate,duration_s=args.duration_s,
             telemetry_jsonl=output/'telemetry.jsonl.gz',preflight_only=args.preflight,
-            release_controller=release_control if args.release_controller else None)
+            release_controller=release_control if args.release_controller else None,
+            on_policy_start=recording.start if recording is not None else None)
     except KeyboardInterrupt as exc:
         bundle.write_json(output/'STOPPED.json',dict(reason=str(exc) or 'operator interrupt'))
         button={'Remote A stop':'A','Remote SELECT stop':'SELECT'}.get(str(exc))
@@ -140,6 +154,9 @@ def main():
         return
     except BaseException as exc:
         bundle.write_json(output/'FAILED.json',dict(error=str(exc)));raise
+    finally:
+        # run() closes/damps the robot before this potentially expensive save.
+        if recording is not None:recording.close()
     bundle.write_json(output/'COMPLETE.json',result)
     if args.preflight:
         print(f'Preflight complete: {result["startup_checks"]} live first-plan checks; '

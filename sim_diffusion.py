@@ -164,6 +164,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 previous=torch.tensor(issued,device=device).reshape(1,29)
                 code=result['native_code'].detach()
                 frames.append(dict(time=tick*.02,q=obs.q,dq=obs.dq,gravity=obs.gravity_body,
+                    pelvis_quat_xyzw=obs.quat_xyzw.copy(),causal_heading_rad=float(heading[0]),
                     qpos=qpos,root_position=root,action=issued,target=target,native_code=code[0].cpu().numpy(),
                     raw_action_max=raw_max,saturated_joints=int((np.abs(action)>=plant.clip).sum()),
                     torque_peak=torque,torque_clipped=clipped,depth_available=np.asarray(availability,dtype=bool),
@@ -196,6 +197,15 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 arrays={key:np.asarray([f[key] for f in frames]) for key in frames[0]}
                 arrays['final_qpos']=plant.data.qpos.copy()
                 np.savez_compressed(output/'trajectory.npz',**arrays)
+                # Sensor-only archive; consumes no goals and changes no planner behavior.
+                from motion_diffusion.behavioral.hardware.measured_pose import simulation_packet
+                with (output/'measured_pose.jsonl').open('w') as stream:
+                    for frame in frames:
+                        packet=simulation_packet(frame['root_position'],frame['pelvis_quat_xyzw'].tolist(),frame['time'])
+                        packet.update(imu_quat_xyzw=frame['pelvis_quat_xyzw'].tolist(),
+                            geometry_valid=True,tracking_valid=False,offline_replay=True,clock_domain='simulation',
+                            yaw_disagreement_rad=0.,tilt_disagreement_rad=0.)
+                        stream.write(json.dumps(packet)+'\n')
             upright=[f['root_position'][2]>=.55 and -f['gravity'][2]>=.75 for f in frames]
             held=0;first_hold=None
             for i,good in enumerate(upright):

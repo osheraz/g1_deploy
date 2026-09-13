@@ -1,0 +1,66 @@
+{
+  "schema": "hv2.lidar_mount_candidate.v1",
+  "status": "diagnostic only; NOT installed",
+  "rotation_lidar_to_torso": [
+    [
+      0.99873554692938,
+      -0.025916982344875023,
+      0.04307687692727418
+    ],
+    [
+      -0.02339307282642826,
+      -0.9980368608251725,
+      -0.058096373191212164
+    ],
+    [
+      0.044497993700946946,
+      0.05701521253464384,
+      -0.9973811679073451
+    ]
+  ],
+  "rpy_rad": [
+    3.084489882298451,
+    -0.0445126916688483,
+    -0.02341840772376247
+  ],
+  "nominal_difference_deg": 6.518386530953127,
+  "validation": [
+    {
+      "capture": "logs/lidar_live/prone_torso_20260912_01",
+      "holdout_nominal_error_deg": 5.879786303338024,
+      "holdout_candidate_error_deg": 0.33024742611266245,
+      "nominal_floor_candidate": null,
+      "candidate_floor_candidate": {
+        "normal": [
+          0.046891126266829536,
+          -0.052807370042237595,
+          0.9975031849305798
+        ],
+        "pelvis_plane_distance_m": 0.059590151635861274,
+        "tilt_deg": 4.049684807517604,
+        "inliers": 80811,
+        "fraction": 0.1874382442581657,
+        "inlier_residual_median_m": 0.009111821409481233
+      }
+    },
+    {
+      "capture": "logs/lidar_live/upright_torso_20260912_01",
+      "holdout_nominal_error_deg": 6.16272619265252,
+      "holdout_candidate_error_deg": 0.3464181410585993,
+      "nominal_floor_candidate": null,
+      "candidate_floor_candidate": {
+        "normal": [
+          0.029371325558739,
+          0.014617166056205777,
+          0.999461686955237
+        ],
+        "pelvis_plane_distance_m": 0.79304622039662,
+        "tilt_deg": 1.8800723675013569,
+        "inliers": 108402,
+        "fraction": 0.2160697948371434,
+        "inlier_residual_median_m": 0.012999150835618312
+      }
+    }
+  ],
+  "limitations": "Fit first half and check second half of the same static poses; no independent pose, motion or translation validation. Accelerometer biases are not separately identified."
+}

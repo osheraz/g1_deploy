@@ -43,8 +43,9 @@ class DeployViser:
         depth_scale: float,
         tactile_sensors: Optional[list[str]] = None,
         joint_names: Optional[list[str]] = None,
+        port: int = 8080,
     ) -> None:
-        self.server = viser.ViserServer()
+        self.server = viser.ViserServer(port=port)
         self.joint_names_by_motor_index = list(
             JOINT_NAMES_BY_MOTOR_INDEX if joint_names is None else joint_names
         )
