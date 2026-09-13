@@ -13,6 +13,7 @@ import time
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from core.common.lidar_stream import LidarClient
+from record_motion import DEFAULT_WS
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -25,8 +26,7 @@ def main():
     p.add_argument('--interface',default='enp132s0')
     p.add_argument('--lidar-hz',type=float,default=50.,help='Live preview packet rate; does not change laser point rate or planner configuration')
     p.add_argument('--driver-config',type=Path,default=ROOT/'g1_deploy/config/lidar/MID360_bluefin.json')
-    p.add_argument('--ros-workspace',type=Path,default=os.environ.get('LIDAR_WS',
-        '/tmp/claude-114471805/-home-osher-hv2/3ab304f2-651f-4602-b50a-69406401ca49/scratchpad/eth_stack/ros2_ws'))
+    p.add_argument('--ros-workspace',type=Path,default=os.environ.get('LIDAR_WS',DEFAULT_WS))
     p.add_argument('--urdf',default=str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'))
     p.add_argument('--calibration',type=Path);p.add_argument('--depth-server');p.add_argument('--depth-port',type=int,default=15556)
     a=p.parse_args()

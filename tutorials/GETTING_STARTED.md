@@ -1,27 +1,18 @@
-# Getting started
+# Deployment setup
 
-For the current 29-joint diffusion/flow pipeline:
+**Already on the configured bluefin workstation?** Go directly to
+[the operator guide](deploy_diffusion.md). Setup and viewers are not extra steps
+required before every deployment.
 
-1. [Connect to the robot](01_network.md). Preserve the workstation's Internet route.
-2. [Use the prepared environment](02_install.md).
-3. [View robot state and raw depth](04_cameras.md). This publishes no motor commands.
-4. [Configure the paired model bundle and hardware](03_config.md).
-5. Follow [diffusion deployment](deploy_diffusion.md): validate models, check
-   real sensors without motor output, then commission actuation separately.
+For a new machine or robot:
 
-The [status page](deployment_status.md) separates completed checks from remaining
-hardware work. A working viewer is not permission or evidence to actuate.
+1. [Network and SSH](01_network.md): configure the robot interface and `g1_29`.
+2. [Environment](02_install.md): hv2, its pinned deployment submodule and dependencies.
+3. [Model/hardware config](03_config.md): bundle, exports, PD binding and camera.
+4. [LiDAR workspace](../config/lidar/README.md): required for raw sensor recording
+   and live odometry; permanent default is `~/.local/share/hv2/lidar/ros2_ws`.
+5. [Operator guide](deploy_diffusion.md): the complete two-terminal run.
 
-| Component | Where it runs |
-| --- | --- |
-| `deploy_diffusion.py`: planner worker + action decoder + watchdog | Inference workstation |
-| LowState / optional LowCmd | Robot controller over Unitree DDS |
-| `native_depth_server.py` | Jetson connected to the RealSense |
-| `sonic/check_streams.py`: read-only Viser | Workstation |
-
-The raw depth publisher does not publish RGB. Its timestamped PNG packets are
-not the old filtered RGB-D stream.
-
-Other workflows: [SONIC](../sonic/workflows/README.md),
-[optional tactile](06_tactile.md), [robot migration record](08_robot_migration.md).
-Old VIGOR2 instructions are isolated under [deprecated](../deprecated/README.md).
+[Sensor viewers](04_cameras.md) are optional diagnostics.
+[Deployment status](deployment_status.md) lists measured results and remaining work.
+SONIC has [separate operator workflows](../sonic/workflows/README.md).

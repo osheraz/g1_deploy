@@ -54,7 +54,7 @@ Real robot access additionally needs Unitree SDK2 Python and CycloneDDS.
 Preserve a working installation and its `CYCLONEDDS_HOME` configuration.
 Bundle checks do not require camera hardware or the robot SDK.
 
-For compiled inference, follow the [ONNX/TensorRT section](deploy_diffusion.md#onnx-and-tensorrt).
+For compiled inference, follow the [ONNX/TensorRT section](deployment_reference.md#onnx-and-tensorrt).
 Build/validate engines on the target GPU; copying an engine alone is insufficient.
 
 ## Jetson camera host

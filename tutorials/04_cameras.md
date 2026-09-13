@@ -4,24 +4,12 @@ The current G1-29 has a D435I, serial `247122073927`, connected to its Jetson.
 Use the mounting position and rotation already in code, as confirmed by the
 operator. Lens intrinsics and timestamp alignment are separate checks.
 
-## Terminal 1: camera publisher and tunnel
+## Start depth
 
-Run on Bluefin. This starts only the camera publisher on the Jetson. Leave it
-running, and do not open the same camera with another server.
+Use [terminal 1 in the operator guide](deploy_diffusion.md#1-depth--terminal-1).
+Leave it running, then use a second terminal for the viewer below.
 
-```bash
-ssh -t -o ExitOnForwardFailure=yes \
-  -L 127.0.0.1:15556:127.0.0.1:5556 \
-  -L 127.0.0.1:15558:127.0.0.1:5558 \
-  unitree@fe80::d150:4901:5a1a:cb5%enp132s0 \
-  '/home/unitree/osher/native_recovery/.venv/bin/python /home/unitree/osher/native_recovery/native_depth_server.py --serial 247122073927 --bind tcp://127.0.0.1:5556'
-```
-
-Omit `-6` on this forwarding command: the literal remote address selects IPv6,
-while the local forward listens on IPv4 loopback. The old `g1` SSH alias may
-still point at the disconnected robot; use [the verified address](01_network.md#new-g1-29-ssh-over-ipv6-verified-2026-09-11).
-
-## Terminal 2: robot and depth in Viser
+## Robot and depth in Viser
 
 ```bash
 cd /home/osher/hv2
@@ -68,3 +56,20 @@ The old square-crop VIGOR preprocessing is not used by the current planner.
 A receive timestamp is not camera capture time. Deployment automatically uses
 the streamer's clock-reply endpoint (port 5558, forwarded as 15558) to align
 camera host time; the viewer itself does not require that second port.
+
+## LiDAR preview
+
+With no deployment/Livox driver running, this owns a read-only preview driver:
+
+```bash
+cd /home/osher/hv2
+.venv/bin/python g1_deploy/check_lidar.py --live --viser
+```
+
+Open the printed Viser URL and forward its port in VS Code. Add
+`--depth-server 127.0.0.1 --depth-port 15556` to also show the existing depth stream.
+Ctrl+C closes the preview and its owned driver. Do this separately from the policy
+trial; it is not required for deployment. The live preview defaults to 50 Hz
+packets; the deployment recorder uses 30 Hz. Preview points are not a registered
+world map or qualified pelvis XYZ. For motion evaluation use
+[the deployment replay](deploy_diffusion.md#3-evaluate-and-view--after-stopping-terminal-2).

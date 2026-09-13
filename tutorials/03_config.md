@@ -4,8 +4,9 @@ Current deployment uses [`configs/diffusion.yaml`](../configs/diffusion.yaml).
 It selects the model bundle, network, camera and optional neural exports.
 It inherits the existing 29-joint mapping/limits, but **not** SONIC's policy
 gains or action scale: those come from the selected decoder's verified bundle.
-Clock alignment is performed at startup. There is no separate hardware JSON
-or manual calibration-receipt workflow in the normal launcher.
+Clock alignment is performed at startup. Ordinary depth-based policy execution needs no separate hardware JSON. Live XYZ
+monitoring uses the explicit mount candidate; qualified XYZ feedback additionally
+requires an independent clock calibration that is not yet available.
 
 `--backend tensorrt` selects compiled inference; `--actuate` enables the motor
 path: startup is idle; A starts policy from the current pose, A again stops in
@@ -27,6 +28,6 @@ The `configs/g1_29dof_sonic.yaml` argument used by the **read-only viewer** supp
 stream settings and motor order only. It does not select the diffusion model,
 and `sonic/check_streams.py` does not load a SONIC policy.
 
-See [deployment commands](deploy_diffusion.md) for bundle validation and
+See [the runtime reference](deployment_reference.md#model-bundle) for bundle validation and
 [the camera guide](04_cameras.md) for the current robot connection.
 Legacy VIGOR YAML instructions are [archived separately](../deprecated/tutorials/config_vigor.md).
