@@ -1,0 +1,25 @@
+diff --git a/sdk_core/CMakeLists.txt b/sdk_core/CMakeLists.txt
+index beee0b0..674b4f4 100644
+--- a/sdk_core/CMakeLists.txt
++++ b/sdk_core/CMakeLists.txt
+@@ -6,6 +6,12 @@ set(SDK_LIBRARY_SHARED livox_lidar_sdk_shared)
+ add_library(${SDK_LIBRARY_STATIC} STATIC "")
+ add_library(${SDK_LIBRARY_SHARED} SHARED "")
+ 
++# ROS 2 also loads system spdlog. Mixing its ABI with the bundled headers
++# corrupts logger destruction at process exit (Livox-SDK2 issue #44).
++find_package(spdlog REQUIRED)
++target_link_libraries(${SDK_LIBRARY_STATIC} PUBLIC spdlog::spdlog)
++target_link_libraries(${SDK_LIBRARY_SHARED} PUBLIC spdlog::spdlog)
++
+ set(LIVOX_SDK_MAJOR_VERSION "0")
+ set(LIVOX_SDK_MINOR_VERSION "0")
+ set(LIVOX_SDK_PATCH_VERSION "2")
+@@ -42,7 +48,6 @@ target_compile_options(${SDK_LIBRARY_SHARED}
+ 
+ set(LIVOX_PRIVATE_INCLUDE_DIR 
+         ../3rdparty 
+-        ../3rdparty/spdlog 
+         .
+         )
+ set(LIVOX_PUBLIC_INCLUDE_DIR 

@@ -15,7 +15,7 @@ import threading
 from types import SimpleNamespace
 
 ROOT=Path(__file__).resolve().parents[1]
-DEFAULT_WS='/tmp/claude-114471805/-home-osher-hv2/3ab304f2-651f-4602-b50a-69406401ca49/scratchpad/eth_stack/ros2_ws'
+DEFAULT_WS=str(Path.home()/'.local/share/hv2/lidar/ros2_ws')
 
 
 class RecorderProcesses:
@@ -97,7 +97,7 @@ class PolicyRecording:
         plan=commands(self.args,self.output);plan[-1][1].append('--controlled')
         (self.output/'session.json').write_text(json.dumps(dict(commands=plan,label=self.args.label,
             motor_publisher=False,trigger='sensor-only inference start' if self.automatic_start else 'accepted policy A',planner_terrain='depth',
-            policy_session=str(self.output.parent),raw_only=self.args.record_only,
+            policy_session=str(self.output.parent),raw_only=self.args.record_only,ros_workspace=str(self.workspace.resolve()),
             live_odometry=self.live_odometry),indent=2)+'\n')
         print('Starting recorder in background; loading policy without waiting for it.',flush=True)
         self.processes.launch(plan,self.output,self.workspace,controlled=True)
@@ -230,7 +230,7 @@ def main():
         if not path.is_file():p.error(f'Missing {path}; set --ros-workspace / LIDAR_WS if the ROS workspace moved')
     output.mkdir(parents=True,exist_ok=False)
     (output/'session.json').write_text(json.dumps(dict(label=a.label,commands=plan,
-        start_monotonic_s=time.monotonic(),motor_publisher=False,head_mount='fixed',
+        start_monotonic_s=time.monotonic(),motor_publisher=False,head_mount='fixed',ros_workspace=str(a.ros_workspace.resolve()),
         clock_qualified=False,planner_terrain='depth',
         estimator_input='raw scans with existing DLIO crop; raw recordings retained for self-filter comparisons'),indent=2)+'\n')
     processes=RecorderProcesses();children=processes.children;error=None
