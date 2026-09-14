@@ -6,26 +6,55 @@ Run commands from `/home/osher/hv2` with `source .venv/bin/activate`.
 
 ## Model bundle
 
-Default simulation bundle:
+The default is **P11 diffusion20k + its exact N17k depth tracker**, selected by
+Stanley at `43170d4`. It runs unguided with EMA DDIM8, fresh noise per replan,
+K20/blend0 and PyTorch TF32. Steering is not enabled by this package.
 
-```text
-/nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/experiments/fallrec_latent_planner_20260902/deployments/native_recovery_20260910b
-```
-
-B20k diffusion and E20k flow are paired with the **C10k action decoder**:
-a deterministic 64-dimensional code plus ten frames of measured robot history
-produces 29 joint commands. C10k is not a PPO teacher.
-
-Validate both model pairs without opening a simulator, camera or robot channel:
+Local bundle: `logs/native_recovery/bundles/p11_20260913`. To install it on another
+workstation with access to the shared filesystem:
 
 ```bash
-python -m motion_diffusion.behavioral.hardware.bundle check --sample \
-  --bundle /nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/experiments/fallrec_latent_planner_20260902/deployments/native_recovery_20260910b
+rsync -aL /nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/experiments/fallrec_latent_planner_20260902/deployments/native_recovery_p11_20260913a/ \
+  logs/native_recovery/bundles/p11_20260913/
+python g1_deploy/deploy_diffusion.py --check
 ```
 
-For a local copy, preserve the manifest and materialize symlink targets.
-Startup checks hashes, dimensions, joint order and the paired PD contract.
-Do not substitute another decoder merely because its latent dimension matches.
+Keep the manifest, materialized weights and PD binding together. The check verifies
+hashes, paired dimensions and CPU inference, then compares PD gains, default pose
+and action scales with the tracker's original resolved training YAML.
+
+The tracker consumes ten chronological proprio/action-history rows (93 each),
+a native Z64 and H3 depth features, producing 29 requested joint actions.
+The planner uses H10 measured history, five actually executed codes and H3 depth,
+and predicts F25 paired S67/Z64 steps at 50 Hz. Only issued requests and executed
+codes enter feedback histories. Missing history is handled by the shared runtime.
+Relative-attitude conditioning is off; pelvis gyro, gravity and causal heading
+remain required. Unguided recovery needs no accumulated XYZ estimator.
+
+The old `diffusion` and `flow` aliases retain the September 10 B20k/E20k models
+with the blind C10k tracker. They have separate bundle and export paths in
+`configs/diffusion.yaml`; changing the model key selects the whole pair.
+
+## P05 and cadence comparisons
+
+`--model p05_diffusion` selects a local P05 diffusion20k + blind A24.5k bundle.
+The planner-bound tracker SHA is verified; the planner still consumes depth.
+It uses PyTorch TF32. To recreate the local copy from the shared sources on a
+new machine (destination must not exist):
+
+```bash
+python -m motion_diffusion.behavioral.hardware.bundle prepare \
+  --catalog g1_deploy/configs/p05_candidate.json --models p05_diffusion \
+  --asset-mode copy --output logs/native_recovery/bundles/p05_20260913
+python g1_deploy/deploy_diffusion.py --model p05_diffusion --check
+```
+
+Both launchers accept `--replan-hz 5` or `--replan-hz 10`. The reference recipe
+remains in the bundle; session receipts record the change. P05 defaults to K25
+in synchronous simulation and K20 in hardware to leave five ticks for reply age.
+P11 defaults to K20 in both. No sampler steps, precision, tracker rate or blend
+are changed by this option. Faster replanning is a behavioral comparison, not a
+claim of improved recovery. P05 has no compiled exports or physical qualification.
 
 ## Control and startup behavior
 
@@ -60,71 +89,54 @@ PNG. No temporal filtering, hole filling, or color alignment. USB/network frames
 use the same calibrated crop/ray sampling, metric range/mask and causal history
 as the optimized Warp camera in simulation.
 
-The current bundle requires **far/invalid = 0 plus a mask**. There is no
-deployment-only `far=max` override. A changed encoding requires its matching
-checkpoint contract and validation in both sim and hardware.
+P11 requires **three actual 30 Hz captures for both planner and tracker**.
+Its v2 depth contract saturates finite valid returns beyond 2 m to 2 m with
+mask=1. No-hit, invalid, near and missing returns remain zero with mask=0.
+Legacy v1 checkpoints retain their original far=0 behavior. The encoding is
+selected from each checkpoint's contract, never a deployment-only override.
 The read-only raw viewer is not this processed model input.
 
 ## ONNX and TensorRT
 
-Only neural forwards change backend; history, preprocessing, sampling, code
-queue, clipping, resets and safety stay in the shared runtime.
+Only neural forwards change backend. Depth preprocessing, history, sampling,
+code queues and controls use the shared runtime.
 
-- `pytorch`: reference; required for gradient-based planner guidance.
-- `onnx`: ONNX Runtime CPU numerical reference.
-- `tensorrt`: default FP32 CUDA decoder and unguided planner, with reusable
-  buffers and CUDA graph replay.
-  No silent precision change or fallback. A TensorRT decoder can accompany
-  a guided PyTorch planner.
+**P11 defaults to PyTorch TF32 to preserve Stanley's selected numerical recipe.**
+The new TensorRT FP32 tracker and planner exports are at
+`logs/native_recovery/exports_p11_20260913/{controller,planner}`. They use reusable
+buffers and CUDA graphs, but are an explicit precision variant, not the selected
+TF32 result. Use `--backend tensorrt` only for that comparison. The older engines
+cannot be reused for P11 or N17k.
 
-See [inference latency](inference_latency.md) for benchmark commands, mode
-ablations, experimental TF32 simulation and live latency telemetry.
+The full TensorRT planner matches PyTorch FP32 (maximum state error 0.000019,
+code error 0.000004 in five synthetic cases). Against selected PyTorch TF32,
+state error reaches 0.03383 and code error 0.00715. Therefore a passing FP32
+export comparison does not establish the same recovery behavior as TF32.
+The full depth tracker comparison passes at maximum action error 0.000409.
+Receipts are in `logs/native_recovery/exports_p11_20260913/`.
 
-Existing Bluefin exports live at
-`logs/native_recovery/exports_20260911/{controller_checked,diffusion,flow}/`:
-
-A byte-identical shared copy is available for another deployment checkout.
-Copy it locally to match the default YAML paths (the large files are not in Git):
-
-```bash
-mkdir -p logs/native_recovery/exports_20260911
-rsync -a /nfs/turbo/coe-stellayu-extra/osher/projects/hv2/deployment_exports/native_recovery_20260911/ \
-  logs/native_recovery/exports_20260911/
-```
-
-The existing engine caches are for Bluefin's GPU/runtime. Another target uses
-the ONNX graphs and validation inputs to build and check its own cache.
-
-Simulation preview with these exports:
+To rebuild and verify on another GPU (use new output directories):
 
 ```bash
-python scripts/eval_native_recovery.py --model diffusion --viser \
-  --controller-backend tensorrt \
-  --controller-export logs/native_recovery/exports_20260911/controller_checked \
-  --planner-backend tensorrt \
-  --planner-export logs/native_recovery/exports_20260911/diffusion
-```
-
-For hardware use `--backend tensorrt`; export directories come from
-`configs/diffusion.yaml`. Simulation retains its explicit per-component flags.
-
-For a new bundle or target GPU:
-
-```bash
+BUNDLE=logs/native_recovery/bundles/p11_20260913
+EXPORT=logs/native_recovery/exports_p11_new
 python -m motion_diffusion.behavioral.hardware.export \
-  --bundle /path/to/bundle --component controller \
-  --output /path/to/new/controller --tensorrt
-
+  --bundle "$BUNDLE" --model p11_diffusion --component controller \
+  --output "$EXPORT/controller" --tensorrt
 python -m motion_diffusion.behavioral.hardware.export \
-  --bundle /path/to/bundle --model diffusion --component planner \
-  --output /path/to/new/diffusion --tensorrt
+  --bundle "$BUNDLE" --model p11_diffusion --component planner \
+  --output "$EXPORT/planner" --tensorrt
+python -m motion_diffusion.behavioral.hardware.export \
+  --bundle "$BUNDLE" --model p11_diffusion --component controller \
+  --output "$EXPORT/controller" --tensorrt --verify-policy
+python -m motion_diffusion.behavioral.hardware.export \
+  --bundle "$BUNDLE" --model p11_diffusion --component planner \
+  --output "$EXPORT/planner" --tensorrt --verify-policy --reference-precision fp32
 ```
 
-Add `--trace /path/to/trajectory.npz` for recorded controller inputs.
-`--verify-policy` compares the full command/sampling path without a robot.
-Omit `--tensorrt` for ONNX-only export.
-
-Keep `.onnx`, `.validation.npz` and `export.json` together. Engine caches bind
-the graph, TensorRT, CUDA, GPU and precision; another target rebuilds and
-validates them before sensor connection. Numerical agreement does not qualify
-full-loop timing or physical behavior. See [recorded checks](deployment_status.md).
+Omitting `--reference-precision fp32` compares against the selected TF32 sampler;
+that strict comparison currently fails. Keep this distinction in any results.
+Update the P11 export paths in `configs/diffusion.yaml` after rebuilding.
+Keep `.onnx`, `.validation.npz` and `export.json` together; engine caches bind
+GPU, runtime and precision. `--backend onnx` is the CPU numerical reference.
+See [inference latency](inference_latency.md) for the offline benchmark.

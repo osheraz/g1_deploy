@@ -51,6 +51,25 @@ def fixtures(runtime):
     return pairs
 
 
+def tracker_fixtures(controller):
+    from motion_diffusion.behavioral.hardware.export import graph_examples
+    examples=graph_examples(controller=controller)
+    depths=examples.get('depth',(None,None,None,[None]))[3]
+    width=controller.contract['proprio_dim'];cases=[]
+    for i,(features,) in enumerate(examples['controller'][3]):
+        depth=depths[i%len(depths)]
+        sensors={} if depth is None else dict(zip(
+            ('depth_frames','depth_metadata','depth_available'),depth))
+        cases.append((features[:,:width],features[:,width:width+controller.latent_dim],sensors))
+    return cases
+
+
+def tracker_forward(controller,case):
+    history,code,sensors=case
+    return controller(history.to(controller.device),code.to(controller.device),
+        **{key:value.to(controller.device) for key,value in sensors.items()})
+
+
 def concurrent(checkpoint,options,engine,controller,features,requests,seconds):
     import numpy as np
     import torch
@@ -64,8 +83,7 @@ def concurrent(checkpoint,options,engine,controller,features,requests,seconds):
     try:
         with_worker.warmup(requests,timeout_s=60.)
         for i in range(10):
-            x=features[i%len(features)].to(controller.device)
-            controller(x[:,:width],x[:,width:]).cpu()
+            tracker_forward(controller,features[i%len(features)]).cpu()
         start=time.perf_counter();sent_at=None
         for tick in range(round(seconds/.02)):
             deadline=start+tick*.02
@@ -79,8 +97,7 @@ def concurrent(checkpoint,options,engine,controller,features,requests,seconds):
                 request=dict(requests[submitted%len(requests)],origin_tick=tick)
                 sent_at=time.perf_counter()
                 with_worker.submit(request);submitted+=1
-            x=features[tick%len(features)].to(controller.device)
-            action=controller(x[:,:width],x[:,width:]).cpu().numpy()
+            action=tracker_forward(controller,features[tick%len(features)]).cpu().numpy()
             if not np.isfinite(action).all():raise FloatingPointError('Nonfinite tracker output')
             ready=time.perf_counter();tracker.append(ready-capture);scheduled.append(ready-deadline)
             misses+=int(ready-deadline>.02)
@@ -100,7 +117,8 @@ def concurrent(checkpoint,options,engine,controller,features,requests,seconds):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--model',choices=('diffusion','flow','both'),default='both')
+    p.add_argument('--model',choices=('p11_diffusion','p05_diffusion','diffusion','flow','both'),default='p11_diffusion')
+    p.add_argument('--replan-hz',type=float,help='Benchmark a changed planner cadence alongside the 50 Hz tracker')
     p.add_argument('--profiles',nargs='+',choices=PROFILES,default=list(PROFILES))
     p.add_argument('--iterations',type=int,default=100)
     p.add_argument('--warmup',type=int,default=10)
@@ -113,7 +131,7 @@ def main():
     import torch
     import yaml
     import tensorrt
-    from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path
+    from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path,replan_ticks_for_hz
     from motion_diffusion.behavioral.hardware.cli import load_controller
     from motion_diffusion.behavioral.hardware.engines import configure_controller,configure_planner
     from motion_diffusion.behavioral.hardware.execution import sample_snapshot
@@ -123,7 +141,6 @@ def main():
     torch.set_num_threads(1)
     torch.backends.cuda.matmul.allow_tf32=False;torch.backends.cudnn.allow_tf32=False
     settings=yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text())
-    root,manifest=load_bundle(settings['bundle'])
     output=args.output or ROOT/'logs/native_recovery'/f'latency_{time.time_ns()}'
     output.mkdir(parents=True,exist_ok=False)
     report=dict(gpu=torch.cuda.get_device_name(args.device),torch=torch.__version__,cuda=torch.version.cuda,
@@ -132,17 +149,22 @@ def main():
     def save():(output/'report.json').write_text(json.dumps(report,indent=2,default=str)+'\n')
     save()
     for name in (('diffusion','flow') if args.model=='both' else (args.model,)):
+        from g1_deploy.deploy_diffusion import model_settings
+        selected=model_settings(settings,name)
+        root,manifest=load_bundle(selected['bundle'])
         row=manifest['models'][name];checkpoint=asset_path(root,row['planner'])
         options=dict(row['reference_inference'],seed=42,sampling_rng='legacy_v1')
+        ticks=replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])
+        if ticks is not None:options['replan_every_ticks']=ticks
         runtime=load_frozen_planner(checkpoint,args.device,**options)
         controller=load_controller(dict(controller_checkpoint=str(asset_path(root,row['controller'])),
             pd_sidecar=str(asset_path(root,row['pd_binding'])),tracker_device=args.device))
         pairs=fixtures(runtime)
-        features=[x[0] for x in graph_examples(controller=controller)['controller'][3]]
+        features=tracker_fixtures(controller)
         width=controller.contract['proprio_dim']
         with torch.no_grad():
             expected=[sample_snapshot(runtime,r,n)['prediction'] for r,n in pairs]
-            expected_actions=[controller(x[:,:width].to(args.device),x[:,width:].to(args.device)).cpu() for x in features]
+            expected_actions=[tracker_forward(controller,x).cpu() for x in features]
             for profile in args.profiles:
                 print(f'{name}/{profile}',flush=True)
                 result={};report['results'][name+'/'+profile]=result
@@ -150,7 +172,8 @@ def main():
                     runtime.model.inference_backend=None
                     if runtime.model.depth_encoder is not None:runtime.model.depth_encoder.inference_backend=None
                     controller.inference_backend=None
-                    pc=engine_config(settings,name,profile);tc=engine_config(settings,'controller',profile,tracker=True)
+                    if controller.depth_encoder is not None:controller.depth_encoder.inference_backend=None
+                    pc=engine_config(selected,name,profile);tc=engine_config(selected,'controller',profile,tracker=True)
                     configure_planner(runtime,checkpoint,pc);configure_controller(controller,tc)
                     result['neural_validation']={key:engine.validation_report for key,engine in (
                         ('denoiser',runtime.model.inference_backend),
@@ -164,7 +187,7 @@ def main():
                             passed &= bool(torch.allclose(value,native[key],atol=1e-3,rtol=1e-4))
                     tracker_error=0.
                     for x,native in zip(features,expected_actions):
-                        value=controller(x[:,:width].to(args.device),x[:,width:].to(args.device)).cpu()
+                        value=tracker_forward(controller,x).cpu()
                         tracker_error=max(tracker_error,float((value-native).abs().max()))
                     result.update(parity_passed=passed and tracker_error<=1e-3,
                                   planner_max_abs_error=errors,tracker_max_abs_error=tracker_error)
@@ -173,7 +196,7 @@ def main():
                         r,n=pairs[i%len(pairs)];sample=sample_snapshot(runtime,r,n)
                         x=features[i%len(features)]
                         began=time.perf_counter()
-                        controller(x[:,:width].to(args.device),x[:,width:].to(args.device)).cpu()
+                        tracker_forward(controller,x).cpu()
                         elapsed=time.perf_counter()-began
                         if i>=args.warmup:times.append(sample['sample_wall_s']);tracker_times.append(elapsed)
                     result.update(planner=latency_summary(times),tracker_input_to_cpu_action=latency_summary(tracker_times))

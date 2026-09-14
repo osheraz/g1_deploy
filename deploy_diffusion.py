@@ -1,9 +1,9 @@
 """Diffusion recovery on G1: one config, default sensor-only inference.
 
 python g1_deploy/deploy_diffusion.py
-python g1_deploy/deploy_diffusion.py --backend tensorrt
+python g1_deploy/deploy_diffusion.py --check
 python g1_deploy/deploy_diffusion.py --default-pose --actuate --release-controller
-python g1_deploy/deploy_diffusion.py --backend tensorrt --actuate
+python g1_deploy/deploy_diffusion.py --actuate --release-controller
 Motor mode: initially idle. A starts policy from the current pose; A again stops.
 Before starting only, START optionally moves to default over 2 s. SELECT stops.
 Default-pose-only mode also waits for START, then holds until SELECT/A/Ctrl+C.
@@ -19,6 +19,16 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 sys.path.insert(0,str(ROOT/'g1_deploy'))
 sys.path.insert(0,str(ROOT/'dependencies/isaac_utils'))
+
+
+def model_settings(settings, model):
+    """Resolve an explicit pair without changing the legacy diffusion/flow aliases."""
+    from copy import deepcopy
+    selected=deepcopy(settings)
+    selected.update(selected.get('models',{}).get(model,{}))
+    path=Path(selected['bundle'])
+    selected['bundle']=str(path if path.is_absolute() else ROOT/path)
+    return selected
 
 
 def hardware_settings(config, contract):
@@ -70,9 +80,12 @@ def main():
     from motion_diffusion.behavioral.hardware import bundle
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',type=Path,default=ROOT/'g1_deploy/configs/diffusion.yaml')
-    parser.add_argument('--model',choices=['diffusion','flow'],default='diffusion')
-    parser.add_argument('--backend',choices=['pytorch','tensorrt','onnx'],default='tensorrt')
-    parser.add_argument('--planner-precision',choices=['fp32','tf32'],default='fp32')
+    parser.add_argument('--model',choices=['p11_diffusion','p05_diffusion','diffusion','flow'],default='p11_diffusion')
+    parser.add_argument('--replan-hz',type=float,help='Override cadence on whole 50 Hz ticks; existing asynchronous horizon/age checks still apply')
+    parser.add_argument('--check',action='store_true',help='Verify selected weights, PD binding and synthetic inference; no sensors or motors')
+    parser.add_argument('--backend',choices=['pytorch','tensorrt','onnx'],help='Defaults to the selected model profile')
+    parser.add_argument('--planner-precision',choices=['fp32','tf32'],default='fp32',
+        help='TensorRT engine precision only; PyTorch uses the bundle precision (P11: TF32)')
     parser.add_argument('--engine-mode',choices=['standard','buffered','cuda_graph'],default='cuda_graph')
     parser.add_argument('--actuate',action='store_true')
     parser.add_argument('--preflight',action='store_true',help='Repeat live startup checks without motor output or takeover')
@@ -94,6 +107,11 @@ def main():
         help='Explicit diagnostic mount candidate used by live odometry')
     parser.add_argument('--odometry-clock',type=Path,help='Independent clock calibration JSON; never infer qualification from arrival jitter')
     args=parser.parse_args()
+    config_path=args.config.resolve()
+    settings=model_settings(_load_config(config_path),args.model)
+    if args.backend is None:args.backend=settings.get('default_backend','tensorrt')
+    if args.check and (args.actuate or args.release_controller or args.default_pose or args.preflight or args.live_odometry):
+        parser.error('--check does not open sensors or control the robot')
     if args.record_sensors is None:args.record_sensors=args.actuate or args.live_odometry
     if args.backend!='tensorrt' and args.planner_precision!='fp32':parser.error('TF32 engine precision requires TensorRT')
     if args.default_pose and not args.actuate:parser.error('--default-pose moves motors: add --actuate explicitly')
@@ -112,16 +130,36 @@ def main():
     # DDS, depth and journaling share this interpreter. The default 5 ms GIL
     # timeslice is a quarter of a control tick; give I/O threads shorter turns.
     sys.setswitchinterval(.001)
-    config_path=args.config.resolve();settings=_load_config(config_path)
     mode_name='Default-pose check' if args.default_pose else f'{args.model.capitalize()} / {args.backend}'
-    print(f'{mode_name} — '+('motor control enabled; waiting for your buttons.' if args.actuate else
+    print(f'{mode_name} — '+('model check, no sensors or motor output.' if args.check else
+          'motor control enabled; waiting for your buttons.' if args.actuate else
           f'sensor-only test ({args.duration_s:g} seconds), no motor output.'),flush=True)
     root,manifest=bundle.load_bundle(settings['bundle']);row=manifest['models'][args.model]
     import torch
     torch.set_num_threads(1)
     checkpoint=torch.load(bundle.asset_path(root,row['controller']),map_location='cpu',weights_only=True,mmap=True)
     hardware=hardware_settings(settings,checkpoint['action_vae']['model_contract'])
-    config,receipt=bundle.resolve_session(root,manifest,args.model,config_path,hardware_config=hardware)
+    replan_ticks=bundle.replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])
+    config,receipt=bundle.resolve_session(root,manifest,args.model,config_path,hardware_config=hardware,replan_ticks=replan_ticks)
+    if replan_ticks is not None:
+        print(f'Requested planner cadence: {50/replan_ticks:g} Hz; actual replies remain subject to compute/transport latency.',flush=True)
+    if args.check:
+        result=bundle.inspect_pair(bundle.asset_path(root,row['planner']),
+            bundle.asset_path(root,row['controller']),config['planner_options'],row['objective'],sample=True)
+        from motion_diffusion.behavioral.hardware.export_pd import derive_pd
+        from omegaconf import OmegaConf
+        training=OmegaConf.load(bundle.asset_path(root,row['controller_training_config']))
+        actual_pd=derive_pd(checkpoint['action_vae']['model_contract'],training)
+        if actual_pd!=config['pd']['training_pd']:
+            raise ValueError('Bundled PD differs from the original tracker training configuration')
+        print(f"Verified {args.model}: checkpoint hashes, paired contracts and CPU synthetic inference.")
+        print(f"H{result['H']} / H_z{result['H_z']} / F{result['F']} / S{result['state_dim']} / Z{result['latent_dim']}; PD gains, default pose and action scales match tracker training.")
+        options=config['planner_options']
+        print(f"Planner: {options['sampler']}{options['num_inference_steps']}, EMA={options['use_ema']}, "
+            f"{options['numerical_precision']}, {options['noise_policy']} noise, "
+            f"K{options['replan_every_ticks']}/blend{options['blend_ticks']}, {options['guidance']} guidance; "
+            f"maximum reply age {config['max_plan_age_ticks']} ticks.")
+        return
     live_odometry=None
     if args.live_odometry:
         live_odometry=dict(port=args.odometry_port,mode=args.odometry_mode,
@@ -131,6 +169,8 @@ def main():
         config['live_odometry']=live_odometry
     if args.backend!='pytorch' and not args.default_pose:
         for component,key in [('controller','controller'),('planner',args.model)]:
+            if key not in settings['exports']:
+                parser.error(f'No compiled export for {args.model}/{key}; use --backend pytorch')
             export=Path(settings['exports'][key])
             if not export.is_absolute():export=ROOT/export
             config[component+'_engine']=dict(backend=args.backend,directory=str(export),

@@ -22,9 +22,43 @@ camera:
 # Recovery can be prone: do not inherit SONIC's standing-only tilt restriction.
 # SONIC-style direct PD targets and measured-speed stop; joint positions are logged.
 max_joint_velocity: 35.0
+# After a command gap, retain position support at the latest measured pose.
+# This selects recoverable hold, never timing-triggered damping/session shutdown.
 max_command_age_s: 0.06
 
 exports:
   controller: logs/native_recovery/exports_20260911/controller_checked
   diffusion: logs/native_recovery/exports_20260911/diffusion
   flow: logs/native_recovery/exports_20260911/flow
+
+# The launcher defaults to this exact selected pair. The diffusion/flow keys
+# above retain the September 10 models for explicit legacy comparisons.
+models:
+  p11_diffusion:
+    default_backend: pytorch
+    bundle: logs/native_recovery/bundles/p11_20260913
+    exports:
+      controller: logs/native_recovery/exports_p11_20260913/controller
+      p11_diffusion: logs/native_recovery/exports_p11_20260913/planner
+    camera:
+      source: network
+      endpoint: tcp://127.0.0.1:15556
+      clock_endpoint: tcp://127.0.0.1:15558
+      serial: '247122073927'
+      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
+      mount_confirmed: true
+      allow_intrinsics_mismatch: false
+
+  p05_diffusion:
+    default_backend: pytorch
+    bundle: logs/native_recovery/bundles/p05_20260913
+    # No P05/A exports yet: never substitute the legacy C10k engine.
+    exports: {}
+    camera:
+      source: network
+      endpoint: tcp://127.0.0.1:15556
+      clock_endpoint: tcp://127.0.0.1:15558
+      serial: '247122073927'
+      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
+      mount_confirmed: true
+      allow_intrinsics_mismatch: false

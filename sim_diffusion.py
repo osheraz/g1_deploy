@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Compare native diffusion/full-horizon and flow/replanning on flat MuJoCo.
+"""Run selected P11 recovery or legacy diffusion/flow in MuJoCo.
 
-python g1_deploy/sim_diffusion.py --model both --video
-python g1_deploy/sim_diffusion.py --model diffusion --viewer
+python g1_deploy/sim_diffusion.py --video
+python g1_deploy/sim_diffusion.py --model p11_diffusion --viewer
 python g1_deploy/sim_diffusion.py --model flow --viewer --start supine
 """
 from __future__ import annotations
@@ -21,30 +21,50 @@ sys.path.insert(0,str(ROOT))
 
 
 def arguments():
+    from motion_diffusion.behavioral.mujoco_terrain import SIM_TERRAINS,DEFAULT_CACHE
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--model',choices=('diffusion','flow','both'),default='both')
+    parser.add_argument('--model',choices=('p11_diffusion','p05_diffusion','diffusion','flow','both'),default='p11_diffusion')
+    parser.add_argument('--replan-hz',type=float,help='Override saved cadence on whole 50 Hz ticks; e.g. 2.5, 5, 10. Simulation time, not a compute guarantee')
     parser.add_argument('--bundle',type=Path,help='Defaults to configs/diffusion.yaml bundle')
     parser.add_argument('--mjcf',type=Path,help='Defaults to the repository SONIC G1-29 MJCF')
-    parser.add_argument('--seconds',type=float,default=10.,help='Simulated seconds per model/episode')
+    parser.add_argument('--terrain',choices=('flat','step',*SIM_TERRAINS),default='flat')
+    parser.add_argument('--terrain-seed',type=int,default=42)
+    parser.add_argument('--terrain-cache',type=Path,default=DEFAULT_CACHE)
+    parser.add_argument('--depth-view',action=argparse.BooleanOptionalAction,default=True,
+                        help='Show the actual planner depth input in the live window')
+    parser.add_argument('--step-height',type=float,default=.15,help='Stair height in metres')
+    parser.add_argument('--step-edge',type=float,default=.25,help='Front edge X in metres relative to initial pelvis; stair extends toward +X')
+    parser.add_argument('--step-length',type=float,default=1.2,help='Stair tread length along X in metres')
+    parser.add_argument('--step-width',type=float,default=2.,help='Stair width along Y in metres')
+    parser.add_argument('--seconds',type=float,help='Episode duration; default: unlimited with --viewer, 10 s headless. Use 0 for unlimited')
     parser.add_argument('--episodes',type=int,default=1)
     parser.add_argument('--start',choices=('standing','prone','supine','left_side','right_side','seated','random'),default='supine')
     parser.add_argument('--postures',nargs='+',choices=('standing','prone','supine','left_side','right_side','seated','random'),
                         help='Headless sweep: run --episodes seeds for each posture')
     parser.add_argument('--joint-jitter',type=float,default=0.,help='Seeded joint perturbation amplitude in radians, at most .3')
-    parser.add_argument('--backend',choices=('pytorch','tensorrt','onnx'),default='tensorrt')
-    parser.add_argument('--planner-precision',choices=('fp32','tf32'),default='fp32')
+    parser.add_argument('--backend',choices=('pytorch','tensorrt','onnx'),help='Selected model default: P11 PyTorch TF32; legacy models TensorRT FP32')
+    parser.add_argument('--planner-precision',choices=('fp32','tf32'),default='fp32',help='TensorRT only; PyTorch uses the saved bundle precision')
     parser.add_argument('--engine-mode',choices=('standard','buffered','cuda_graph'),default='cuda_graph')
     parser.add_argument('--seed',type=int,default=42)
-    parser.add_argument('--pose-seed',type=int,help='Fix posture/joint randomness independently of planner seed')
+    parser.add_argument('--pose-seed',type=int,help='Initial posture/joint seed; N advances it and samples a nearby start')
     parser.add_argument('--sensor-seed',type=int,help='Fix camera delivery randomness independently of planner seed')
+    parser.add_argument('--depth-startup',choices=('cold','stationary'),default='cold',
+                        help='Diagnostic: stationary renders one second of camera prehistory at the resting pose before policy tick zero')
     parser.add_argument('--device',default='cuda:0')
     parser.add_argument('--viewer',action='store_true',help='Interactive MuJoCo window; requires a display')
     parser.add_argument('--video',action='store_true',help='Save an MP4 per run; supports headless EGL')
     parser.add_argument('--output',type=Path)
     args=parser.parse_args()
-    if not 0<args.seconds<=120 or args.episodes<1:parser.error('Use 0 < seconds <= 120 and positive episodes')
+    import math
+    if args.seconds is None:args.seconds=None if args.viewer else 10.
+    elif not math.isfinite(args.seconds) or args.seconds<0:parser.error('--seconds must be finite and nonnegative')
+    elif args.seconds==0:args.seconds=None
+    if args.episodes<1:parser.error('--episodes must be positive')
     if not 0<=args.joint_jitter<=.3:parser.error('--joint-jitter must be between 0 and .3 radians')
-    if args.backend!='tensorrt' and args.planner_precision!='fp32':parser.error('--planner-precision tf32 requires TensorRT')
+    if not all(math.isfinite(x) for x in (args.step_height,args.step_edge,args.step_length,args.step_width)):
+        parser.error('Step dimensions must be finite')
+    if min(args.step_height,args.step_length,args.step_width)<=0:parser.error('Step dimensions must be positive')
+    if args.planner_precision!='fp32' and args.backend!='tensorrt':parser.error('--planner-precision tf32 requires explicit --backend tensorrt')
     if args.viewer and args.postures:parser.error('Use posture keys in the viewer; --postures is a headless sweep')
     if args.viewer and not os.environ.get('DISPLAY') and sys.platform.startswith('linux'):
         parser.error('--viewer needs DISPLAY; use --video for a headless SSH session')
@@ -55,11 +75,19 @@ class ViewerControls:
     """The GUI thread only queues events; the control thread owns resets."""
     def __init__(self):self.events=queue.SimpleQueue()
     def key(self,keycode):
-        if keycode in (ord('R'),ord('N'),ord('M'),32,259,*range(ord('1'),ord('8'))):
+        if keycode in (ord('R'),ord('N'),ord('M'),ord('P'),32,259,*range(ord('1'),ord('8'))):
             self.events.put(keycode)
     def poll(self):
         try:return self.events.get_nowait()
         except queue.Empty:return None
+
+
+def sample_start_offset(seed):
+    """Sample around the original start, independently of planner/camera RNG."""
+    import numpy as np
+    rng=np.random.default_rng([int(seed),7143])
+    return dict(root_xy=rng.uniform(-.1,.1,2).tolist(),
+                root_rpy=np.deg2rad(rng.uniform([-5.,-5.,-15.],[5.,5.,15.])).tolist())
 
 
 def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None):
@@ -67,28 +95,36 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
     import numpy as np
     import torch
     from humanoidverse2.agents.action_vae.heading import initialize_heading,transport_heading
-    from motion_diffusion.behavioral.mujoco import MujocoDepth
+    from motion_diffusion.behavioral.mujoco import WarpDepth
     pose_seed=getattr(args,'pose_seed',None)
     sensor_seed=getattr(args,'sensor_seed',None)
     pose_seed=seed if pose_seed is None else pose_seed
     sensor_seed=seed if sensor_seed is None else sensor_seed
     with viewer.lock() if viewer else nullcontext():
-        plant.reset(args.start,seed=pose_seed,joint_jitter=args.joint_jitter)
+        plant.reset(args.start,seed=pose_seed,joint_jitter=args.joint_jitter,
+                    **getattr(args,'start_offset',{}))
     if viewer:viewer.sync()
-    sensor=MujocoDepth(plant,capture,sensor_seed) if capture else None
+    device=policy.controller.device
+    sensor=WarpDepth(plant,capture,sensor_seed,device=device) if capture else None
+    if getattr(args,'depth_startup','cold')=='stationary':
+        if sensor is None:raise ValueError('--depth-startup stationary requires a depth-conditioned model')
+        sensor.prime_stationary()
+        print('  Depth startup: stationary camera prehistory; physics and policy still start at tick zero.',flush=True)
     print(f'  Reset: {plant.reset_info}',flush=True)
     device=policy.controller.device
     previous=torch.zeros(1,29,device=device);code=torch.zeros(1,policy.controller.latent_dim,device=device)
     heading=previous_quat=None
     frames=[];replans=[];plans=[];status='duration_reached'
+    end_tick=None if args.seconds is None else round(args.seconds/.02)
     began=time.monotonic()
     with ExitStack() as stack:
         renderer=writer=None
         camera=mujoco.MjvCamera();camera.distance=2.5;camera.azimuth=135;camera.elevation=-18
         if viewer:
-            viewer.set_texts((None,None,f'{args.start} | seed {seed}\n'
-                'R reset | N new seed | SPACE pause | M next model\n'
-                '1 stand  2 front  3 back  4 left  5 right  6 seated  7 random',None))
+            viewer.set_texts((None,None,f'{getattr(args,"terrain_label",getattr(args,"terrain","flat"))} | {args.start} | policy seed {seed}\n'
+                'R repeat | N seed + nearby start | M terrain | P model | SPACE pause\n'
+                '1 stand  2 front  3 back  4 left  5 right  6 seated  7 random\n'
+                'Depth: dark=near | light=far | purple=invalid/missing (including <10 cm)',None))
         if args.video:
             import imageio.v2 as imageio
             with viewer.lock() if viewer else nullcontext():
@@ -99,7 +135,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
         render_options=mujoco.MjvOption();render_options.geomgroup[:]=[1,1,0,0,0,0]
         try:
             tick=0;paused=False;halted=False;end_announced=False
-            while tick<round(args.seconds/.02) or viewer:
+            while viewer or end_tick is None or tick<end_tick:
                 if viewer and not viewer.is_running():status='viewer_closed';break
                 # A reset through MuJoCo's built-in UI also resets policy history.
                 if abs(float(plant.data.time)-tick*.02)>1e-6:
@@ -107,16 +143,19 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 event=controls.poll() if controls else None
                 if event==32:paused=not paused
                 elif event is not None:
-                    status='next_model' if event==ord('M') else 'reset_requested'
-                    if event==ord('N'):args.next_seed=seed+1
+                    status=('next_model' if event==ord('P') else 'next_terrain' if event==ord('M') else 'reset_requested')
+                    if event==ord('N'):
+                        args.next_seed=seed+1
+                        args.pose_seed=pose_seed+1
+                        args.start_offset=sample_start_offset(args.pose_seed)
                     if ord('1')<=event<=ord('7'):
                         from motion_diffusion.behavioral.mujoco import START_POSTURES
                         args.start=START_POSTURES[event-ord('1')]
                     break
-                if viewer and (paused or halted or tick>=round(args.seconds/.02)):
+                if viewer and (paused or halted or (end_tick is not None and tick>=end_tick)):
                     if not paused and not end_announced:
                         viewer.set_texts((None,None,f'Episode stopped: {args.start} | seed {seed}\n'
-                                          'R reset | N new seed | 1-7 posture | M next model',None))
+                                          'R repeat | N seed + nearby start | M terrain | P model | 1-7 posture',None))
                         end_announced=True
                     viewer.sync();time.sleep(.01);continue
                 wall_start=time.monotonic()
@@ -127,12 +166,24 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 sensor_args={};availability=[]
                 if sensor:
                     sensor.capture_tick(tick,obs)
+                    if tick==0:
+                        camera_info=sensor.startup_info
+                        plant.reset_info['camera']=camera_info
+                        print(f'  Camera: {100*camera_info["camera_clearance_above_terrain_m"]:.1f} cm above terrain; '
+                              f'{100*camera_info["too_near_fraction"]:.0f}% too close '
+                              f'(<{100*camera_info["min_valid_depth_m"]:g} cm), '
+                              f'{100*camera_info["no_hit_fraction"]:.0f}% no return. These pixels stay masked.',flush=True)
                     for prefix,config in (('',policy.planner.model.behavioral_config.get('depth_condition',{})),
                                           ('tracker_',policy.controller.depth_config)):
                         if not config.get('enabled'):continue
                         depth=sensor.prepare(tick,config,device,heading)
                         sensor_args.update({prefix+'depth_'+key:value for key,value in depth.items()})
-                        if not prefix:availability=depth['available'][0].cpu().numpy()
+                        if not prefix:
+                            availability=depth['available'][0].cpu().numpy()
+                            if viewer and getattr(args,'depth_view',True):
+                                from motion_diffusion.behavioral.mujoco_terrain import depth_panel
+                                panel=depth_panel(depth['frames'][0].detach().cpu().numpy(),availability,config['max_depth_m'])
+                                viewer.set_images((mujoco.MjrRect(12,12,panel.shape[1],panel.shape[0]),panel))
                 result=policy.step(obs.q[None],obs.dq[None],obs.gyro_body[None],obs.gravity_body[None],previous,
                     pelvis_quat=quat,previous_executed_code=code,reset_mask=torch.tensor([tick==0],device=device),
                     control_tick=torch.tensor([tick],device=device),episode_seeds=[seed],**sensor_args)
@@ -159,13 +210,15 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 # No motor-session guards in a simulated experiment. Retain
                 # training action and torque clamps; log saturation and falls.
                 qpos=plant.data.qpos.copy();root=plant.data.xpos[plant.pelvis].copy()
+                terrain_z=plant.terrain_height(root[:2])
                 with viewer.lock() if viewer else nullcontext():
                     issued,target,torque,clipped=plant.step(action)
                 previous=torch.tensor(issued,device=device).reshape(1,29)
                 code=result['native_code'].detach()
                 frames.append(dict(time=tick*.02,q=obs.q,dq=obs.dq,gravity=obs.gravity_body,
                     pelvis_quat_xyzw=obs.quat_xyzw.copy(),causal_heading_rad=float(heading[0]),
-                    qpos=qpos,root_position=root,action=issued,target=target,native_code=code[0].cpu().numpy(),
+                    qpos=qpos,root_position=root,terrain_height_m=terrain_z,
+                    action=issued,target=target,native_code=code[0].cpu().numpy(),
                     raw_action_max=raw_max,saturated_joints=int((np.abs(action)>=plant.clip).sum()),
                     torque_peak=torque,torque_clipped=clipped,depth_available=np.asarray(availability,dtype=bool),
                     wall_ms=(time.monotonic()-wall_start)*1000))
@@ -180,7 +233,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                     remaining=.02-(time.monotonic()-wall_start)
                     if remaining>0:time.sleep(remaining)
                 if tick%50==0:
-                    print(f'  t={tick*.02:5.1f}s height={root[2]:.3f}m upright={-obs.gravity_body[2]:.3f} '
+                    print(f'  t={tick*.02:5.1f}s height_above_terrain={root[2]-terrain_z:.3f}m upright={-obs.gravity_body[2]:.3f} '
                           f'raw_action={raw_max:.2f} plans={len(replans)}',flush=True)
                 if any(int(w.number)>0 for w in plant.data.warning):
                     status='physics_warning'
@@ -206,19 +259,21 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                             geometry_valid=True,tracking_valid=False,offline_replay=True,clock_domain='simulation',
                             yaw_disagreement_rad=0.,tilt_disagreement_rad=0.)
                         stream.write(json.dumps(packet)+'\n')
-            upright=[f['root_position'][2]>=.55 and -f['gravity'][2]>=.75 for f in frames]
+            upright=[f['root_position'][2]-f['terrain_height_m']>=.55 and -f['gravity'][2]>=.75 for f in frames]
             held=0;first_hold=None
             for i,good in enumerate(upright):
                 held=held+1 if good else 0
                 if held>=50 and first_hold is None:first_hold=(i+1)*.02
             summary=dict(status=status,reset=plant.reset_info,planner_seed=seed,sensor_seed=sensor_seed,
+                depth_startup=getattr(args,'depth_startup','cold'),
                 frames=len(frames),simulated_seconds=len(frames)*.02,
                 upright_hold_1s=first_hold is not None,first_upright_hold_s=first_hold,
                 final_second_upright_fraction=float(np.mean(upright[-50:])) if upright else None,
-                upright_metric='pelvis world height >= .55 m and upright cosine >= .75 for 50 control ticks; diagnostic, not training success',
+                upright_metric='pelvis height above terrain under pelvis XY >= .55 m and upright cosine >= .75 for 50 control ticks; diagnostic, not training success',
                 wall_seconds=time.monotonic()-began,replan_ticks=replans,
                 min_pelvis_height_m=min((float(f['root_position'][2]) for f in frames),default=None),
                 final_pelvis_height_m=float(plant.data.xpos[plant.pelvis,2]),
+                final_pelvis_height_above_terrain_m=float(plant.data.xpos[plant.pelvis,2]-plant.terrain_height(plant.data.xpos[plant.pelvis,:2])),
                 saturated_action_ticks=sum(f['saturated_joints']>0 for f in frames),
                 max_raw_action=max((f['raw_action_max'] for f in frames),default=None),
                 final_upright_cos=float(-plant.observation().gravity_body[2]),
@@ -230,6 +285,9 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
 
 def main():
     args=arguments()
+    # N varies diffusion noise independently of pose and camera delivery.
+    if args.pose_seed is None:args.pose_seed=args.seed
+    if args.sensor_seed is None:args.sensor_seed=args.seed
     if args.video and not args.viewer:os.environ.setdefault('MUJOCO_GL','egl')
     import torch
     import yaml
@@ -237,34 +295,41 @@ def main():
     from motion_diffusion.behavioral.deploy import NativeRecoveryPolicy
     from motion_diffusion.behavioral.hardware.cli import load_controller
     from motion_diffusion.behavioral.runtime import load_frozen_planner
-    from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path
+    from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path,replan_ticks_for_hz
     from motion_diffusion.behavioral.hardware.export_pd import derive_pd
     from motion_diffusion.behavioral.hardware.engines import configure_controller,configure_planner
-    from motion_diffusion.behavioral.mujoco import DEFAULT_MJCF,flat_model,MujocoNativePlant
+    from motion_diffusion.behavioral.mujoco import DEFAULT_MJCF,scene_model,MujocoNativePlant
     torch.set_num_threads(1)
     config=yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text())
-    bundle,manifest=load_bundle(args.bundle or config['bundle'])
-    output=(args.output or ROOT/'logs/native_recovery'/f'mujoco_flat_{time.time_ns()}').resolve()
+    from g1_deploy.deploy_diffusion import model_settings
+    output=(args.output or ROOT/'logs/native_recovery'/f'mujoco_{args.terrain}_{time.time_ns()}').resolve()
     output.mkdir(parents=True,exist_ok=False)
     print(f'Output: {output}',flush=True)
     runs={}
     for name in (('diffusion','flow') if args.model=='both' else (args.model,)):
+        selected=model_settings(config,name)
+        backend=args.backend or selected.get('default_backend','tensorrt')
+        bundle,manifest=load_bundle(args.bundle or selected['bundle'])
         row=manifest['models'][name]
         controller_path=asset_path(bundle,row['controller']);planner_path=asset_path(bundle,row['planner'])
         training=OmegaConf.load(asset_path(bundle,row['controller_training_config']))
         controller=load_controller(dict(controller_checkpoint=str(controller_path),tracker_device=args.device,
             pd_sidecar=str(asset_path(bundle,row['pd_binding']))))
         inference=dict(row['reference_inference'])
+        ticks=replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])
+        if ticks is not None:inference['replan_every_ticks']=ticks
         planner=load_frozen_planner(planner_path,args.device,seed=args.seed,sampling_rng='paired_episode_v2',**inference)
-        if name=='diffusion' and (planner.replan_every_ticks!=planner.model.F or planner.blend_ticks):
+        if args.replan_hz is None and name=='diffusion' and (planner.replan_every_ticks!=planner.model.F or planner.blend_ticks):
             raise ValueError('Diffusion recipe must execute its complete horizon without blending')
         if name=='flow' and not 0<planner.replan_every_ticks<planner.model.F:
             raise ValueError('Flow recipe must replan before its horizon ends')
-        if args.backend!='pytorch':
+        if backend!='pytorch':
             def engine(key,precision):
-                directory=Path(config['exports'][key])
+                if key not in selected['exports']:
+                    raise ValueError(f'No compiled export for {name}/{key}; use --backend pytorch')
+                directory=Path(selected['exports'][key])
                 if not directory.is_absolute():directory=ROOT/directory
-                return dict(directory=str(directory),backend=args.backend,precision=precision,execution_mode=args.engine_mode,
+                return dict(directory=str(directory),backend=backend,precision=precision,execution_mode=args.engine_mode,
                             validation_mode='measure' if precision=='tf32' else 'strict')
             configure_controller(controller,engine('controller','fp32'))
             configure_planner(planner,planner_path,engine(name,args.planner_precision))
@@ -277,21 +342,30 @@ def main():
             print('Experimental precision: neural parity tolerance exceeded; measuring closed-loop behavior.',flush=True)
         robot=OmegaConf.to_container(training.robot,resolve=True)
         pd=derive_pd(controller.contract,dict(robot=robot,simulator=dict(config=dict(sim=OmegaConf.to_container(training.simulator.config.sim,resolve=True)))))
-        model=flat_model(args.mjcf or DEFAULT_MJCF)
+        scene=dict(terrain=args.terrain,head_geometry='training',step_height=args.step_height,step_edge=args.step_edge,
+                   step_length=args.step_length,step_width=args.step_width,
+                   terrain_seed=args.terrain_seed,terrain_cache=str(args.terrain_cache.resolve()))
+        model=scene_model(args.mjcf or DEFAULT_MJCF,**scene)
         plant=MujocoNativePlant(model,controller.contract,pd,robot)
         depth_configs=[c for c in (controller.depth_config,planner.model.behavioral_config.get('depth_condition',{})) if c.get('enabled')]
         capture=depth_configs[0]['capture'] if depth_configs else None
         if any(c['capture']!=capture for c in depth_configs):raise ValueError('Tracker/planner camera mounts differ')
         print(f'{name}: horizon={planner.model.F}, replan={planner.replan_every_ticks}, blend={planner.blend_ticks} ticks; '
-              f'{inference["sampler"]}{inference["num_inference_steps"]}; start={args.start}',flush=True)
+              f'{inference["sampler"]}{inference["num_inference_steps"]}; {backend}; '
+              f'{50/planner.replan_every_ticks:g} Hz planning; start={args.start}',flush=True)
+        if args.terrain=='step':print(f'Stair: height {args.step_height:g} m, edge X={args.step_edge:g} m, '
+            f'tread {args.step_length:g} m, width {args.step_width:g} m; pelvis starts at XY=(0,0).',flush=True)
         viewer=None;controls=None
-        if args.viewer:
+        def open_viewer(model,plant):
             import mujoco.viewer
             controls=ViewerControls()
-            viewer=mujoco.viewer.launch_passive(model,plant.data,key_callback=controls.key)
-            with viewer.lock():
-                viewer.cam.distance=2.5;viewer.cam.azimuth=135;viewer.cam.elevation=-18
-                viewer.opt.geomgroup[:]=[1,1,0,0,0,0]
+            view=mujoco.viewer.launch_passive(model,plant.data,key_callback=controls.key)
+            with view.lock():
+                view.cam.distance=3.;view.cam.azimuth=135;view.cam.elevation=-25
+                view.opt.geomgroup[:]=[1,1,0,0,0,0]
+            return view,controls
+        if args.viewer:
+            viewer,controls=open_viewer(model,plant)
         episode=0;seed=args.seed
         postures=args.postures or [args.start]
         while episode<args.episodes*len(postures) or viewer:
@@ -299,16 +373,26 @@ def main():
                 args.start=postures[episode//args.episodes]
                 seed=args.seed+episode%args.episodes
             directory=output/f'{name}_{episode:03d}';directory.mkdir()
+            from motion_diffusion.behavioral.mujoco_terrain import SIM_TERRAINS,sample_terrain_mesh
+            tile_info=sample_terrain_mesh(args.terrain,scene['terrain_seed'],args.terrain_cache)[2] if args.terrain in SIM_TERRAINS else None
+            args.terrain_label=(f'{tile_info["family"]} tile {tile_info["tile"]} terrain seed {scene["terrain_seed"]}' if tile_info else args.terrain)
+            if tile_info:print(f'Terrain: {args.terrain_label}',flush=True)
             (directory/'config.json').write_text(json.dumps(dict(model=name,seed=seed,start=args.start,joint_jitter=args.joint_jitter,
-                pose_seed=args.pose_seed,sensor_seed=args.sensor_seed,
-                backend=args.backend,planner_precision=args.planner_precision,engine_mode=args.engine_mode,
+                pose_seed=args.pose_seed,sensor_seed=args.sensor_seed,start_offset=getattr(args,'start_offset',{}),
+                depth_startup=args.depth_startup,
+                backend=backend,planner_precision=(args.planner_precision if backend=='tensorrt' else inference['numerical_precision']),engine_mode=args.engine_mode,
+                camera_randomization=False,
+                scene=scene,
+                terrain_tile=tile_info,depth_backend='shared_training_warp',
+                reference_inference=row['reference_inference'],requested_replan_hz=args.replan_hz,
+                actual_replan_hz=50/planner.replan_every_ticks,
                 neural_validation=validation,
                 mjcf=str((args.mjcf or DEFAULT_MJCF).resolve()),bundle=str(bundle),
                 controller_sha256=row['controller']['sha256'],planner_sha256=row['planner']['sha256'],
                 inference=inference,sampling_rng='paired_episode_v2',pd=pd,camera=capture,
                 effort_limits=plant.effort.tolist(),physics_dt=float(model.opt.timestep),control_dt=.02,
                 timing='synchronous simulation clock; inference pauses physics',
-                plant='SONIC MuJoCo asset, saved nominal PD/armature/friction/effort, flat friction1; no domain randomization'),indent=2)+'\n')
+                plant='SONIC MuJoCo asset, saved nominal PD/armature/friction/effort, terrain friction1; no domain randomization'),indent=2)+'\n')
             try:result=run_episode(policy,plant,capture,args,directory,seed,viewer,controls)
             except BaseException:
                 if viewer:viewer.close()
@@ -316,7 +400,17 @@ def main():
             runs[directory.name]=result
             (output/'summary.json').write_text(json.dumps(runs,indent=2)+'\n')
             episode+=1
-            seed=getattr(args,'next_seed',seed if viewer else seed+1)
+            seed=vars(args).pop('next_seed',seed if viewer else seed+1)
+            if result['status']=='next_terrain':
+                if viewer:viewer.close()
+                if args.terrain not in SIM_TERRAINS:args.terrain='fork3'
+                args.terrain_seed+=1
+                scene.update(terrain=args.terrain,terrain_seed=args.terrain_seed)
+                print('Loading next fork3 terrain; keeping model weights and policy seed.',flush=True)
+                model=scene_model(args.mjcf or DEFAULT_MJCF,**scene)
+                plant=MujocoNativePlant(model,controller.contract,pd,robot)
+                viewer,controls=open_viewer(model,plant)
+                continue
             if result['status'] in ('interrupted','viewer_closed','next_model','physics_warning'):
                 if viewer:viewer.close()
                 if result['status']!='next_model':return

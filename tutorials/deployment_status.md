@@ -5,13 +5,28 @@ Steering semantics: [Stanley's measurement contract](../../notes/stanley_steerin
 
 ## Implemented and checked
 
-- Diffusion/full horizon and flow/replanning use the paired action decoder.
-  TensorRT FP32 is the default. The planner runs separately from the 50 Hz tracker.
-- Depth remains the planner input. `--live-odometry` adds live DLIO/FK pelvis XYZ
+- **P11 diffusion20k + N17k H3 depth tracker is the deployment default**, using
+  selected PyTorch TF32/DDIM8/fresh noise/K20/blend0. The planner runs separately
+  from the 50 Hz tracker. Legacy diffusion/flow retain their older models.
+- P11 offline checks: pinned checkpoint hashes and training PD match; full CPU
+  planner + depth tracker outputs match Stanley's `43170d4` exactly for three
+  missing/partial/full-depth cases. TensorRT FP32 matches FP32, but differs from
+  selected TF32; it remains an explicit precision comparison. [Details](deployment_reference.md).
+  The actual deployment warmup also passes with both models and the planner
+  process, leaving live histories empty and issuing no physical commands.
+  **P11 has not been tested on physical sensors or motors in this integration.**
+- MuJoCo depth geometry is corrected: the legacy MJCF head previously blocked
+  every camera ray. Both our earlier code and Stanley's `43170d4` reproduce this.
+  The ray-only scene now uses training URDF visuals and matches the training
+  renderer at checked poses (identical masks, up to 1 mm depth difference).
+  Earlier all-zero-depth simulation comparisons are superseded. P05 and P11
+  each passed four corrected smoke runs at matched 2.5 Hz; this is not a model
+  ranking. [Audit and reproduction](../../notes/validation/mujoco_depth_20260913.md).
+- Depth feeds both P11 planner and tracker. `--live-odometry` adds live DLIO/FK pelvis XYZ
   in monitoring mode; A starts the policy and raw recording together.
 - Shared fall-aware heading and full relative orientation are logged. The head
   mount is fixed; measured waist joints convert LiDAR pose to pelvis pose.
-- Stationary hoist compute tests with inference, depth, odometry and recording:
+- Earlier-model stationary hoist tests with inference, depth, odometry and recording:
   diffusion control work **6.3–6.7 ms p95**, flow **7.0 ms p95**. These were
   sensor-only tests, not dynamic accuracy or recovery-success measurements.
   [Compute evidence and architecture](../../notes/deployment_compute.md).
@@ -38,8 +53,8 @@ XYZ remains **monitoring only**. Do not enable `--odometry-mode required` or
 position-dependent steering without qualified measurements. Stanley owns steering
 training/integration; simulator truth must stay labelled as oracle feedback.
 
-Next operator action: the [ground trial in the operator guide](deploy_diffusion.md#2-recovery--live-xyz-recording--terminal-2),
-with external video and a new session. Current-pose startup can still produce a
+Next operator action: the [P11 sensor-only hoist check](deploy_diffusion.md#first-p11-sensor-check--terminal-2),
+then the ground trial with external video and a new session. Current-pose startup can still produce a
 rejected saturated decoder output for some inputs; numerical backend parity does
 not establish that every starting pose is supported. See [runtime reference](deployment_reference.md#control-and-startup-behavior).
 
