@@ -5,6 +5,7 @@ The planner keeps depth. Optional live odometry publishes to the runtime receive
 """
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -32,9 +33,14 @@ class RecorderProcesses:
                 stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
             self.children.append((name,proc))
 
-    def check(self):
+    def check(self,optional=()):
+        """Raise for a required child that exited; return the optional ones that did."""
+        exited=[]
         for name,proc in self.children:
-            if proc.poll() is not None:raise RuntimeError(f'Sensor {name} exited ({proc.returncode}); inspect its recording log')
+            if proc.poll() is None:continue
+            if name in optional:exited.append(name)
+            else:raise RuntimeError(f'Sensor {name} exited ({proc.returncode}); inspect its recording log')
+        return exited
 
     def close(self):
         # The policy has already closed before deployment calls this. A second
@@ -67,14 +73,18 @@ class RecorderProcesses:
 
 class PolicyRecording:
     """Prepare off-thread sensor capture; policy start writes one small pipe message."""
-    def __init__(self,output,*,interface,seconds,existing_driver=False,label='supported_hoist',live_odometry=None,automatic_start=False):
+    def __init__(self,output,*,interface,seconds,existing_driver=False,label='supported_hoist',live_odometry=None,
+                 automatic_start=False,camera=None):
         self.output=Path(output);self.started=False;self.processes=RecorderProcesses()
         self.error=None;self.monitor_stop=threading.Event();self.monitor=None
         self.args=SimpleNamespace(interface=interface,seconds=seconds,label=label,
             existing_driver=existing_driver,record_only=True,mount_calibration=None,
-            driver_config=ROOT/'g1_deploy/config/lidar/MID360_bluefin.json')
+            driver_config=ROOT/'g1_deploy/config/lidar/MID360_bluefin.json',
+            camera_device=None if camera is None else camera['device'],
+            camera_size=None if camera is None else camera['size'],camera_fps=None if camera is None else camera['fps'])
         self.live_odometry=live_odometry
         self.automatic_start=automatic_start
+        self.camera=camera;self.camera_error=None;self.trigger=None
         if live_odometry is not None:
             self.args.record_only=False;self.args.scan_packets=3
             self.args.dlio_config=ROOT/'g1_deploy/config/lidar/dlio.yaml'
@@ -94,11 +104,15 @@ class PolicyRecording:
         if not (self.workspace/'install/setup.bash').is_file():
             raise RuntimeError(f'Missing ROS workspace {self.workspace}; set LIDAR_WS or use --no-record-sensors')
         self.output.mkdir(parents=True,exist_ok=False)
+        if self.camera is not None:(self.output/'camera').mkdir()
         plan=commands(self.args,self.output);plan[-1][1].append('--controlled')
+        camera=None if self.camera is None else dict(self.camera,file='camera/external.mkv',container='matroska',
+            codec='mjpeg stream copied, no re-encode',timestamps='V4L2 wall clock (-ts abs, -copyts); exposure timing unqualified',
+            wall_minus_monotonic_s=time.time()-time.monotonic(),launch_monotonic_s=time.monotonic())
         (self.output/'session.json').write_text(json.dumps(dict(commands=plan,label=self.args.label,
             motor_publisher=False,trigger='sensor-only inference start' if self.automatic_start else 'accepted policy A',planner_terrain='depth',
             policy_session=str(self.output.parent),raw_only=self.args.record_only,ros_workspace=str(self.workspace.resolve()),
-            live_odometry=self.live_odometry),indent=2)+'\n')
+            live_odometry=self.live_odometry,camera=camera),indent=2)+'\n')
         print('Starting recorder in background; loading policy without waiting for it.',flush=True)
         self.processes.launch(plan,self.output,self.workspace,controlled=True)
         os.set_blocking(self.processes.children[-1][1].stdin.fileno(),False)
@@ -106,11 +120,26 @@ class PolicyRecording:
         print(('Recording starts with sensor-only inference.' if self.automatic_start else 'A starts policy + recording.')+
             f' Raw sensors: {self.output}',flush=True)
 
+    def _camera_state(self,exited,previous_size):
+        video=self.output/'camera/external.mkv'
+        size=video.stat().st_size if video.is_file() else 0
+        if 'camera' in exited:
+            self.camera_error=self.camera_error or 'ffmpeg exited; inspect camera.log'
+            return 'External camera stopped: '+self.camera_error,size
+        if size>previous_size:return f'External camera recording ({size>>20} MB).',size
+        return ('External camera opening.' if size==0 else 'External camera waiting for file flush (buffering or stalled input).'),size
+
     def _monitor(self):
-        previous=None
+        previous=None;camera_previous=None;camera_size=0;camera_message=''
         while not self.monitor_stop.wait(.5):
             try:
-                self.processes.check()
+                if self.trigger is not None and not (self.output/'policy_start.json').is_file():
+                    (self.output/'policy_start.json').write_text(json.dumps(self.trigger,indent=2)+'\n')
+                exited=self.processes.check(optional=('camera',))
+                if self.camera is not None:
+                    camera_message,camera_size=self._camera_state(exited,camera_size)
+                    if camera_message.split('(')[0]!=(camera_previous or '').split('(')[0]:
+                        print(camera_message,flush=True);camera_previous=camera_message
                 path=self.output/'raw/status.json'
                 if path.is_file():
                     status=json.loads(path.read_text())
@@ -137,8 +166,10 @@ class PolicyRecording:
                 raise RuntimeError(self.error or 'capture process unavailable')
             proc=self.processes.children[-1][1]
             if proc.poll() is not None:raise RuntimeError('capture process exited; inspect capture.log')
-            message=(json.dumps(dict(command='start',monotonic_s=time.monotonic()))+'\n').encode()
+            now=time.monotonic();wall=time.time()
+            message=(json.dumps(dict(command='start',monotonic_s=now))+'\n').encode()
             os.write(proc.stdin.fileno(),message)
+            self.trigger=dict(monotonic_s=now,wall_s=wall)  # written by the monitor thread, not here
             self.started=True
             print('Recording triggered with policy.',flush=True)
         except Exception as exc:
@@ -151,15 +182,50 @@ class PolicyRecording:
         if self.started:print('Policy stopped. Saving raw sensors; wait for Saved and verified...',flush=True)
         self.processes.close()
         if not self.output.exists():return
+        # A quick start/stop can finish before the monitor's first wakeup.
+        if self.trigger is not None:
+            (self.output/'policy_start.json').write_text(json.dumps(self.trigger,indent=2)+'\n')
         error=self.error or (capture_saved(self.output) if self.started else None)
         if self.started and error is None:
             capture=self.processes.children[-1][1]
             if capture.returncode:error=f'Capture exited with status {capture.returncode}; inspect capture.log'
+        camera=None
+        if self.camera is not None and self.started:
+            camera=camera_report(self.output/'camera/external.mkv',self.camera['fps'],self.camera_error)
+            if camera['error'] and error is None:error='External camera: '+camera['error']
         (self.output/'recording_result.json').write_text(json.dumps(dict(
-            started=self.started,complete=self.started and error is None,error=error),indent=2)+'\n')
+            started=self.started,complete=self.started and error is None,error=error,camera=camera),indent=2)+'\n')
         if error:print(f'INCOMPLETE sensor recording: {error}. See {self.output}/capture.log',flush=True)
         elif self.started:print(f'Saved and verified raw sensors: {self.output}',flush=True)
         else:print('Recorder closed: policy A was not pressed; no motion capture started.',flush=True)
+        if camera is not None and not camera['error']:
+            print(f"External camera: {camera['frames']} frames over {camera['duration_s']:.1f} s "
+                  f"({camera['large_gap_count']} timestamp gaps above 1.5 frame periods).",flush=True)
+
+
+def camera_report(video,fps,error=None):
+    """Post-stop timestamp diagnostics; packet cadence cannot prove zero camera drops."""
+    if error:return dict(error=error)
+    if not video.is_file() or not video.stat().st_size:return dict(error='no video file written')
+    try:
+        probe=subprocess.run(['ffprobe','-v','error','-select_streams','v:0','-show_packets','-show_entries',
+            'packet=pts_time,duration_time','-of','json',str(video)],capture_output=True,text=True,timeout=30)
+        if probe.returncode:return dict(error='ffprobe failed: '+probe.stderr.strip())
+        packets=json.loads(probe.stdout)['packets']
+        stamps=[float(p['pts_time']) for p in packets]
+        if not stamps or not all(math.isfinite(t) for t in stamps):raise ValueError('missing/nonfinite frame timestamps')
+        gaps=[b-a for a,b in zip(stamps,stamps[1:])]
+        if any(g<=0 for g in gaps):raise ValueError('non-increasing frame timestamps')
+        tail=float(packets[-1].get('duration_time',1/fps))
+        if not math.isfinite(tail) or tail<=0:tail=1/fps
+        # With absolute PTS, Matroska format.duration may include the epoch offset.
+        duration=stamps[-1]-stamps[0]+tail
+        return dict(error=None,file=str(video),frames=len(stamps),duration_s=duration,fps=fps,
+            first_pts_wall_s=stamps[0],last_pts_wall_s=stamps[-1],
+            max_gap_s=max(gaps,default=0.),large_gap_count=sum(g>1.5/fps for g in gaps),
+            exposure_timing_qualified=False,bytes=video.stat().st_size)
+    except (OSError,subprocess.TimeoutExpired,ValueError,KeyError,TypeError,IndexError) as exc:
+        return dict(error='camera timestamp inspection failed: '+str(exc))
 
 
 def capture_saved(output):
@@ -200,6 +266,13 @@ def commands(args, output):
         result[-1][1].extend(['--odometry-port',str(args.odometry_port),'--publish-diagnostics'])
     if getattr(args,'clock_calibration',None) is not None and not args.record_only:
         result[-1][1].extend(['--clock-calibration',str(Path(args.clock_calibration).resolve())])
+    if getattr(args,'camera_device',None):
+        # Copy the camera's MJPEG packets as they arrive: no decode, no encode, no Python.
+        # Preserve the driver's absolute timestamps; otherwise ffmpeg rebases them to zero.
+        result.append(('camera',['ffmpeg','-nostdin','-hide_banner','-loglevel','warning','-copyts','-f','v4l2','-ts','abs',
+            '-input_format','mjpeg','-framerate',str(args.camera_fps),'-video_size',args.camera_size,
+            '-i',args.camera_device,'-c:v','copy','-vsync','passthrough','-avoid_negative_ts','disabled',
+            '-f','matroska',str(output/'camera/external.mkv')]))
     result.append(('capture',['/usr/bin/python3',str(validation/'record_lidar_live.py'),
         '--interface',args.interface,'--seconds',str(args.seconds),'--pose',args.label,'--output',str(output/'raw')]))
     return result
@@ -216,6 +289,8 @@ def main():
     p.add_argument('--existing-driver',action='store_true',help='Subscribe to an already-running driver; do not start a second one')
     p.add_argument('--scan-packets',type=int,default=3,help='3 for 30 Hz raw input; 5 for 50 Hz input gives 100 ms sweeps')
     p.add_argument('--record-only',action='store_true',help='Raw capture only; replay DLIO offline later')
+    p.add_argument('--camera-device',help='External USB camera, e.g. /dev/v4l/by-id/...-video-index0; MJPEG copied to camera/external.mkv')
+    p.add_argument('--camera-size',default='1280x720');p.add_argument('--camera-fps',type=int,default=30)
     p.add_argument('--dry-run',action='store_true',help='Print child commands without starting processes or contacting hardware')
     a=p.parse_args()
     if not 0<a.seconds<=300 or not 1<=a.scan_packets<=10:p.error('Seconds must be 0..300; scan-packets 1..10')
@@ -229,6 +304,7 @@ def main():
     for path in required:
         if not path.is_file():p.error(f'Missing {path}; set --ros-workspace / LIDAR_WS if the ROS workspace moved')
     output.mkdir(parents=True,exist_ok=False)
+    if a.camera_device:(output/'camera').mkdir()
     (output/'session.json').write_text(json.dumps(dict(label=a.label,commands=plan,
         start_monotonic_s=time.monotonic(),motor_publisher=False,head_mount='fixed',ros_workspace=str(a.ros_workspace.resolve()),
         clock_qualified=False,planner_terrain='depth',

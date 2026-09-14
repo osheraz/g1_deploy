@@ -2,11 +2,17 @@
 
 **Start here on the configured bluefin workstation.** Use two terminals: depth,
 then policy. The policy command owns LiDAR, live odometry and recording.
-The default is Stanley's **P11 diffusion20k + N17k depth tracker**, using
-**PyTorch TF32, EMA DDIM8, fresh noise, K20/blend0**. `--model diffusion`
+The model is **P11 diffusion20k + N17k depth tracker**, using
+**EMA DDIM8, fresh noise, K20/blend0**. The commands below explicitly select
+**TensorRT FP32 with CUDA graphs**, as requested for deployment. The CLI default
+remains Stanley's selected PyTorch TF32 recipe; specify the backend explicitly
+when comparing runs. FP32 and TF32 are different numerical variants; equivalent recovery
+performance is not established. [Backend details](deployment_reference.md#onnx-and-tensorrt).
+`--model diffusion`
 selects the older September 10 model, not P11.
 For simulation use [MuJoCo](sim_diffusion.md); for a new machine use
 [setup](GETTING_STARTED.md). [Current validation / remaining work](deployment_status.md).
+For agent continuity: [deployment handoff](../../notes/REAL_WORLD_DEPLOYMENT_HANDOFF.md).
 
 ## 0. Check the new models — no robot needed
 
@@ -18,7 +24,8 @@ cd /home/osher/hv2
 ```
 
 This checks hashes, contracts, original training PD parameters and CPU inference.
-It opens no sensors. For another workstation, copy the bundle using the
+It opens no sensors and does not load or validate TensorRT engines, even if passed
+`--backend tensorrt`. Backend validation is separate. For another workstation, copy the bundle using the
 [reference instructions](deployment_reference.md#model-bundle).
 
 ## 1. Depth — terminal 1
@@ -41,7 +48,7 @@ With the robot stationary and supported on the hoist, run:
 ```bash
 cd /home/osher/hv2
 .venv/bin/python g1_deploy/deploy_diffusion.py \
-  --model p11_diffusion --backend pytorch --duration-s 30 \
+  --model p11_diffusion --backend tensorrt --duration-s 30 \
   --record-sensors --record-label p11_stationary_hoist
 ```
 
@@ -61,7 +68,7 @@ it still during initialization. Keep the remote available; run one motor process
 cd /home/osher/hv2
 SESSION="logs/native_recovery/ground_$(date +%Y%m%d_%H%M%S)"
 .venv/bin/python g1_deploy/deploy_diffusion.py \
-  --model p11_diffusion --backend pytorch --actuate --release-controller \
+  --model p11_diffusion --backend tensorrt --actuate --release-controller \
   --live-odometry --duration-s 60 --record-label ground_recovery \
   --output "$SESSION"
 ```
@@ -96,7 +103,9 @@ validation; test it with support before relying on it on the ground.
 
 **XYZ is monitoring only:** clock bounds and dynamic accuracy remain unqualified.
 Depth stays the planner input. The fixed camera provides a gross motion check,
-not full 3D ground truth. Save its video with the session.
+not full 3D ground truth. Save its video with the session. For a supported USB MJPEG camera, the optional
+`--external-camera /dev/v4l/by-id/DEVICE-video-index0` flag records it alongside
+the raw sensors; see [camera setup and limitations](../RECORDING.md#external-camera).
 
 ## 3. Evaluate and view — after stopping, terminal 2
 

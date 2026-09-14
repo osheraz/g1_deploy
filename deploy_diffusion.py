@@ -12,6 +12,7 @@ the hoist must already support the robot.
 """
 import argparse
 from pathlib import Path
+import re
 import sys
 import time
 
@@ -99,6 +100,9 @@ def main():
         help='Record raw LiDAR + robot state; default for actuation/live odometry, opt-in for sensor-only inference')
     parser.add_argument('--existing-lidar-driver',action='store_true',help='Use an already-running Livox driver')
     parser.add_argument('--record-label',default='supported_hoist',help='Operator description stored with the capture')
+    parser.add_argument('--external-camera',help='USB camera device for a fixed external view, e.g. /dev/v4l/by-id/...-video-index0; '
+        'recorded by an ffmpeg child of the sensor recorder as copied MJPEG, never touched by the control process')
+    parser.add_argument('--camera-size',default='1280x720');parser.add_argument('--camera-fps',type=int,default=30)
     parser.add_argument('--live-odometry',action='store_true',help='Run DLIO alongside deployment and log live XYZ; depth remains the planner input')
     parser.add_argument('--odometry-port',type=int,default=15560)
     parser.add_argument('--odometry-mode',choices=['monitor','required'],default='monitor',
@@ -119,6 +123,10 @@ def main():
     if args.release_controller and not args.actuate:parser.error('--release-controller requires --actuate; it changes robot control ownership')
     if args.record_sensors and not args.default_pose and not args.preflight and not 0<args.duration_s<=300:
         parser.error('Recorded policy sessions require --duration-s in (0, 300]')
+    if args.external_camera:
+        if not args.record_sensors or args.preflight or args.default_pose:parser.error('--external-camera needs a recorded policy session')
+        if not Path(args.external_camera).exists():parser.error(f'Camera device {args.external_camera} not found')
+        if not 1<=args.camera_fps<=60 or not re.fullmatch(r'\d+x\d+',args.camera_size):parser.error('Camera fps 1..60 and size WxH')
     if args.live_odometry:
         if args.default_pose or args.preflight:parser.error('--live-odometry uses normal sensor-only or actuated deployment')
         if not args.record_sensors or not 0<args.duration_s<=300:parser.error('Live odometry evaluation requires recording and duration in (0, 300]')
@@ -205,7 +213,8 @@ def main():
                 raise ValueError('A-triggered recording requires require_remote_start')
             recording=PolicyRecording(output/'sensors',interface=config['robot']['interface'],
                 seconds=args.duration_s,existing_driver=args.existing_lidar_driver,label=args.record_label,
-                live_odometry=live_odometry,automatic_start=not args.actuate)
+                live_odometry=live_odometry,automatic_start=not args.actuate,
+                camera=None if not args.external_camera else dict(device=args.external_camera,size=args.camera_size,fps=args.camera_fps))
             recording.prepare()
         result=run(config,enable_actuation=args.actuate,duration_s=args.duration_s,
             telemetry_jsonl=output/'telemetry.jsonl.gz',preflight_only=args.preflight,

@@ -109,8 +109,9 @@ TF32 result. Use `--backend tensorrt` only for that comparison. The older engine
 cannot be reused for P11 or N17k.
 
 The full TensorRT planner matches PyTorch FP32 (maximum state error 0.000019,
-code error 0.000004 in five synthetic cases). Against selected PyTorch TF32,
-state error reaches 0.03383 and code error 0.00715. Therefore a passing FP32
+code error 0.000004 in the two synthetic cases rechecked on September 14).
+The earlier comparison against selected PyTorch TF32 showed that
+state error reached 0.03383 and code error 0.00715. Therefore a passing FP32
 export comparison does not establish the same recovery behavior as TF32.
 The full depth tracker comparison passes at maximum action error 0.000409.
 Receipts are in `logs/native_recovery/exports_p11_20260913/`.

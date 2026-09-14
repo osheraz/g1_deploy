@@ -1,6 +1,6 @@
 # Deployment status
 
-Updated 2026-09-13. Commands: [operator guide](deploy_diffusion.md).
+Code/documentation reviewed 2026-09-14; hardware evidence below retains its trial dates. Commands: [operator guide](deploy_diffusion.md).
 Steering semantics: [Stanley's measurement contract](../../notes/stanley_steering_measurement_contract.md).
 
 ## Implemented and checked
@@ -14,7 +14,8 @@ Steering semantics: [Stanley's measurement contract](../../notes/stanley_steerin
   selected TF32; it remains an explicit precision comparison. [Details](deployment_reference.md).
   The actual deployment warmup also passes with both models and the planner
   process, leaving live histories empty and issuing no physical commands.
-  **P11 has not been tested on physical sensors or motors in this integration.**
+  These checks do not qualify P11 on physical sensors or motors; subsequent
+  operator trials need their own session/measurement review.
 - MuJoCo depth geometry is corrected: the legacy MJCF head previously blocked
   every camera ray. Both our earlier code and Stanley's `43170d4` reproduce this.
   The ray-only scene now uses training URDF visuals and matches the training
@@ -53,7 +54,7 @@ XYZ remains **monitoring only**. Do not enable `--odometry-mode required` or
 position-dependent steering without qualified measurements. Stanley owns steering
 training/integration; simulator truth must stay labelled as oracle feedback.
 
-Next operator action: the [P11 sensor-only hoist check](deploy_diffusion.md#first-p11-sensor-check--terminal-2),
+For a new or changed setup: the [P11 sensor-only hoist check](deploy_diffusion.md#first-p11-sensor-check--terminal-2),
 then the ground trial with external video and a new session. Current-pose startup can still produce a
 rejected saturated decoder output for some inputs; numerical backend parity does
 not establish that every starting pose is supported. See [runtime reference](deployment_reference.md#control-and-startup-behavior).
