@@ -6,7 +6,7 @@ operator. Lens intrinsics and timestamp alignment are separate checks.
 
 ## Start depth
 
-Use [terminal 1 in the operator guide](deploy_diffusion.md#1-depth--terminal-1).
+Use [terminal 1 in the operator guide](deploy_diffusion.md#1-depth-stream--terminal-1).
 Leave it running, then use a second terminal for the viewer below.
 
 ## Robot and depth in Viser
@@ -72,4 +72,4 @@ Ctrl+C closes the preview and its owned driver. Do this separately from the poli
 trial; it is not required for deployment. The live preview defaults to 50 Hz
 packets; the deployment recorder uses 30 Hz. Preview points are not a registered
 world map or qualified pelvis XYZ. For motion evaluation use
-[the deployment replay](deploy_diffusion.md#3-evaluate-and-view--after-stopping-terminal-2).
+[the deployment replay](deploy_diffusion.md#3-review--after-stopping).

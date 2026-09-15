@@ -1,11 +1,15 @@
 # Deployment status
 
-Code/documentation reviewed 2026-09-14; hardware evidence below retains its trial dates. Commands: [operator guide](deploy_diffusion.md).
+Code/documentation reviewed 2026-09-15; hardware evidence below retains its trial dates. Commands: [operator guide](deploy_diffusion.md).
 Steering semantics: [Stanley's measurement contract](../../notes/stanley_steering_measurement_contract.md).
 
 ## Implemented and checked
 
-- **P11 diffusion20k + N17k H3 depth tracker is the deployment default**, using
+- **Current operator commands select R8_S25 diffusion40k + R8+6k depth tracker**,
+  TensorRT, fresh noise per plan, K20 (2.5 Hz) and a 0.5 s horizon. Preset
+  positioning, random seeds, startup target limits, live XYZ and recording/replay
+  options are listed in the operator guide. No full-horizon hardware mode was retained.
+- **P11 diffusion20k + N17k H3 depth tracker remains the CLI default**, using
   selected PyTorch TF32/DDIM8/fresh noise/K20/blend0. The planner runs separately
   from the 50 Hz tracker. Legacy diffusion/flow retain their older models.
 - P11 offline checks: pinned checkpoint hashes and training PD match; full CPU
@@ -54,7 +58,7 @@ XYZ remains **monitoring only**. Do not enable `--odometry-mode required` or
 position-dependent steering without qualified measurements. Stanley owns steering
 training/integration; simulator truth must stay labelled as oracle feedback.
 
-For a new or changed setup: the [P11 sensor-only hoist check](deploy_diffusion.md#first-p11-sensor-check--terminal-2),
+For a new or changed setup: the [current sensor-only hoist check](deploy_diffusion.md#optional-checks-and-live-xyz),
 then the ground trial with external video and a new session. Current-pose startup can still produce a
 rejected saturated decoder output for some inputs; numerical backend parity does
 not establish that every starting pose is supported. See [runtime reference](deployment_reference.md#control-and-startup-behavior).

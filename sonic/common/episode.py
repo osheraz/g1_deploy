@@ -235,11 +235,12 @@ def load_native_recovery(path,*,live_estimates=False):
     state=dict(t=stamps-stamps[0],qj=q,imu_quat_wxyz=quat[:,[3,0,1,2]].astype(np.float32),
                capture_monotonic_s=stamps,
                receipt_monotonic_s=np.asarray([row['observation_arrival_s'] for row in controls]),
+               depth_capture_monotonic_s=np.asarray([(row.get('depth_timing') or {}).get('capture_s',np.nan) for row in controls]),
                causal_heading_rad=heading,yaw_relative_rad=np.arctan2(np.sin(heading-heading[0]),np.cos(heading-heading[0])),
                orientation_relative_xyzw=relative,display_quat_wxyz=displayed[:,[3,0,1,2]])
     meta=dict(source=str(path.resolve()),physical_joint_names=names,duration_s=float(stamps[-1]-stamps[0]),
         sensors=[],world_translation_measured=False,
-        explanation='Measured joints and pelvis IMU orientation. Pelvis position is fixed: this log has no validated odometry. No raw depth frames in this log.')
+        explanation='Measured joints and pelvis IMU orientation. Pelvis position is fixed: no XYZ source selected.')
     if live_estimates:
         poses=[r.get('pelvis_odometry') or {} for r in controls]
         if not any(p.get('position_reset_m') is not None for p in poses):
@@ -249,14 +250,14 @@ def load_native_recovery(path,*,live_estimates=False):
         positions[~valid]=np.nan
         state.update(pelvis_position_relative_m=positions,position_valid=valid,
             position_geometry_valid=valid,position_tracking_qualified=np.array([p.get('tracking_valid',False) for p in poses]))
-        meta.update(world_translation_measured=True,explanation=
+        meta.update(world_translation_measured=True,position_origin_delay_s=0.,explanation=
             'Actual live A-relative XYZ, joints and pelvis IMU orientation. No offline interpolation. '
             'Unavailable estimates hide the robot and break its trace. Fixed world camera. '
             'XYZ and timing remain unqualified unless the recorded status says otherwise; no independent position truth.')
     return state,lambda _: (None,None),meta
 
 
-def attach_measured_translation(state,meta,path,*,max_gap_s=.25):
+def attach_measured_translation(state,meta,path,*,max_gap_s=.25,allow_late_origin=False):
     """Offline interpolation in the provider's IMU world frame, never extrapolation.
 
     The bridge/evaluator maps LiDAR stamps onto workstation receipt time. Pair to
@@ -275,21 +276,27 @@ def attach_measured_translation(state,meta,path,*,max_gap_s=.25):
     query=np.asarray(state['receipt_monotonic_s'])
     right=np.clip(np.searchsorted(t,query,side='left'),1,len(t)-1);left=right-1
     valid=(query>=t[0])&(query<=t[-1])&good[left]&good[right]&((t[right]-t[left])<=max_gap_s)
-    if not valid[0]:raise ValueError('No valid measured translation at policy start; cannot set episode origin')
+    if not valid.any():raise ValueError('No valid measured translation overlaps the robot timeline')
+    if not valid[0] and not allow_late_origin:
+        raise ValueError('No valid measured translation at policy start; cannot set episode origin')
+    origin=int(np.flatnonzero(valid)[0])
     values=np.column_stack([np.interp(query,t,p[:,k]) for k in range(3)])
-    values-=values[0]
+    values-=values[origin]
     # Match steering's fixed gravity-aligned episode axes, not arbitrary IMU yaw.
     h0=float(state['causal_heading_rad'][0]);c,s=np.cos(h0),np.sin(h0)
     values=values @ np.array([[c,s,0.],[-s,c,0.],[0.,0.,1.]]).T
     values[~valid]=np.nan
     state['pelvis_position_relative_m']=values;state['position_valid']=valid
     state['position_geometry_valid']=geometry[left]&geometry[right]&valid
-    meta.update(world_translation_measured=True,translation_source=str(path),
-        explanation='XYZ is an offline LiDAR/FK estimate in steering axes: origin at policy start, '
+    delay=float(query[origin]-query[0])
+    meta.update(world_translation_measured=True,translation_source=str(path),position_origin_delay_s=delay,
+        explanation=('XYZ is an offline LiDAR/FK estimate. '+
+        ('Position origin at policy start. ' if origin==0 else
+         f'POSITION ORIGIN IS LATE: +{delay:.2f} s after policy start. Displacement before this is unknown; this is NOT XYZ since A. ')+
         'XY aligned to its recorded initial causal heading, Z up. '
         'Joints and orientation come from robot telemetry. Fixed world camera; grid is a ruler, not measured ground. '
         'Missing estimates hide the robot; tilt disagreement is flagged but remains visible for diagnosis. '
-        'Absolute clock timing and dynamic position accuracy remain unqualified.')
+        'Absolute clock timing and dynamic position accuracy remain unqualified.'))
 
 
 def load_raw_motion(path):

@@ -16,6 +16,7 @@ import threading
 from types import SimpleNamespace
 
 ROOT=Path(__file__).resolve().parents[1]
+RESULTS_ROOT=ROOT/'logs/real_world'
 DEFAULT_WS=str(Path.home()/'.local/share/hv2/lidar/ros2_ws')
 
 
@@ -94,11 +95,61 @@ class PolicyRecording:
         self.workspace=Path(os.environ.get('LIDAR_WS',DEFAULT_WS))
 
     def prepare(self):
-        """Launch only. Sensor discovery must not delay policy loading or startup."""
+        """Launch only, overlapping sensor discovery with model loading."""
         try:self._launch()
         except Exception as exc:
             self.error=str(exc)
             print(f'Recorder unavailable: {exc}. Policy startup continues.',flush=True)
+
+    def wait_until_ready(self,check):
+        """One pre-start pause before policy/positioning and the episode clock.
+
+        check keeps robot/depth health and operator cancellation responsive.
+        This method is never called from the running policy or start trigger.
+        """
+        if not self.processes.children:
+            raise RuntimeError(f'Recorder cannot warm up: {self.error or "capture process unavailable"}')
+        def status(path):
+            try:return json.loads(path.read_text())
+            except (FileNotFoundError,json.JSONDecodeError):return {}
+        began=time.monotonic();ready_since=None;previous=None
+        camera_size=0;camera_progress=-float('inf')
+        print('Startup: waiting for recording streams, then 5 seconds of pre-roll. '
+              'Keep still. '+('Ctrl+C cancels.' if self.automatic_start else
+              'A/START are ignored until ready; SELECT or Ctrl+C cancels.'),flush=True)
+        while True:
+            check()
+            self.processes.check()  # failed capture cannot satisfy requested readiness
+            now=time.monotonic()
+            raw=status(self.output/'raw/status.json')
+            missing=list(raw.get('missing',[]))
+            if not raw.get('ready') or now-raw.get('monotonic_s',-float('inf'))>2.:
+                if not missing:missing=['raw sensor stream status']
+            if self.camera is not None:
+                path=self.output/'camera/frames.mjpg'
+                size=path.stat().st_size if path.is_file() else 0
+                if size>camera_size:camera_progress=now
+                camera_size=size
+                if now-camera_progress>2.:missing.append('external camera frames')
+            if self.live_odometry is not None:
+                pose=status(self.output/'measured_pose.status.json')
+                if not pose.get('geometry_valid') or now-pose.get('arrival_monotonic_s',-float('inf'))>=1.:
+                    missing.append('live XYZ initialization')
+            if missing:
+                ready_since=None
+                message='Startup waiting for '+', '.join(missing)+'. Keep still; policy has not started.'
+            else:
+                if ready_since is None:ready_since=now
+                remaining=max(0.,5.-(now-ready_since))
+                if remaining==0.:
+                    (self.output/'startup_warmup.json').write_text(json.dumps(dict(
+                        ready_monotonic_s=now,streams_ready_since_s=ready_since,
+                        pre_roll_s=now-ready_since,wait_s=now-began),indent=2)+'\n')
+                    print('Recording warmup complete. Checking policy readiness...',flush=True)
+                    return
+                message=f'Startup sensor warmup: {math.ceil(remaining)} s remaining. Keep still.'
+            if message!=previous:print(message,flush=True);previous=message
+            time.sleep(.1)
 
     def _launch(self):
         if not (self.workspace/'install/setup.bash').is_file():
@@ -106,9 +157,10 @@ class PolicyRecording:
         self.output.mkdir(parents=True,exist_ok=False)
         if self.camera is not None:(self.output/'camera').mkdir()
         plan=commands(self.args,self.output);plan[-1][1].append('--controlled')
-        camera=None if self.camera is None else dict(self.camera,file='camera/external.mkv',container='matroska',
-            codec='mjpeg stream copied, no re-encode',timestamps='V4L2 wall clock (-ts abs, -copyts); exposure timing unqualified',
-            wall_minus_monotonic_s=time.time()-time.monotonic(),launch_monotonic_s=time.monotonic())
+        camera=None if self.camera is None else dict(self.camera,raw='camera/frames.mjpg',index='camera/frames.npz',
+            video='camera/external.mkv (remuxed after stop; uniform frame timeline, use frames.npz for timing)',
+            timestamps='V4L2 start-of-exposure CLOCK_MONOTONIC, same domain as time.monotonic() in this session',
+            launch_monotonic_s=time.monotonic())
         (self.output/'session.json').write_text(json.dumps(dict(commands=plan,label=self.args.label,
             motor_publisher=False,trigger='sensor-only inference start' if self.automatic_start else 'accepted policy A',planner_terrain='depth',
             policy_session=str(self.output.parent),raw_only=self.args.record_only,ros_workspace=str(self.workspace.resolve()),
@@ -121,10 +173,10 @@ class PolicyRecording:
             f' Raw sensors: {self.output}',flush=True)
 
     def _camera_state(self,exited,previous_size):
-        video=self.output/'camera/external.mkv'
-        size=video.stat().st_size if video.is_file() else 0
+        raw=self.output/'camera/frames.mjpg'
+        size=raw.stat().st_size if raw.is_file() else 0
         if 'camera' in exited:
-            self.camera_error=self.camera_error or 'ffmpeg exited; inspect camera.log'
+            self.camera_error=self.camera_error or 'capture process exited; inspect camera.log'
             return 'External camera stopped: '+self.camera_error,size
         if size>previous_size:return f'External camera recording ({size>>20} MB).',size
         return ('External camera opening.' if size==0 else 'External camera waiting for file flush (buffering or stalled input).'),size
@@ -191,7 +243,8 @@ class PolicyRecording:
             if capture.returncode:error=f'Capture exited with status {capture.returncode}; inspect capture.log'
         camera=None
         if self.camera is not None and self.started:
-            camera=camera_report(self.output/'camera/external.mkv',self.camera['fps'],self.camera_error)
+            camera=camera_report(self.output,self.camera['fps'],self.camera_error,
+                None if self.trigger is None else self.trigger['monotonic_s'])
             if camera['error'] and error is None:error='External camera: '+camera['error']
         (self.output/'recording_result.json').write_text(json.dumps(dict(
             started=self.started,complete=self.started and error is None,error=error,camera=camera),indent=2)+'\n')
@@ -199,33 +252,108 @@ class PolicyRecording:
         elif self.started:print(f'Saved and verified raw sensors: {self.output}',flush=True)
         else:print('Recorder closed: policy A was not pressed; no motion capture started.',flush=True)
         if camera is not None and not camera['error']:
-            print(f"External camera: {camera['frames']} frames over {camera['duration_s']:.1f} s "
-                  f"({camera['large_gap_count']} timestamp gaps above 1.5 frame periods).",flush=True)
+            print(f"External camera: {camera['frames']} frames over {camera['duration_s']:.1f} s, "
+                  f"{camera['dropped']} dropped, interval {camera['interval_ms']['mean']:.1f} ms "
+                  f"(max {camera['interval_ms']['max']:.1f}); video {camera['video'] or 'not remuxed'}.",flush=True)
 
 
-def camera_report(video,fps,error=None):
-    """Post-stop timestamp diagnostics; packet cadence cannot prove zero camera drops."""
+def camera_report(output,fps,error=None,policy_start_monotonic_s=None):
+    """After the policy stopped: index the raw dump from the driver log, cut a truncated tail,
+    remux to a playable MKV. Drops are driver sequence-number gaps, so zero is exact."""
+    import re
+    import numpy as np
     if error:return dict(error=error)
-    if not video.is_file() or not video.stat().st_size:return dict(error='no video file written')
+    raw,log=output/'camera/frames.mjpg',output/'camera.log'
+    if not raw.is_file() or not raw.stat().st_size or not log.is_file():return dict(error='no camera frames written')
+    text=log.read_text()
+    rows=re.findall(CAMERA_FRAME_PATTERN,text)
+    if not rows:return dict(error='camera.log holds no frames; inspect it')
+    seq=np.array([int(r[0]) for r in rows]);size=np.array([int(r[1]) for r in rows]);ts=np.array([float(r[2]) for r in rows])
+    offset=np.concatenate([[0],np.cumsum(size)[:-1]])
+    complete=int(np.searchsorted(offset+size,raw.stat().st_size,side='right'))
+    truncated=complete<len(rows)
+    if truncated:
+        seq,size,ts,offset=seq[:complete],size[:complete],ts[:complete],offset[:complete]
+        if complete:os.truncate(raw,int(offset[-1]+size[-1]))
+    if len(seq)==0:return dict(error='no complete camera frame')
+    gaps=np.diff(ts)
+    measured=float(1/gaps[1:].mean()) if len(gaps)>1 else None
+    # The driver clamps the request to a mode it offers; its own message is not retained in the
+    # log, so the effective rate is the accepted rate when logged, else the measured cadence.
+    rates=re.findall(CAMERA_RATE_PATTERN,text)
+    requested_fps=fps
+    fps=float(rates[-1]) if rates else (float(round(measured)) if measured else float(fps))
+    np.savez(output/'camera/frames.npz',seq=seq,bytes=size,offset=offset,ts_monotonic_s=ts,fps=fps,
+        policy_start_monotonic_s=np.nan if policy_start_monotonic_s is None else policy_start_monotonic_s)
     try:
-        probe=subprocess.run(['ffprobe','-v','error','-select_streams','v:0','-show_packets','-show_entries',
-            'packet=pts_time,duration_time','-of','json',str(video)],capture_output=True,text=True,timeout=30)
-        if probe.returncode:return dict(error='ffprobe failed: '+probe.stderr.strip())
-        packets=json.loads(probe.stdout)['packets']
-        stamps=[float(p['pts_time']) for p in packets]
-        if not stamps or not all(math.isfinite(t) for t in stamps):raise ValueError('missing/nonfinite frame timestamps')
-        gaps=[b-a for a,b in zip(stamps,stamps[1:])]
-        if any(g<=0 for g in gaps):raise ValueError('non-increasing frame timestamps')
-        tail=float(packets[-1].get('duration_time',1/fps))
-        if not math.isfinite(tail) or tail<=0:tail=1/fps
-        # With absolute PTS, Matroska format.duration may include the epoch offset.
-        duration=stamps[-1]-stamps[0]+tail
-        return dict(error=None,file=str(video),frames=len(stamps),duration_s=duration,fps=fps,
-            first_pts_wall_s=stamps[0],last_pts_wall_s=stamps[-1],
-            max_gap_s=max(gaps,default=0.),large_gap_count=sum(g>1.5/fps for g in gaps),
-            exposure_timing_qualified=False,bytes=video.stat().st_size)
-    except (OSError,subprocess.TimeoutExpired,ValueError,KeyError,TypeError,IndexError) as exc:
-        return dict(error='camera timestamp inspection failed: '+str(exc))
+        remux=subprocess.run(['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y','-f','mjpeg','-framerate',f'{fps:g}',
+            '-i',str(raw),'-c:v','copy','-f','matroska',str(output/'camera/external.mkv')],capture_output=True,text=True,timeout=120)
+    except (OSError,subprocess.TimeoutExpired) as exc:
+        remux=subprocess.CompletedProcess([],1,'',f'{type(exc).__name__}: {exc}')
+    index_at_start=None if policy_start_monotonic_s is None else int(np.searchsorted(ts,policy_start_monotonic_s))
+    return dict(error=None,frames=int(len(seq)),dropped=int((np.diff(seq)-1).sum()) if len(seq)>1 else 0,
+        duration_s=float(ts[-1]-ts[0]),fps=fps,requested_fps=requested_fps,measured_fps=measured,
+        warmup_s=float(gaps[0]) if len(gaps) else None,
+        interval_ms=dict(mean=float(gaps[1:].mean()*1000) if len(gaps)>1 else None,
+                         max=float(gaps[1:].max()*1000) if len(gaps)>1 else None),
+        truncated_last_frame=bool(truncated),bytes=int(raw.stat().st_size),
+        video=None if remux.returncode else 'camera/external.mkv',
+        remux_error=remux.stderr.strip() if remux.returncode else None,
+        frame_index_at_policy_start=index_at_start,
+        video_seconds_at_policy_start=None if index_at_start is None else index_at_start/fps)
+
+
+ARTIFACTS=[
+    ('session.json','policy session receipt: model, backend, options, hashes'),
+    ('resolved.json','fully resolved runtime configuration'),
+    ('controller_release.json','low-level control was taken from the Unitree controller'),
+    ('telemetry.jsonl.gz','50 Hz policy telemetry: state, actions, plans, timing, live XYZ'),
+    ('model_trace','exact neural inputs/noise/outputs, issued commands, source snapshot and replay provenance'),
+    ('COMPLETE.json','run finished: tick counts, control/latency percentiles, telemetry status'),
+    ('STOPPED.json','run stopped by the operator (A, SELECT, Ctrl+C)'),
+    ('FAILED.json','run aborted with an error'),
+    ('live_evaluation/evaluation.json','offline evaluation of the recorded motion'),
+    ('sensors/session.json','recorder plan, trigger and camera contract'),
+    ('sensors/policy_start.json','A press in monotonic and wall clocks'),
+    ('sensors/startup_warmup.json','completed sensor pre-roll before operator readiness or sensor-only inference'),
+    ('sensors/recording_result.json','recorder completeness, errors, camera frame report'),
+    ('sensors/raw/sensors.npz','raw LiDAR, Livox IMU, low state q/dq/tau_est, pelvis and torso IMUs with receipt times'),
+    ('sensors/raw/summary.json','sensor counts, gaps, capture errors, trigger times'),
+    ('sensors/raw/bag','timestamped LiDAR and Livox IMU ROS bag for offline odometry'),
+    ('sensors/raw/odometry.npz','live DLIO odometry samples, if live odometry ran'),
+    ('sensors/measured_pose.jsonl','live pelvis XYZ estimates delivered to the policy'),
+    ('sensors/camera/frames.mjpg','external camera raw MJPEG frames straight from the driver'),
+    ('sensors/camera/frames.npz','per-frame driver sequence, byte offset and start-of-exposure monotonic time'),
+    ('sensors/camera/external.mkv','playable remux of the raw frames (uniform frame timeline)'),
+    ('sensors/camera.log','camera driver log with one line per frame'),
+    ('sensors/depth/metadata.json','metric depth frame contract'),
+    ('sensors/depth/frames.bin','calibrated float32 depth and validity masks'),
+    ('sensors/depth/frames.jsonl','depth capture times and byte index'),
+    ('sensors/depth/summary.json','depth recording completeness and queue drops'),
+    ('sensors/capture.log','raw recorder log'),
+    ('sensors/driver.log','Livox driver log'),
+    ('sensors/raw/capture.json','raw recorder configuration and clock semantics'),
+    ('sensors/raw/status.json','last recorder stream status'),
+    ('sensors/raw/ready.json','when the sensor streams became ready'),
+]
+
+
+def session_manifest(session):
+    """List what a policy session saved, in one place, and write it as manifest.json."""
+    session=Path(session)
+    def size(path):
+        return sum(f.stat().st_size for f in path.rglob('*') if f.is_file()) if path.is_dir() else path.stat().st_size
+    rows=[dict(path=rel,bytes=size(session/rel),what=what) for rel,what in ARTIFACTS if (session/rel).exists()]
+    known={r['path'] for r in rows}
+    for path in sorted(session.rglob('*')):
+        rel=str(path.relative_to(session))
+        if path.is_file() and not any(rel==k or rel.startswith(k+'/') for k in known) and rel!='manifest.json':
+            rows.append(dict(path=rel,bytes=path.stat().st_size,what=''))
+    (session/'manifest.json').write_text(json.dumps(dict(session=str(session),artifacts=rows),indent=2)+'\n')
+    width=max(len(r['path']) for r in rows)
+    lines=[f'Session saved: {session}']+[f"  {r['path']:{width}s}  {r['bytes']/1e6:8.1f} MB  {r['what']}" for r in rows]
+    lines.append(f'  {"manifest.json":{width}s}  {"":8s}     this list')
+    print('\n'.join(lines),flush=True)
 
 
 def capture_saved(output):
@@ -238,6 +366,37 @@ def capture_saved(output):
     for name in ('scans','lidar_imu','lowstate'):
         if not report.get(name,{}).get('samples',0):return f'No recorded {name} samples'
     return None
+
+
+CAMERA_FRAME_PATTERN=r'dqbuf: \d+ seq:\s+(\d+) bytesused: (\d+) ts: ([\d.]+)'
+CAMERA_RATE_PATTERN=r'Frame rate set to ([\d.]+) fps'
+DEFAULT_CAMERA='/dev/v4l/by-id/usb-046d_Brio_101_2540APD0M3H8-video-index0'
+
+
+def camera_modes(device):
+    """MJPG (width, height, fps) triples the driver offers, from v4l2-ctl --list-formats-ext."""
+    import re
+    text=subprocess.run(['v4l2-ctl','-d',device,'--list-formats-ext'],capture_output=True,text=True).stdout
+    block=text.split("'MJPG'",1)[1] if "'MJPG'" in text else ''
+    block=re.split(r"\n\s*\[\d+\]:",block)[0]
+    modes=[];size=None
+    for line in block.splitlines():
+        found=re.search(r'Size: Discrete (\d+)x(\d+)',line)
+        if found:size=(int(found[1]),int(found[2]))
+        rate=re.search(r'\(([\d.]+) fps\)',line)
+        if rate and size:modes.append((size[0],size[1],float(rate[1])))
+    return modes
+
+
+def camera_command(device,size,fps,target):
+    """Kernel-only capture: the driver's MJPEG frames go straight to `target` ('-' for stdout);
+    each frame's start-of-exposure CLOCK_MONOTONIC stamp and sequence number go to stderr.
+    ffmpeg's v4l2 input was measured at ~30% of a core spinning on non-blocking DQBUF."""
+    width,height=size.split('x')
+    return ['bash','-c',
+        f'v4l2-ctl -d "$1" -c exposure_dynamic_framerate=0; exec v4l2-ctl -d "$1" '
+        f'--set-fmt-video=width={int(width)},height={int(height)},pixelformat=MJPG --set-parm={int(fps)} '
+        f'--stream-mmap=4 --stream-to="$2" --verbose','camera',device,target]
 
 
 def commands(args, output):
@@ -266,13 +425,9 @@ def commands(args, output):
         result[-1][1].extend(['--odometry-port',str(args.odometry_port),'--publish-diagnostics'])
     if getattr(args,'clock_calibration',None) is not None and not args.record_only:
         result[-1][1].extend(['--clock-calibration',str(Path(args.clock_calibration).resolve())])
-    if getattr(args,'camera_device',None):
-        # Copy the camera's MJPEG packets as they arrive: no decode, no encode, no Python.
-        # Preserve the driver's absolute timestamps; otherwise ffmpeg rebases them to zero.
-        result.append(('camera',['ffmpeg','-nostdin','-hide_banner','-loglevel','warning','-copyts','-f','v4l2','-ts','abs',
-            '-input_format','mjpeg','-framerate',str(args.camera_fps),'-video_size',args.camera_size,
-            '-i',args.camera_device,'-c:v','copy','-vsync','passthrough','-avoid_negative_ts','disabled',
-            '-f','matroska',str(output/'camera/external.mkv')]))
+    if args.camera_device:
+        result.append(('camera',camera_command(args.camera_device,args.camera_size,args.camera_fps,
+            str(output/'camera/frames.mjpg'))))
     result.append(('capture',['/usr/bin/python3',str(validation/'record_lidar_live.py'),
         '--interface',args.interface,'--seconds',str(args.seconds),'--pose',args.label,'--output',str(output/'raw')]))
     return result
@@ -289,12 +444,13 @@ def main():
     p.add_argument('--existing-driver',action='store_true',help='Subscribe to an already-running driver; do not start a second one')
     p.add_argument('--scan-packets',type=int,default=3,help='3 for 30 Hz raw input; 5 for 50 Hz input gives 100 ms sweeps')
     p.add_argument('--record-only',action='store_true',help='Raw capture only; replay DLIO offline later')
-    p.add_argument('--camera-device',help='External USB camera, e.g. /dev/v4l/by-id/...-video-index0; MJPEG copied to camera/external.mkv')
-    p.add_argument('--camera-size',default='1280x720');p.add_argument('--camera-fps',type=int,default=30)
+    p.add_argument('--camera-device',nargs='?',const=DEFAULT_CAMERA,
+        help=f'External USB camera; raw MJPEG dump plus driver timestamps. No value selects {DEFAULT_CAMERA}')
+    p.add_argument('--camera-size',default='1920x1080');p.add_argument('--camera-fps',type=int,default=30)
     p.add_argument('--dry-run',action='store_true',help='Print child commands without starting processes or contacting hardware')
     a=p.parse_args()
     if not 0<a.seconds<=300 or not 1<=a.scan_packets<=10:p.error('Seconds must be 0..300; scan-packets 1..10')
-    output=(a.output or ROOT/'logs/measured_motion'/time.strftime('%Y%m%d_%H%M%S')).resolve()
+    output=(a.output or RESULTS_ROOT/f'sensors_{time.time_ns()}').resolve()
     plan=commands(a,output)
     if a.dry_run:
         print(json.dumps(dict(output=str(output),commands=plan,motor_publisher=False),indent=2));return

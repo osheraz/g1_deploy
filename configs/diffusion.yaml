@@ -49,6 +49,57 @@ models:
       mount_confirmed: true
       allow_intrinsics_mismatch: false
 
+  # Stanley's September 14 unguided candidates (40k weights, bundle 20260914b; the
+  # 20260914a bundle is the immutable 20k fallback with the same model names).
+  # State-first flow planners (S67 then Z64, Heun 4 per stage, EMA, F50/K20) with
+  # their exact frozen trackers: R8 depth history3, R2 blind. Never swap trackers.
+  r8_f50r_flow:
+    default_backend: pytorch
+    bundle: logs/native_recovery/bundles/r2_r8_40k_20260914b
+    exports:
+      controller: logs/native_recovery/exports_r2r8_20260914/r8_f50r_flow_controller
+      r8_f50r_flow: logs/native_recovery/exports_r2r8_20260914/r8_f50r_flow_planner
+    camera:
+      source: network
+      endpoint: tcp://127.0.0.1:15556
+      clock_endpoint: tcp://127.0.0.1:15558
+      serial: '247122073927'
+      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
+      mount_confirmed: true
+      allow_intrinsics_mismatch: false
+
+  # R8_S25 diffusion40k (state-first, DDIM 8 per stage, F25/K20) with the same frozen
+  # R8+6k depth tracker as r8_f50r_flow; bundle native_recovery_r8_s25_20260914a.
+  r8_s25_diffusion:
+    default_backend: pytorch
+    bundle: logs/native_recovery/bundles/r8_s25_20260914a
+    exports:
+      controller: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_controller
+      r8_s25_diffusion: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_planner
+    camera:
+      source: network
+      endpoint: tcp://127.0.0.1:15556
+      clock_endpoint: tcp://127.0.0.1:15558
+      serial: '247122073927'
+      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
+      mount_confirmed: true
+      allow_intrinsics_mismatch: false
+
+  r2_f50r_flow:
+    default_backend: pytorch
+    bundle: logs/native_recovery/bundles/r2_r8_40k_20260914b
+    exports:
+      controller: logs/native_recovery/exports_r2r8_20260914/r2_f50r_flow_controller
+      r2_f50r_flow: logs/native_recovery/exports_r2r8_20260914/r2_f50r_flow_planner
+    camera:
+      source: network
+      endpoint: tcp://127.0.0.1:15556
+      clock_endpoint: tcp://127.0.0.1:15558
+      serial: '247122073927'
+      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
+      mount_confirmed: true
+      allow_intrinsics_mismatch: false
+
   p05_diffusion:
     default_backend: pytorch
     bundle: logs/native_recovery/bundles/p05_20260913

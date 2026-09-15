@@ -4,13 +4,15 @@ python g1_deploy/deploy_diffusion.py
 python g1_deploy/deploy_diffusion.py --check
 python g1_deploy/deploy_diffusion.py --default-pose --actuate --release-controller
 python g1_deploy/deploy_diffusion.py --actuate --release-controller
-Motor mode: initially idle. A starts policy from the current pose; A again stops.
+Motor mode: enter zero torque after robot connection. A starts policy from the current pose; A again stops.
 Before starting only, START optionally moves to default over 2 s. SELECT stops.
+With --start-pose prone, START slowly positions first; A then starts recovery.
 Default-pose-only mode also waits for START, then holds until SELECT/A/Ctrl+C.
---release-controller releases the built-in controller only on A/START takeover;
-the hoist must already support the robot.
+--actuate automatically releases the built-in controller for startup zero torque;
+--release-controller remains a compatibility flag. Place the robot at rest or supported before launch.
 """
 import argparse
+import math
 from pathlib import Path
 import re
 import sys
@@ -20,6 +22,21 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 sys.path.insert(0,str(ROOT/'g1_deploy'))
 sys.path.insert(0,str(ROOT/'dependencies/isaac_utils'))
+
+from record_motion import DEFAULT_CAMERA, RESULTS_ROOT
+
+
+def sampling_seed(value):
+    if value == 'random':
+        import secrets
+        return secrets.randbits(63)
+    try:
+        seed=int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError('Seed must be an integer or random') from exc
+    if not 0<=seed<2**63:
+        raise argparse.ArgumentTypeError('Seed must be in [0, 2**63)')
+    return seed
 
 
 def model_settings(settings, model):
@@ -67,9 +84,15 @@ def run_default_pose(config, model_contract, *, release_controller=None):
                 if robot.fault or time.monotonic()>deadline:raise
                 time.sleep(.01)
         pd.check_startup_pose(robot.observation())
+        released=False
+        if config.get('startup_zero_torque',False):
+            robot.arm_a_stop(after_press=float('inf'))
+            if release_controller is not None:release_controller();released=True
+            robot.enter_zero_torque()
+            print('Zero torque active: tau=0, kp=0, kd=0. START: move to default.',flush=True)
         def activate():
             pd.check_startup_pose(robot.observation())
-            if release_controller is not None:release_controller()
+            if release_controller is not None and not released:release_controller()
             pd.check_startup_pose(robot.observation())
             robot.enable_motor_output()
         wait_for_policy_start(robot,pd,pose_only=True,activate=activate)
@@ -81,28 +104,44 @@ def main():
     from motion_diffusion.behavioral.hardware import bundle
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',type=Path,default=ROOT/'g1_deploy/configs/diffusion.yaml')
-    parser.add_argument('--model',choices=['p11_diffusion','p05_diffusion','diffusion','flow'],default='p11_diffusion')
-    parser.add_argument('--replan-hz',type=float,help='Override cadence on whole 50 Hz ticks; existing asynchronous horizon/age checks still apply')
+    parser.add_argument('--model',choices=['p11_diffusion','r8_f50r_flow','r8_s25_diffusion','r2_f50r_flow','p05_diffusion','diffusion','flow'],
+        default='p11_diffusion')
+    parser.add_argument('--replan-hz',type=float,help='Planner rate, e.g. 2.5, 5 or 10 Hz; tracker stays 50 Hz; existing asynchronous horizon/age checks apply')
+    parser.add_argument('--noise-policy',choices=('fresh','fixed_episode'),default='fresh',
+        help='fresh: new noise every plan (default); fixed_episode: sample once at policy start and reuse for replanning')
+    parser.add_argument('--seed',type=sampling_seed,default=42,
+        help='Planner sampling seed: integer or random. Saved in the session; default 42')
+    parser.add_argument('--start-pose',help='prone or a prone/supine joint-preset JSON: START moves to it, then A starts recovery; requires --actuate')
+    parser.add_argument('--start-pose-jitter-deg',type=float,default=0.,help='Random joint offsets up to +/- this many degrees before START positioning; default 0')
+    parser.add_argument('--start-pose-seed',type=sampling_seed,help='Pose jitter seed, separate from planner --seed; default random when jitter is enabled')
     parser.add_argument('--check',action='store_true',help='Verify selected weights, PD binding and synthetic inference; no sensors or motors')
     parser.add_argument('--backend',choices=['pytorch','tensorrt','onnx'],help='Defaults to the selected model profile')
     parser.add_argument('--planner-precision',choices=['fp32','tf32'],default='fp32',
         help='TensorRT engine precision only; PyTorch uses the bundle precision (P11: TF32)')
     parser.add_argument('--engine-mode',choices=['standard','buffered','cuda_graph'],default='cuda_graph')
+    parser.add_argument('--command-limits',choices=['bounded','training'],default='bounded',
+        help='Bound PD target jumps from the measured start (default); training selects the original direct targets')
     parser.add_argument('--actuate',action='store_true')
     parser.add_argument('--preflight',action='store_true',help='Repeat live startup checks without motor output or takeover')
     parser.add_argument('--release-controller',action='store_true',
-        help='Explicitly release the built-in motion service; requires --actuate and a supported robot')
+        help='Compatibility flag; --actuate releases the built-in service for startup zero torque automatically')
     parser.add_argument('--default-pose',action='store_true',
         help='Wait for START to move to default and hold; SELECT/A stops; requires --actuate; no policy')
     parser.add_argument('--duration-s',type=float,default=30.)
-    parser.add_argument('--output',type=Path)
+    parser.add_argument('--output',type=Path,help='Session directory; default: logs/real_world/robot_MODEL_BACKEND_TIMESTAMP')
     parser.add_argument('--record-sensors',action=argparse.BooleanOptionalAction,default=None,
         help='Record raw LiDAR + robot state; default for actuation/live odometry, opt-in for sensor-only inference')
+    parser.add_argument('--record-depth',action=argparse.BooleanOptionalAction,default=None,
+        help='Save original-resolution lossless depth for video and exact model replay; defaults on with model/sensor recording')
+    parser.add_argument('--record-model',action=argparse.BooleanOptionalAction,default=True,
+        help='Save exact planner/tracker inputs, RNG, outputs and code provenance for offline model replay (default on)')
     parser.add_argument('--existing-lidar-driver',action='store_true',help='Use an already-running Livox driver')
     parser.add_argument('--record-label',default='supported_hoist',help='Operator description stored with the capture')
-    parser.add_argument('--external-camera',help='USB camera device for a fixed external view, e.g. /dev/v4l/by-id/...-video-index0; '
-        'recorded by an ffmpeg child of the sensor recorder as copied MJPEG, never touched by the control process')
-    parser.add_argument('--camera-size',default='1280x720');parser.add_argument('--camera-fps',type=int,default=30)
+    parser.add_argument('--external-camera',nargs='?',const=DEFAULT_CAMERA,
+        help=f'Record a fixed external USB camera through a v4l2-ctl child of the sensor recorder (kernel-only MJPEG dump '
+             f'with driver timestamps; the control process never touches it). No value selects {DEFAULT_CAMERA}')
+    parser.add_argument('--camera-size',default='1920x1080',help='MJPG capture size; see check_camera.py --list-modes')
+    parser.add_argument('--camera-fps',type=int,default=30,help='requested rate; the driver clamps to what the mode offers and the report shows the rate set')
     parser.add_argument('--live-odometry',action='store_true',help='Run DLIO alongside deployment and log live XYZ; depth remains the planner input')
     parser.add_argument('--odometry-port',type=int,default=15560)
     parser.add_argument('--odometry-mode',choices=['monitor','required'],default='monitor',
@@ -111,12 +150,19 @@ def main():
         help='Explicit diagnostic mount candidate used by live odometry')
     parser.add_argument('--odometry-clock',type=Path,help='Independent clock calibration JSON; never infer qualification from arrival jitter')
     args=parser.parse_args()
+    if not math.isfinite(args.start_pose_jitter_deg) or args.start_pose_jitter_deg<0:
+        parser.error('--start-pose-jitter-deg must be finite and nonnegative')
+    if (args.start_pose_jitter_deg or args.start_pose_seed is not None) and not args.start_pose:
+        parser.error('Pose jitter requires --start-pose')
+    if args.start_pose and (not args.actuate or args.default_pose or args.check or args.preflight):
+        parser.error('--start-pose requires --actuate and a normal recovery session')
     config_path=args.config.resolve()
     settings=model_settings(_load_config(config_path),args.model)
     if args.backend is None:args.backend=settings.get('default_backend','tensorrt')
     if args.check and (args.actuate or args.release_controller or args.default_pose or args.preflight or args.live_odometry):
         parser.error('--check does not open sensors or control the robot')
     if args.record_sensors is None:args.record_sensors=args.actuate or args.live_odometry
+    if args.record_depth is None:args.record_depth=args.record_sensors or args.record_model
     if args.backend!='tensorrt' and args.planner_precision!='fp32':parser.error('TF32 engine precision requires TensorRT')
     if args.default_pose and not args.actuate:parser.error('--default-pose moves motors: add --actuate explicitly')
     if args.preflight and (args.actuate or args.default_pose):parser.error('--preflight is sensor-only')
@@ -140,7 +186,7 @@ def main():
     sys.setswitchinterval(.001)
     mode_name='Default-pose check' if args.default_pose else f'{args.model.capitalize()} / {args.backend}'
     print(f'{mode_name} — '+('model check, no sensors or motor output.' if args.check else
-          'motor control enabled; waiting for your buttons.' if args.actuate else
+          'motor control enabled; startup enters zero torque before waiting for your buttons.' if args.actuate else
           f'sensor-only test ({args.duration_s:g} seconds), no motor output.'),flush=True)
     root,manifest=bundle.load_bundle(settings['bundle']);row=manifest['models'][args.model]
     import torch
@@ -148,7 +194,35 @@ def main():
     checkpoint=torch.load(bundle.asset_path(root,row['controller']),map_location='cpu',weights_only=True,mmap=True)
     hardware=hardware_settings(settings,checkpoint['action_vae']['model_contract'])
     replan_ticks=bundle.replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])
-    config,receipt=bundle.resolve_session(root,manifest,args.model,config_path,hardware_config=hardware,replan_ticks=replan_ticks)
+    config,receipt=bundle.resolve_session(root,manifest,args.model,config_path,hardware_config=hardware,
+        replan_ticks=replan_ticks,seed=args.seed,noise_policy=args.noise_policy)
+    config['startup_zero_torque']=bool(args.actuate)
+    receipt['startup_zero_torque']=bool(args.actuate)
+    if args.start_pose:
+        from motion_diffusion.behavioral.hardware.start_pose import load_start_pose,perturb_start_pose
+        from motion_diffusion.behavioral.hardware.unitree import NativePDContract
+        contract=dict(checkpoint['action_vae']['model_contract'],deployment_pd=config['pd']['training_pd'])
+        path=ROOT/'g1_deploy/config/poses/prone_ground_01.json' if args.start_pose=='prone' else Path(args.start_pose)
+        pd=NativePDContract(contract,config['pd'])
+        config['start_pose']=load_start_pose(path,pd)
+        if args.start_pose_jitter_deg:
+            config['start_pose']=perturb_start_pose(config['start_pose'],pd,args.start_pose_jitter_deg,args.start_pose_seed)
+            jitter=config['start_pose']['randomization']
+            print(f'Start pose jitter: +/- {jitter["amplitude_deg"]:g} deg; pose seed {jitter["seed"]}. '
+                  'Sampled once; START moves slowly to this target. Saved in start_pose.json.',flush=True)
+        receipt['start_pose']=config['start_pose']
+    print(f'Planner seed: {args.seed}; noise policy: {args.noise_policy} ('+
+          ('new noise each plan' if args.noise_policy=='fresh' else 'one noise sample reused; replanning stays active')+').',flush=True)
+    if not args.default_pose:
+        from motion_diffusion.behavioral.action_limits import deployment_command_limits,PDTargetLimiter
+        from omegaconf import OmegaConf
+        training=OmegaConf.load(bundle.asset_path(root,row['controller_training_config']))
+        parameters=deployment_command_limits(checkpoint['action_vae']['model_contract'],config['pd']['training_pd'],training.robot)
+        # Parse and validate once, before opening sensors or enabling motor output.
+        command_contract=PDTargetLimiter(**parameters).contract()
+        config['command_limits']=dict(mode=args.command_limits,parameters=parameters,
+            source_config_sha256=row['controller_training_config']['sha256'])
+        receipt['command_limits']=dict(mode=args.command_limits,**command_contract)
     if replan_ticks is not None:
         print(f'Requested planner cadence: {50/replan_ticks:g} Hz; actual replies remain subject to compute/transport latency.',flush=True)
     if args.check:
@@ -185,13 +259,33 @@ def main():
                 precision=args.planner_precision if component=='planner' else 'fp32',execution_mode=args.engine_mode,
                 export_receipt_sha256=bundle.sha256(export/'export.json'))
     mode='default_pose' if args.default_pose else f'{args.model}_{args.backend}'
-    output=args.output or ROOT/'logs/native_recovery'/f'robot_{mode}_{time.time_ns()}'
+    output=args.output or RESULTS_ROOT/f'robot_{mode}_{time.time_ns()}'
     output=output.resolve();output.mkdir(parents=True,exist_ok=False)
+    if config.get('start_pose') is not None:
+        bundle.write_json(output/'start_pose.json',config['start_pose'])
+    if args.record_sensors and args.odometry_mount.is_file():
+        import shutil
+        mount_snapshot=output/'odometry_mount.json'
+        shutil.copyfile(args.odometry_mount,mount_snapshot)
+        config['odometry_mount_calibration']=str(mount_snapshot)
+        if live_odometry is not None:live_odometry['mount_calibration']=str(mount_snapshot)
+    if args.record_depth and not args.default_pose:
+        config['depth_recording_directory']=str(output/'sensors/depth')
+    if args.record_model and not args.default_pose:
+        from motion_diffusion.behavioral.hardware.model_trace import prepare_trace
+        config['model_trace_directory']=str(output/'model_trace')
+        prepare_trace(output/'model_trace',config,ROOT)
+        print('Model recording enabled: exact inputs, depth history, noise and outputs; asynchronous disk writes.',flush=True)
     receipt.update(config_path=str(config_path),backend=args.backend,
         mode='default_pose' if args.default_pose else ('actuation' if args.actuate else 'preflight' if args.preflight else 'sensor_dry_run'),
-        release_controller_requested=args.release_controller)
+        release_controller_requested=args.release_controller,
+        release_controller_on_startup=bool(args.actuate))
     bundle.write_json(output/'session.json',receipt);bundle.write_json(output/'resolved.json',config)
     print(f'Session: {output}',flush=True)
+    if not args.default_pose:
+        print(f'Command limits: {args.command_limits}'+
+            (' — targets start at measured pose; half-rate for 1 s, gradual release to normal rate by 2 s.'
+             if args.command_limits=='bounded' else ' — original direct PD targets.'),flush=True)
     from motion_diffusion.behavioral.hardware.cli import run
     motion_switcher=None;recording=None
     def release_control():
@@ -205,7 +299,7 @@ def main():
     try:
         if args.default_pose:
             run_default_pose(config,checkpoint['action_vae']['model_contract'],
-                release_controller=release_control if args.release_controller else None)
+                release_controller=release_control if args.actuate else None)
             return
         if args.record_sensors and not args.preflight:
             from record_motion import PolicyRecording
@@ -218,7 +312,8 @@ def main():
             recording.prepare()
         result=run(config,enable_actuation=args.actuate,duration_s=args.duration_s,
             telemetry_jsonl=output/'telemetry.jsonl.gz',preflight_only=args.preflight,
-            release_controller=release_control if args.release_controller else None,
+            release_controller=release_control if args.actuate else None,
+            before_policy_ready=recording.wait_until_ready if recording is not None else None,
             on_policy_start=recording.start if recording is not None else None)
     except KeyboardInterrupt as exc:
         bundle.write_json(output/'STOPPED.json',dict(reason=str(exc) or 'operator interrupt'))
@@ -230,6 +325,9 @@ def main():
     finally:
         # run() closes/damps the robot before this potentially expensive save.
         if recording is not None:recording.close()
+        if not args.preflight and not args.default_pose:
+            from record_motion import session_manifest
+            session_manifest(output)
     bundle.write_json(output/'COMPLETE.json',result)
     if args.preflight:
         print(f'Preflight complete: {result["startup_checks"]} live first-plan checks; '

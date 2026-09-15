@@ -1,0 +1,56 @@
+{
+  "schema": "hv2.joint_start_pose.v1",
+  "name": "prone_ground_01",
+  "posture": "prone",
+  "joint_positions_rad": {
+    "left_hip_pitch_joint": -0.41370242834091187,
+    "left_hip_roll_joint": 0.43282970786094666,
+    "left_hip_yaw_joint": -0.04614847153425217,
+    "left_knee_joint": 0.7609737515449524,
+    "left_ankle_pitch_joint": -0.3191875219345093,
+    "left_ankle_roll_joint": -0.07556433230638504,
+    "right_hip_pitch_joint": -0.14866343140602112,
+    "right_hip_roll_joint": -0.32240867614746094,
+    "right_hip_yaw_joint": -0.4021318554878235,
+    "right_knee_joint": 0.7287090420722961,
+    "right_ankle_pitch_joint": -0.31851309537887573,
+    "right_ankle_roll_joint": -0.04896156117320061,
+    "waist_yaw_joint": 0.14299866557121277,
+    "waist_roll_joint": 0.10787758976221085,
+    "waist_pitch_joint": -0.0011354911839589477,
+    "left_shoulder_pitch_joint": 0.23206253349781036,
+    "left_shoulder_roll_joint": 0.6603787541389465,
+    "left_shoulder_yaw_joint": 0.2015507072210312,
+    "left_elbow_joint": -0.5637978911399841,
+    "left_wrist_roll_joint": 0.8645539879798889,
+    "left_wrist_pitch_joint": -1.2058700323104858,
+    "left_wrist_yaw_joint": 0.4266614317893982,
+    "right_shoulder_pitch_joint": 0.2974125146865845,
+    "right_shoulder_roll_joint": -0.4091414511203766,
+    "right_shoulder_yaw_joint": -0.39205193519592285,
+    "right_elbow_joint": -0.44449490308761597,
+    "right_wrist_roll_joint": -0.5557923913002014,
+    "right_wrist_pitch_joint": 0.6714847683906555,
+    "right_wrist_yaw_joint": -1.3835357427597046
+  },
+  "source": {
+    "session": "r8_20260914_220429",
+    "telemetry_sha256": "94c8b4fc55d0d1ce08d583671c08b0be27e2069441e93100168eb72ffbd82c24",
+    "control_tick": 77,
+    "time_since_first_control_s": 1.5402775990078226,
+    "quiet_window_s": [
+      1.300060845038388,
+      1.7801251590135507
+    ],
+    "window_joint_speed_rms_rad_s": 0.046066626101485826,
+    "window_joint_speed_max_rad_s": 0.21168935298919678,
+    "window_max_joint_span_rad": 0.04397010803222656,
+    "gravity_body": [
+      0.9986496567726135,
+      0.03996071219444275,
+      0.03319573402404785
+    ],
+    "selection": "Actual measured sample at the midpoint of the quietest 25-tick window between 0.8 and 2.5 seconds; camera confirms face down."
+  },
+  "scope": "Joint target only. Body position, orientation, contact load and floor placement are not reset. This was a quiet interval during an active recovery, not a passive-equilibrium measurement."
+}

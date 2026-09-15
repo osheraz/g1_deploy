@@ -44,6 +44,7 @@ class DeployViser:
         tactile_sensors: Optional[list[str]] = None,
         joint_names: Optional[list[str]] = None,
         port: int = 8080,
+        replay_layout: bool = False,
     ) -> None:
         self.server = viser.ViserServer(port=port)
         self.joint_names_by_motor_index = list(
@@ -76,7 +77,7 @@ class DeployViser:
             position=(0.0, 0.0, -0.5),
         )
 
-        state_folder = self.server.gui.add_folder("Robot State")
+        state_folder = self.server.gui.add_folder("Robot State",expand_by_default=not replay_layout)
         with state_folder:
             self.tick_handle = self.server.gui.add_number("Tick", 0, disabled=True)
             self.mode_pr_handle = self.server.gui.add_number(
@@ -92,7 +93,8 @@ class DeployViser:
 
         self.depth_image_handle = None
         if self.with_depth:
-            depth_folder = self.server.gui.add_folder("Depth")
+            depth_folder = self.server.gui.add_folder("Depth",order=-10 if replay_layout else None)
+            self.depth_folder=depth_folder
             with depth_folder:
                 dummy = np.zeros((120, 160, 3), dtype=np.uint8)
                 self.depth_image_handle = self.server.gui.add_image(
@@ -102,16 +104,17 @@ class DeployViser:
                     "Depth min (m)", self.depth_min
                 )
                 self.depth_max_gui = self.server.gui.add_number(
-                    "Depth max (m)", self.depth_max
+                    "Depth display max (m)", self.depth_max
                 )
 
         self.rgb_image_handle = None
-        rgb_folder = self.server.gui.add_folder("External RGB")
+        rgb_folder = self.server.gui.add_folder("External RGB",order=-20 if replay_layout else None)
         with rgb_folder:
             dummy = np.zeros((120, 160, 3), dtype=np.uint8)
             self.rgb_image_handle = self.server.gui.add_image(dummy, label="RGB")
 
-        tactile_folder = self.server.gui.add_folder("Tactile")
+        tactile_folder = self.server.gui.add_folder("Tactile",expand_by_default=not replay_layout)
+        if replay_layout and not self.tactile_sensors:tactile_folder.visible=False
         with tactile_folder:
             self.tactile_overall_handle = self.server.gui.add_text(
                 "Status", initial_value="disabled", disabled=True
@@ -186,7 +189,7 @@ class DeployViser:
                     dummy_arm, label="WB right arm"
                 )
 
-        vis_folder = self.server.gui.add_folder("Visibility")
+        vis_folder = self.server.gui.add_folder("Visibility",expand_by_default=not replay_layout)
         with vis_folder:
             show_meshes_cb = self.server.gui.add_checkbox(
                 "Show meshes", self.urdf_vis.show_visual
@@ -253,7 +256,7 @@ class DeployViser:
         finite = np.isfinite(d)
         if not finite.any():
             H, W = d.shape[:2]
-            img = np.zeros((H, W, 3), dtype=np.uint8)
+            img = np.full((H, W, 3),(100,0,130),dtype=np.uint8)
             self.depth_image_handle.image = img
             return
 
@@ -263,8 +266,9 @@ class DeployViser:
             vmax = vmin + 1e-3
 
         t = np.clip((d - vmin) / (vmax - vmin), 0.0, 1.0)
-        g = (t * 255.0).astype(np.uint8)
+        g = (np.nan_to_num(t) * 255.0).astype(np.uint8)
         img = np.stack([g, g, g], axis=-1)
+        img[~finite]=(100,0,130)
         self.depth_image_handle.image = img
 
     def update_tactile(self, overall: str, sensor_status: dict[str, str]) -> None:

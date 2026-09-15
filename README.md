@@ -6,6 +6,7 @@ policy + recording, buttons, evaluation and Viser. Start here on bluefin.
 | Task | Entry point |
 | --- | --- |
 | Test recovery in MuJoCo | [Simulation guide](tutorials/sim_diffusion.md) |
+| Show different recoveries from the same start | [Multimodal demo](tutorials/multimodal_recovery.md) |
 | Check what is validated / still missing | [Deployment status](tutorials/deployment_status.md) |
 | Set up a new machine or robot | [Setup](tutorials/GETTING_STARTED.md) |
 | Preview depth / LiDAR without policy | [Sensor viewers](tutorials/04_cameras.md) |

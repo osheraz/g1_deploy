@@ -19,7 +19,7 @@ def role(pid,parent,command):
     if pid==parent:return 'control'
     for name,pattern in [('capture','record_lidar_live.py'),('pelvis','pelvis_odometry.py'),
             ('dlio','dlio_odom_node'),('driver','livox_ros_driver2'),('sweeps','livox_cloud_window.py'),
-            ('imu_si','livox_imu_si.py'),('planner','spawn_main'),('ipc','resource_tracker')]:
+            ('imu_si','livox_imu_si.py'),('camera','v4l2-ctl'),('planner','spawn_main'),('ipc','resource_tracker')]:
         if pattern in command:return name
     return 'other'
 
@@ -64,6 +64,7 @@ def main():
     p.add_argument('--repeats',type=int,default=1)
     p.add_argument('--model',choices=['diffusion','flow'],default='diffusion')
     p.add_argument('--modes',nargs='+',choices=['baseline','recording','live'],default=['baseline','recording','live'])
+    p.add_argument('--external-camera',help='Also record this USB camera in the recording/live modes')
     a=p.parse_args()
     if not 5<=a.seconds<=60 or not 1<=a.repeats<=5:p.error('Use 5..60 seconds and 1..5 repeats')
     a.output.mkdir(parents=True,exist_ok=False);reports=[]
@@ -74,6 +75,7 @@ def main():
                 '--model',a.model,
                 '--duration-s',str(a.seconds),'--output',str(output),'--record-label','stationary_hoist_benchmark']
             cmd+=['--no-record-sensors'] if mode=='baseline' else ['--record-sensors']
+            if mode!='baseline' and a.external_camera:cmd+=['--external-camera',a.external_camera]
             if mode=='live':cmd+=['--live-odometry']
             print(f'Starting {repeat+1}/{a.repeats}: {mode}; no motor output.',flush=True)
             samples=[]

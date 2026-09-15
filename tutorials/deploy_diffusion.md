@@ -1,34 +1,10 @@
-# Run P11 recovery on G1
+# Real-world recovery: commands and test options
 
-**Start here on the configured bluefin workstation.** Use two terminals: depth,
-then policy. The policy command owns LiDAR, live odometry and recording.
-The model is **P11 diffusion20k + N17k depth tracker**, using
-**EMA DDIM8, fresh noise, K20/blend0**. The commands below explicitly select
-**TensorRT FP32 with CUDA graphs**, as requested for deployment. The CLI default
-remains Stanley's selected PyTorch TF32 recipe; specify the backend explicitly
-when comparing runs. FP32 and TF32 are different numerical variants; equivalent recovery
-performance is not established. [Backend details](deployment_reference.md#onnx-and-tensorrt).
-`--model diffusion`
-selects the older September 10 model, not P11.
-For simulation use [MuJoCo](sim_diffusion.md); for a new machine use
-[setup](GETTING_STARTED.md). [Current validation / remaining work](deployment_status.md).
-For agent continuity: [deployment handoff](../../notes/REAL_WORLD_DEPLOYMENT_HANDOFF.md).
+Current recipe: **R8_S25 diffusion40k + frozen R8+6k depth tracker**, TensorRT,
+**fresh noise every plan, 2.5 Hz replanning, 0.5 s horizon, 50 Hz tracking**.
+Specify the model explicitly; the CLI default selects another model.
 
-## 0. Check the new models — no robot needed
-
-The local P11 bundle is already installed on bluefin:
-
-```bash
-cd /home/osher/hv2
-.venv/bin/python g1_deploy/deploy_diffusion.py --check
-```
-
-This checks hashes, contracts, original training PD parameters and CPU inference.
-It opens no sensors and does not load or validate TensorRT engines, even if passed
-`--backend tensorrt`. Backend validation is separate. For another workstation, copy the bundle using the
-[reference instructions](deployment_reference.md#model-bundle).
-
-## 1. Depth — terminal 1
+## 1. Depth stream — terminal 1
 
 ```bash
 ssh -t -o AddressFamily=any -o ExitOnForwardFailure=yes \
@@ -38,121 +14,157 @@ ssh -t -o AddressFamily=any -o ExitOnForwardFailure=yes \
   '/home/unitree/osher/native_recovery/.venv/bin/python /home/unitree/osher/native_recovery/native_depth_server.py --serial 247122073927 --bind tcp://127.0.0.1:5556 --clock-bind tcp://127.0.0.1:5558'
 ```
 
-Leave this running. If these ports already have a working depth stream/tunnel,
-use it. Do not start another camera server.
+Leave it running. Reuse an existing stream; both forwarded ports are required.
 
-## First P11 sensor check — terminal 2
+## 2. Recovery and recording — terminal 2
 
-With the robot stationary and supported on the hoist, run:
+Place the robot at rest or supported. **An actuated launch releases the built-in
+controller and enters zero torque after robot connection, before START/A.**
+Stop any separate `zero_torque.py` or deployment process first. Keep the external
+Brio camera fixed with the robot and floor marks visible.
 
-```bash
-cd /home/osher/hv2
-.venv/bin/python g1_deploy/deploy_diffusion.py \
-  --model p11_diffusion --backend tensorrt --duration-s 30 \
-  --record-sensors --record-label p11_stationary_hoist
-```
-
-No A press or motor output. This checks the real depth stream, both networks and
-recording together. Inspect camera ages, planner rejections and late control ticks
-in the printed session's `COMPLETE.json` and `telemetry.jsonl.gz`. It cannot test
-get-up behavior while the robot is stationary. Add `--live-odometry` to also check
-XYZ monitoring; unguided P11 does not need it.
-
-## 2. Recovery + live XYZ recording — terminal 2
-
-For the next ground evaluation, start a fixed camera recording the pelvis and
-measured floor marks. Place the robot in its starting ground posture and leave
-it still during initialization. Keep the remote available; run one motor process.
+This starts from the **current pose**, without predefined positioning or joint jitter:
 
 ```bash
 cd /home/osher/hv2
-SESSION="logs/native_recovery/ground_$(date +%Y%m%d_%H%M%S)"
+SESSION="logs/real_world/r8_fresh_$(date +%Y%m%d_%H%M%S)"
+
 .venv/bin/python g1_deploy/deploy_diffusion.py \
-  --model p11_diffusion --backend tensorrt --actuate --release-controller \
-  --live-odometry --duration-s 60 --record-label ground_recovery \
+  --model r8_s25_diffusion --backend tensorrt \
+  --seed random --noise-policy fresh --replan-hz 2.5 \
+  --command-limits bounded \
+  --actuate --duration-s 60 \
+  --live-odometry --record-sensors --record-label fresh_2p5hz \
+  --external-camera --camera-size 1920x1080 --camera-fps 30 \
   --output "$SESSION"
 ```
 
-Wait for policy readiness and **Live XYZ ready for monitoring (clock unqualified)**.
-Then press **A**: policy and recording start from the current pose. No automatic
-move to standing. First control observation anchors relative XYZ and orientation.
+LiDAR, live XYZ, raw recording and the external camera start automatically;
+**no third terminal or separate recorder is needed**. Startup waits for streams
+and five seconds of readiness. A/START during warmup are discarded.
 
-| Control | Result |
+- Wait for **Live inference ready**, then press **A** to start recovery and mark the recording episode.
+- **A again / SELECT / Ctrl+C** stops, damps and saves. The **60 s duration** also stops and damps.
+- Skip **START** for current-pose recovery: without a preset it moves to default standing joint targets.
+- Wait for **Saved and verified raw sensors** and check the model-trace save status. `Session closed` alone is not recording completion.
+
+Use a new `SESSION` for each trial. `--release-controller` remains accepted but
+is unnecessary: `--actuate` performs release automatically.
+
+### Repeat a fixed prone joint start
+
+Add one of these flags to the command above:
+
+| Start | Flag |
 | --- | --- |
-| A while ready | Start policy + recording |
-| A again, SELECT or Ctrl+C | Stop policy, damp, then save recording |
-| START before policy | Optional move to default; skip it for ground recovery |
+| Current measured pose | Omit `--start-pose` |
+| Saved face-down joints | `--start-pose prone` |
+| Saved face-up joints | `--start-pose g1_deploy/config/multimodal/r8_s25_spatial/supine_robot.json` |
 
-Release buttons between presses. Retain about five seconds after recovery before
-stopping. The duration limit starts with the policy. Wait for **Saved and verified
-raw sensors** before closing the terminal. Stop the depth terminal with Ctrl+C
-when finished. Restart the deployment command with a new session for another run.
+For either preset: **START → slow positioning → Live inference ready → A**.
+A/SELECT/Ctrl+C during positioning cancels. After positioning press A once;
+another A stops recovery. Pending readiness now reports its reason. Holding
+the target and checking inference use separate schedules.
 
-**Timing delays do not end the running session.** A late inference result can
-still publish when current feedback is fresh; delays above 40 ms are logged.
-If feedback is stale, a plan runs out, or the writer sees a command gap above
-60 ms, it holds a measured joint pose with position PD. Obsolete plans are
-removed and policy control resumes with fresh feedback and a fresh plan. The
-60 ms value selects a hold; it is not a shutdown timeout. There is no catch-up
-burst of old commands. Episode time and steering origin are preserved.
+Presets specify joints, not body XYZ, orientation or contact. Place the robot in
+the intended pose and floor location yourself. Joint error is printed at A and
+saved with the positioning trace. Policy histories start from actual measurements;
+camera history is retained. No posture-orientation gate blocks START.
 
-Operator stops, the requested duration, invalid state and actual transport
-failures retain their stop behavior. Position hold does not guarantee balance
-during a moving recovery. Delay handling has mock-robot tests, not physical
-validation; test it with support before relying on it on the ground.
+### Noise, replanning and joint variation
 
-**XYZ is monitoring only:** clock bounds and dynamic accuracy remain unqualified.
-Depth stays the planner input. The fixed camera provides a gross motion check,
-not full 3D ground truth. Save its video with the session. For a supported USB MJPEG camera, the optional
-`--external-camera /dev/v4l/by-id/DEVICE-video-index0` flag records it alongside
-the raw sensors; see [camera setup and limitations](../RECORDING.md#external-camera).
+Change the existing flag rather than adding a duplicate:
 
-## 3. Evaluate and view — after stopping, terminal 2
+| Test option | Setting and meaning |
+| --- | --- |
+| Original R8_S25 sampling recipe | `--noise-policy fresh --replan-hz 2.5`: new noise each plan |
+| New random sequence each launch | `--seed random`; the selected integer is logged |
+| Repeat a sampling sequence | `--seed 42` or another fixed integer; physical outcomes can still differ |
+| Compare fixed noise | `--noise-policy fixed_episode`: reuse one initial noise draw while still replanning from observations |
+| Compare faster replanning | Replace `--replan-hz 2.5` with `5` or `10`; tracker remains 50 Hz |
+| Same preset joint targets | Omit jitter, as in the main command |
+| Perturb a preset | Add `--start-pose-jitter-deg 3`; optionally `--start-pose-seed 101` to repeat it |
+
+The original recipe requests a plan every **0.4 s**; its **0.5 s horizon** is not
+the execution interval. Full-horizon hardware execution was not retained.
+Different noise allows variation; it does not guarantee distinct recovery modes.
+
+`Command limits: bounded` should appear at startup. Target changes start from
+measured joints at half the saved velocity limits for one second, then increase
+smoothly to the full rate by two seconds. Initial caps for this tracker are
+0.20–0.37 rad per 20 ms (about 11–21 degrees): permissive limits, not a guarantee
+of gentle physical motion. PD gains retain their training values; the policy
+receives the request actually issued. [Implementation and evidence](../../notes/validation/robot_startup_fix_20260914.md).
+
+## 3. Review — after stopping
 
 ```bash
-.venv/bin/python g1_deploy/evaluate_live_motion.py "$SESSION"
-.venv/bin/python g1_deploy/replay_motion.py "$SESSION" --live-estimates --port 8081
+.venv/bin/python g1_deploy/replay_motion.py "$SESSION"
 ```
 
-In a new terminal, first `cd /home/osher/hv2` and set `SESSION` to the printed run
-path. Forward port **8081** in VS Code, then open **http://localhost:8081**.
-The second command starts Viser only when you run it.
+Accepts the full session path or its `sensors/` path. Opens Viser at
+**http://localhost:8081**; forward port 8081 in VS Code. Playback, external camera
+and **Show depth** are at the top. The fixed-world pelvis trace uses recorded
+live XYZ when available. Missing intervals and late origins are labelled.
+Normal playback reuses data without rerunning DLIO or encoding an MP4.
+Review checks are saved under `review/`.
 
-Check relative XYZ, heading and orientation against the video. The camera stays
-fixed in the world; the robot moves using the **estimates logged during control**.
-Missing/invalid positions remain gaps. Inspect `live_evaluation/evaluation.json`
-and `motion.png` for availability, estimated age, tilt/heading disagreement and
-policy timing. Recording completeness is in `sensors/recording_result.json`.
+| Review option | Flag / command |
+| --- | --- |
+| Prepare without opening Viser | Add `--prepare-only` |
+| Export external video | Add `--export-video`; writes `review/external.mp4` |
+| Recompute XYZ from raw LiDAR | Add `--offline-xyz`; slower, offline analysis |
+| Replay model decisions | `.venv/bin/python g1_deploy/replay_model.py "$SESSION"` |
 
-## Other runs
+Model replay uses recorded exact inputs/noise and requires the referenced
+weights/engines. Run it after stopping deployment because it uses the GPU.
+If code changed since capture, `--allow-code-changes` explicitly permits a
+comparison and records those differences.
 
-- **Replanning comparison:** add `--replan-hz 5` or `--replan-hz 10` to the
-  sensor-only or motor command. P11's default is 2.5 Hz; tracker stays at 50 Hz.
-  The existing reply-age/horizon checks remain active.
-- **Blind-tracker comparison:** use `--model p05_diffusion --backend pytorch`.
-  P05 still uses depth in its planner and selects its own A24.5k blind tracker.
-  Hardware uses 2.5 Hz by default to leave room for replies; MuJoCo defaults to
-  its reference 2 Hz. This pair has not been physically commissioned.
+Runs save original-resolution lossless depth once, robot/LiDAR/IMU streams,
+external camera, live XYZ and exact model traces. Model depth uses the same
+preprocessing; the R8_S25 planner/tracker range is **2 m**. Recordings belong in
+`logs/real_world/`; aborted no-policy attempts are archived in
+`logs/aborted_deployments/`, and offline checks in `logs/deployment_validation/`.
+Git transfers code and presets, not recordings or model weights.
 
-- **Legacy models:** `--model diffusion --backend tensorrt` runs B20k/C10k;
-  `--model flow --backend tensorrt` runs E20k/C10k. Neither selects P11.
-- **Sensor-only hoist check:** omit `--actuate --release-controller`, use
-  `--record-label stationary_hoist` and a new session. Inference and recording
-  start automatically; no A press or motor output. This checks compute/streams,
-  not recovery behavior against a stationary robot.
-- **Policy + raw recording, without live XYZ:** omit `--live-odometry`.
-  [Recording/replay options](../RECORDING.md).
-- **Policy only:** omit `--live-odometry` and add `--no-record-sensors`.
-- **Existing LiDAR driver:** add `--existing-lidar-driver` only when deliberately
-  reusing a working driver. Otherwise deployment starts and stops its own.
+## 4. Zero torque
 
-No separate `record_motion.py`, LiDAR command or ROS terminal is needed.
-For missing streams, inspect `sensors/capture.log` and `sensors/driver.log`;
-recorder failure does not stop ordinary policy execution, but an incomplete
-capture cannot validate XYZ. Do not press A for this evaluation until streams
-and live XYZ are ready. A rejected policy preview is reported separately; inspect
-its reason rather than bypassing it.
+Stop deployment first, then:
 
-Configuration: [diffusion.yaml](../configs/diffusion.yaml).
-Model/export details: [reference](deployment_reference.md).
-Sensor installation: [permanent workspace](../config/lidar/README.md).
+```bash
+cd /home/osher/hv2
+.venv/bin/python g1_deploy/zero_torque.py
+```
+
+The robot goes limp. Ctrl+C stops the publisher; it does not restore standing.
+Stop this script before starting another deployment.
+
+## Optional checks and live XYZ
+
+Sensor-only check using the same depth stream; no A press or motor commands:
+
+```bash
+cd /home/osher/hv2
+SESSION="logs/deployment_validation/sensors_$(date +%Y%m%d_%H%M%S)"
+.venv/bin/python g1_deploy/deploy_diffusion.py \
+  --model r8_s25_diffusion --backend tensorrt \
+  --seed random --noise-policy fresh --replan-hz 2.5 --duration-s 20 \
+  --live-odometry --record-sensors --record-label sensor_check \
+  --external-camera --camera-size 1920x1080 --camera-fps 30 \
+  --output "$SESSION"
+```
+
+Model-only CPU contract/forward check, without opening sensors:
+`.venv/bin/python g1_deploy/deploy_diffusion.py --model r8_s25_diffusion --check`.
+It does not validate TensorRT or physical recovery.
+
+Live XYZ runs alongside the policy and is recorded for evaluation. Recovery
+remains unguided; depth remains the planner input. Clock bounds and dynamic XYZ
+accuracy are unqualified, and measured support contacts are missing. Keep
+odometry in its default monitoring mode. Omitting `--live-odometry` retains raw
+recording but removes live XYZ; `--offline-xyz` can reconstruct it afterward.
+
+[Agent handoff and remaining work](../../notes/REAL_WORLD_DEPLOYMENT_HANDOFF.md),
+[recording details](../RECORDING.md), [model reference](deployment_reference.md),
+[MuJoCo commands](sim_diffusion.md).

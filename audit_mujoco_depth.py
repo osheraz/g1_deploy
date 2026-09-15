@@ -37,8 +37,7 @@ def main():
     controller=load_controller(dict(controller_checkpoint=str(asset_path(bundle,row['controller'])),
         tracker_device='cpu',pd_sidecar=str(asset_path(bundle,row['pd_binding']))))
     training=OmegaConf.load(asset_path(bundle,row['controller_training_config']))
-    scene=dict(config.get('scene',{}));scene.setdefault('head_geometry','legacy')
-    plant=MujocoNativePlant(scene_model(config['mjcf'],**scene),controller.contract,config['pd'],
+    plant=MujocoNativePlant(scene_model(config['robot'],**config['scene']),controller.contract,config['pd'],
                            OmegaConf.to_container(training.robot,resolve=True))
     names=[mujoco.mj_id2name(plant.model,mujoco.mjtObj.mjOBJ_BODY,i) for i in range(1,plant.model.nbody)]
     capture=dict(config['camera']);capture['robot_urdf']=str((ROOT/capture['robot_urdf']).resolve())
