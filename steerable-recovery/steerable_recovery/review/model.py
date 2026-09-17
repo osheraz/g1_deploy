@@ -6,8 +6,23 @@ import json
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, PROJECT
 sys.path.insert(0, str(ROOT))
+
+
+def source_changes(sources):
+    """Resolve moved source paths, retaining the original byte checks."""
+    from motion_diffusion.behavioral.hardware.bundle import sha256
+    mapping = json.loads((PROJECT/'migration_paths.json').read_text())
+    changed, relocated = [], {}
+    for name, digest in sources.items():
+        path = ROOT/name
+        if not path.is_file() and name in mapping:
+            path = ROOT/mapping[name]
+            relocated[name] = mapping[name]
+        if not path.is_file() or sha256(path) != digest:
+            changed.append(name)
+    return changed, relocated
 
 
 def compare(actual, expected, *, atol, rtol):
@@ -40,8 +55,7 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
     if not summary['complete']: raise ValueError('Trace recording is incomplete; see model_trace/summary.json')
     if sha256(directory/'source.tar.gz') != manifest['source_archive_sha256']:
         raise ValueError('Recorded source archive checksum mismatch')
-    changed = [name for name, digest in manifest['sources'].items()
-               if not (ROOT/name).is_file() or sha256(ROOT/name) != digest]
+    changed, relocated = source_changes(manifest['sources'])
     if changed and not allow_code_changes:
         raise ValueError(f'{len(changed)} source files differ from capture; use --allow-code-changes for an intentional comparison. '
                          f'Original source is saved in {directory}/source.tar.gz. First differences: {changed[:5]}')
@@ -62,7 +76,8 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
         return view
     torch.set_num_threads(1)
     report = dict(schema='hv2.model_replay.v1', session=str(root), component=component,
-        atol=atol, rtol=rtol, max_calls=max_calls, source_changes=changed, records=totals,
+        atol=atol, rtol=rtol, max_calls=max_calls, source_changes=changed,
+        relocated_sources=relocated, records=totals,
         scope='Recorded-input neural replay and issued-target checks; no physical dynamics or translation accuracy claim',
         tracker=[], planner=[])
 

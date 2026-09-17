@@ -88,7 +88,7 @@ new robot, from `/home/osher/hv2`:
 
 ```bash
 ssh g1 'mkdir -p /home/unitree/osher/native_recovery'
-rsync -a g1_deploy/core/common/native_depth_server.py \
+rsync -a g1_deploy/steerable-recovery/steerable_recovery/sensing/native_depth_server.py \
   g1:/home/unitree/osher/native_recovery/
 ```
 
@@ -118,6 +118,6 @@ bare command from the login directory does not import the package on the old
 robot: it is source-copied, not installed. Do not run the old USB-rule script
 unless those exact physical boards are being reused and the assignments match.
 
-Use the [diffusion deployment guide](deploy_diffusion.md) for the normal YAML settings, automatic timestamp alignment,
+Use the [diffusion deployment guide](../steerable-recovery/docs/deploy.md) for the normal YAML settings, automatic timestamp alignment,
 sensor-only inference and separate actuation commissioning. No old 23-DoF
 calibration or old VIGOR2 planner configuration belongs in that native profile.

@@ -4,6 +4,10 @@ Reset changes the DISPLAY episode origin only. It never sends commands, resets
 DLIO, or changes the deployment episode. Shared training heading functions are
 used at 50 Hz; the actual runtime remains responsible for its control-tick phase.
 """
+
+if __name__ == '__main__' and not __package__:
+    import _bootstrap  # System Python workers use this checkout, not the policy virtualenv.
+from steerable_recovery.paths import ROOT
 import argparse
 import json
 from pathlib import Path
@@ -13,7 +17,6 @@ import time
 import numpy as np
 import torch
 
-ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from humanoidverse2.agents.action_vae.heading import initialize_heading,transport_heading
 

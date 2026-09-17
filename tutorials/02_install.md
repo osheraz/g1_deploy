@@ -8,7 +8,8 @@ SDK merely to launch deployment.
 ```bash
 cd /home/osher/hv2
 source .venv/bin/activate
-python g1_deploy/deploy_diffusion.py --help
+python -m pip install --no-deps --no-build-isolation -e ./g1_deploy
+python g1_deploy/steerable-recovery/deploy.py --help
 python -c "import torch, numpy, cv2, zmq, unitree_sdk2py, viser"
 ```
 
@@ -37,7 +38,7 @@ git submodule update --init g1_deploy
 
 On Bluefin, the existing environment, model bundle and TensorRT exports are
 configured already. Another machine needs access to the bundle path in
-`configs/diffusion.yaml` (or a local materialized copy), its own network
+`g1_deploy/steerable-recovery/config/models.yaml` (or a local materialized copy), its own network
 interface, and newly validated TensorRT engines. No private SSH control socket
 is required by the documented camera command. The camera host itself still
 requires authorized SSH access.
@@ -54,7 +55,7 @@ Real robot access additionally needs Unitree SDK2 Python and CycloneDDS.
 Preserve a working installation and its `CYCLONEDDS_HOME` configuration.
 Bundle checks do not require camera hardware or the robot SDK.
 
-For compiled inference, follow the [ONNX/TensorRT section](deployment_reference.md#onnx-and-tensorrt).
+For compiled inference, follow the [export tooling](../steerable-recovery/docs/performance.md).
 Build/validate engines on the target GPU; copying an engine alone is insufficient.
 
 ## Jetson camera host

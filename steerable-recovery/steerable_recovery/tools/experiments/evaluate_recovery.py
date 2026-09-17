@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, PACKAGE_ROOT
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
@@ -25,7 +25,7 @@ def main():
             'arguments':vars(args)|{'output':str(output)},'profiles':{}}
     for profile,flags in [('pytorch',['--backend','pytorch']),('trt_fp32',['--backend','tensorrt']),
                           ('trt_tf32',['--backend','tensorrt','--planner-precision','tf32'])]:
-        command=[sys.executable,str(ROOT/'g1_deploy/sim_diffusion.py'),'--model','both',
+        command=[sys.executable,str(PACKAGE_ROOT / 'cli/sim.py'),'--model','both',
             '--postures',*args.postures,'--seconds',str(args.seconds),'--episodes',str(args.episodes),
             '--seed',str(args.seed),'--joint-jitter',str(args.joint_jitter),'--output',str(output/profile),*flags]
         if args.video:command.append('--video')

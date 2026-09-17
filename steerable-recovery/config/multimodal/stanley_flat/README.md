@@ -6,20 +6,20 @@ From `/home/osher/hv2`, open one live MuJoCo window at a time.
 with 0.29–0.71 m pairwise pelvis separation at sustained-upright entry:
 
 ```bash
-.venv/bin/python g1_deploy/compare_flat_recovery.py view --case supine1444_s50r
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/experiments/flat_recovery.py view --case supine1444_s50r
 ```
 
 **Same pose and seeds, faster S25 model, 5 Hz:**
 
 ```bash
-.venv/bin/python g1_deploy/compare_flat_recovery.py view --case supine1444_s25
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/experiments/flat_recovery.py view --case supine1444_s25
 ```
 
 **Earlier examples, with their original 2.5 Hz recipes:**
 
 ```bash
-.venv/bin/python g1_deploy/recovery_options.py --start supine
-.venv/bin/python g1_deploy/recovery_options.py --start prone
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/presets/flat.py --start supine
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/presets/flat.py --start prone
 ```
 
 **N** cycles the three fixed seeds; **R** repeats; **Space** pauses. Close the window
@@ -50,7 +50,7 @@ Use `view --case NAME` with `supine151_s50r`, `supine151_s25`,
 `--replan-hz 2.5` or `--seeds 114 819 862` for a separate exploration; those
 overrides were not part of the three-seed comparison.
 
-[Full results and paths](../../../../logs/multimodal_recovery/stanley_flat_20260915/README.md)
+[Full results and paths](../../../../../logs/multimodal_recovery/stanley_flat_20260915/README.md)
 retain all 24 new trials and the six previous 2.5 Hz examples. Within-case first
 observations matched exactly, the noise differed, and shared starts matched
 across models. The report's upright time includes the full one-second hold;
@@ -65,13 +65,13 @@ joint angles and pelvis height; this is a new rest-start experiment.
 `reference_routes/flat_pose_0/1/2.json` are unchanged copies of Stanley's three
 supine-151 route goals. They are plotted as references only. **No goal is passed
 to the policy in this unguided comparison.** The separate
-[steering launcher](../../../tutorials/steering.md) now passes these exact costs
+[steering launcher](../../../docs/steering.md) now passes these exact costs
 to the planner. Its first MuJoCo checks did not reproduce three successful
 routes; hardware feedback remains unqualified. The hardware option below is unguided.
 
 ## Run on the robot
 
-Use the [two-terminal deployment procedure](../../../tutorials/deploy_diffusion.md).
+Use the [two-terminal deployment procedure](../../../docs/deploy.md).
 It selects `r8_s50r_diffusion`, TensorRT, 5 Hz, fresh noise and
 `supine_1444_robot.json` with `--seed random` on each launch.
 START moves the joints slowly, then A starts recovery. The launch enters zero
@@ -86,7 +86,7 @@ robot; a saved joint preset does not reset those quantities.
 
 The code/PD/model check opens no sensors. Slow positioning was rehearsed in
 MuJoCo from ordinary and selected supine poses; after positioning, all three
-tested S50R recovery seeds finished quietly. [Validation receipt](../../../../logs/deployment_validation/s50r_1444_20260915/validation.json).
+tested S50R recovery seeds finished quietly. [Validation receipt](../../../../../logs/deployment_validation/s50r_1444_20260915/validation.json).
 This is not a hardware trial. Hardware RNG initialization differs from the
 paired-episode simulation RNG; equal seed numbers do not reproduce its draws.
 
@@ -101,7 +101,7 @@ regenerates the rest snapshots for that MuJoCo plant/version. Build the local GP
 export before running:
 
 ```bash
-.venv/bin/python g1_deploy/compare_flat_recovery.py prepare
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/experiments/flat_recovery.py prepare
 .venv/bin/python -m motion_diffusion.behavioral.hardware.export \
   --bundle logs/native_recovery/bundles/r8_s50r_20260915a \
   --model r8_s50r_diffusion --component planner --tensorrt \
@@ -112,6 +112,6 @@ The S25 tracker export and earlier model bundles must also be available, as in
 the existing deployment setup. Use a new results directory:
 
 ```bash
-.venv/bin/python g1_deploy/compare_flat_recovery.py run --output logs/multimodal_recovery/my_flat_comparison
-.venv/bin/python g1_deploy/compare_flat_recovery.py report --output logs/multimodal_recovery/my_flat_comparison
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/experiments/flat_recovery.py run --output logs/multimodal_recovery/my_flat_comparison
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/experiments/flat_recovery.py report --output logs/multimodal_recovery/my_flat_comparison
 ```

@@ -6,6 +6,10 @@ reference; IMU disagreement and stationary drift are not dynamic ground truth.
 """
 from __future__ import annotations
 
+if __name__ == '__main__' and not __package__:
+    import _bootstrap  # System Python workers use this checkout, not the policy virtualenv.
+from steerable_recovery.paths import ROOT
+
 import argparse
 import json
 from pathlib import Path
@@ -14,7 +18,6 @@ import sys
 import numpy as np
 from scipy.spatial.transform import Rotation, Slerp
 
-ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 from motion_diffusion.behavioral.hardware.measured_pose import PelvisPoseEstimator
 from motion_diffusion.behavioral.hardware.pelvis_odometry import G1Body

@@ -1,234 +1,57 @@
-# Recovery models in MuJoCo
+# MuJoCo
 
-Run from `/home/osher/hv2`. No robot, sensors, SSH tunnel or LiDAR process is needed.
-For selected prone, supine and side starts where **N changes only diffusion noise**,
-use the [multimodal demo](multimodal_recovery.md).
-P11 diffusion20k + N17k depth tracker is the default, using the same local bundle
-as deployment: PyTorch TF32, EMA DDIM8, fresh noise, K20/blend0.
-Stanley's September 14 candidates run the same way: `--model r8_s25_diffusion`
-(fast short-horizon diffusion, F25/K20, depth tracker), `--model r8_f50r_flow`
-(flow, F50/K20, depth tracker) or `--model r2_f50r_flow` (flow, blind tracker);
-add `--backend tensorrt` for the exported engines.
-Use the explicit `r8_s25_diffusion` name for Stanley's latest short-horizon
-**40k** selection. It is not the R8 flow model. The September 14 audit reproduced
-extreme startup commands on fork3 stairs, including after N. See the
-[audit and reproductions](../../notes/validation/r8_s25_mujoco_20260914.md).
+Run from `/home/osher/hv2` with a graphical display. No robot connection is needed.
+These live commands do not record video or impose a ten-second cutoff.
 
-## Live fork3 terrain and depth
+## Flat, fixed starting joints
+
+Choose one; replace `prone` with `supine` for face-up recovery:
 
 ```bash
-cd /home/osher/hv2
-.venv/bin/python g1_deploy/sim_diffusion.py \
-  --model p11_diffusion --terrain fork3 --start prone --viewer
+.venv/bin/python g1_deploy/steerable-recovery/sim.py --preset prone --model r8_s25_diffusion --seed random --replan-hz 2.5
+.venv/bin/python g1_deploy/steerable-recovery/sim.py --preset prone --model r8_s50r_diffusion --seed random --replan-hz 5
 ```
 
-Requires a graphical display (`DISPLAY` on Linux). No video recording is enabled.
-Live viewing runs continuously until you reset or close the window. Use
-`--seconds 10` only when you want a timed episode. Headless runs default to 10 s;
-`--seconds 0` runs either mode without a time limit.
-The robot settles on the terrain before policy time zero. The inset displays the
-latest arrived depth frame supplied to the planner: black is near, white is
-far, purple is invalid, and dark purple means no frame has arrived yet. This
-palette only affects the display; model depth values remain unchanged. A face-down
-camera can be above the floor but within its 10 cm minimum range, producing
-purple pixels. The startup console reports camera clearance and too-close/no-hit
-fractions so this is distinguishable from being inside terrain.
+These presets use saved resting states and show depth. The robot presets use the
+paired saved joint targets. [Which poses they select](examples.md).
 
-| Key | Action |
+## Terrain and free starts
+
+```bash
+.venv/bin/python g1_deploy/steerable-recovery/sim.py \
+  --model r8_s25_diffusion --backend tensorrt --replan-hz 2.5 \
+  --terrain fork3 --start prone --seed random --viewer
+```
+
+| Control / flag | Effect |
 | --- | --- |
-| R / Backspace | Repeat the same posture, terrain and seed |
-| N | New planner seed and a nearby starting pose |
-| M | New terrain tile; preserve planner seed |
-| P | Next model, when running `--model both` |
-| 1 / 2 / 3 | Standing / face down / face up |
-| 4 / 5 / 6 | Left side / right side / seated |
-| 7 | Random ground posture |
-| Space | Pause / resume |
+| R | Repeat the episode |
+| N | New noise and nearby start; `--noise-only` keeps the start fixed |
+| M | Sample another terrain |
+| Space | Pause/resume |
+| `--terrain flat` | Flat floor |
+| `--terrain stairs --terrain-seed 43` | Fixed cached stair tile |
+| `--replan-hz 5` | Change planning cadence; tracker remains 50 Hz |
+| `--noise-policy fixed_episode` | Reuse episode noise instead of fresh noise every plan |
+| `--start-state PATH.json` | Explicit saved simulator start |
+| `--robot PATH.urdf` | Override the robot asset |
+| `--no-depth-view` | Hide depth window |
 
-M briefly reloads the window to rebuild terrain collision; weights stay loaded.
-If MuJoCo reports a physics warning, the viewer remains stopped with that reason
-displayed until an operator reset. A solver reset no longer starts another
-episode automatically.
-Every reset clears physics, action/code histories, heading and camera buffers.
-N samples XY offsets up to ±10 cm, yaw up to ±15°, roll/pitch up to ±5° and a
-±0.15 rad joint perturbation around the original selected posture
-(`--n-xy-m`, `--n-yaw-deg`, `--n-tilt-deg`, `--n-joint-jitter` set the ranges).
-It advances the pose and planner seeds; camera timing randomness stays fixed.
-`--replan-hz 2.5|5|10` changes the planning cadence on whole 50 Hz ticks for any
-model (all three ship at 2.5 Hz, K20); it is a behavioral comparison, and the
-receipt records both requested and actual cadence. Offsets do not accumulate across presses.
-The robot settles again before starting, so terrain contacts determine the final
-resting pose. R repeats that sampled start exactly. A new seed does not guarantee
-a visibly different recovery route.
+Depth: near black, far white, invalid purple. Fork3 uses its corrected terrain
+meshes and the shared training Warp depth renderer. The plant is built from the
+training URDF. MuJoCo physics and synchronous planner execution still differ from
+Isaac and asynchronous hardware deployment.
 
-`fork3` samples all families from the existing `terrain_fall_fork3.npz` cache.
-Use `--terrain stairs`, `pyramids`, `rubble`, `feature`, `feature_drop`,
-`slope_feature`, `slope_feature_drop`, or `wave` to restrict sampling. For example:
+Starts settle before policy time begins. Default tracker startup repeats the
+measured initial state; depth uses `prefill`. The startup limiter is active only
+for 0.5 s. No camera delay is injected by default.
+
+Headless, without video:
 
 ```bash
-.venv/bin/python g1_deploy/sim_diffusion.py \
-  --model p11_diffusion --terrain stairs --terrain-seed 43 --start prone --viewer
+.venv/bin/python g1_deploy/steerable-recovery/sim.py \
+  --model r8_s25_diffusion --backend tensorrt --terrain flat \
+  --start supine --seed 42 --seconds 10 --no-depth-view
 ```
 
-The corrected cached triangle surface feeds the **shared training Warp
-`PlannerDepthRenderer`**. Robot occlusion uses the training URDF driven by
-MuJoCo body poses. Collision uses triangular prisms under that same surface,
-not a heightfield. MuJoCo contact dynamics still differ from Isaac. This loads a
-local 5 m tile with a small apron, not the full surrounding terrain atlas;
-interpret trials that leave the tile accordingly. Camera corruption and physics
-domain randomization are disabled. Model calibration, H3 history, 30 Hz captures
-and causal delivery remain active.
-
-`--terrain flat` uses a floor. The optional `--terrain step` is the earlier
-manually sized box; it is separate from fork3 stairs. Its dimensions are set by
-`--step-height`, `--step-edge`, `--step-length`, and `--step-width`.
-
-Diagnostic trajectories/configs are saved in the printed output directory.
-For headless execution omit `--viewer`; add `--video` only if you want an MP4.
-The upright metric uses height above terrain under the pelvis and is a diagnostic,
-not the training success metric. [Fork3 checks](../../notes/validation/mujoco_fork3_20260913.md).
-
-## Extreme command protection
-
-`sim_diffusion.py` defaults to `--command-limits bounded`. PD setpoints are
-bounded by the saved joint ranges plus an `effort/kp` spring allowance, and each
-target changes by at most **half** the saved joint-speed limit times 20 ms for
-the first second, then smoothly returns to the saved rate by two seconds. The first
-target starts at the measured pose. The original per-physics-step torque limits
-remain active. Limiting a finite command does not stop the policy; the actual
-limited request goes into the next tracker/planner history frame.
-
-Console lines show the **maximum since the previous line**, not one sampled
-command: `raw_action_max`, `issued_action_max`, and `limited_ticks`. There are
-50 control ticks per second. Raw network spikes stay visible even when the
-issued command is limited. N changes posture offsets/joints as well as the seed;
-it does not merely warm up the same run.
-
-These limits bound commands, not contact impulses or actual joint motion, and
-can change recovery performance. The robot launcher now uses the same parameters
-and implementation. For original training action/torque behavior
-use `--command-limits training` explicitly. Old audit runs used that behavior.
-[Current fix and tests](../../notes/validation/robot_startup_fix_20260914.md).
-
-The default `--depth-startup prefill` acquires distinct exposures at the resting
-pose until the tracker and planner views have arrived, matching Stanley's startup
-contract. Only the sensor clock advances; physics, tracker/planner history and
-planner noise stay at their reset. Normal capture/delivery timing continues from
-that sensor clock. `--depth-startup cold` reproduces the older empty-camera reset;
-`--depth-startup stationary` retains the one-second prehistory diagnostic.
-
-## Tracker history before starting
-
-The earlier R8 instability involved the legacy robot asset and its resting
-poses. The [current startup investigation](../../notes/validation/startup_dynamics_20260914.md)
-checks the training-URDF replacement, output scaling and optional soft startup.
-
-`--tracker-startup measured` collects 0.2 s of passive measurements before policy
-time zero and fills only the tracker's ten-frame history. It issues no motor
-commands during that interval. Camera and planner histories still start with
-their normal reset. This is an optional experiment; it did not resolve the
-tested R8_S25 stair instability.
-
-For a controlled comparison that keeps the same starting physics state and
-exactly the same latent action sequence:
-
-```bash
-.venv/bin/python g1_deploy/compare_tracker_startup.py \
-  --model r8_s25_diffusion --backend tensorrt \
-  --terrain fork3 --start prone --seconds 2
-```
-
-It runs headlessly and writes `comparison.json` for each case. The reference and
-both replay arms receive the same pre-start interval. The repeated-history
-replay must exactly match the reference before the comparison is accepted.
-This diagnostic defaults to `--command-limits training`, retaining the original
-history comparison; specify `--command-limits bounded` to include the new limits.
-See [results and scope](../../notes/validation/tracker_history_startup_20260914.md).
-For live viewing, append `--tracker-startup measured` to your usual
-`sim_diffusion.py ... --viewer` command. A matched repeated-history run uses
-`--tracker-startup repeat --tracker-preroll-s .2`; omitting both flags retains
-the original reset with no extra pre-start physics.
-
-## P05 with the blind tracker
-
-```bash
-.venv/bin/python g1_deploy/sim_diffusion.py \
-  --model p05_diffusion --start supine --viewer
-```
-
-P05 diffusion20k uses its exact **blind A24.5k tracker**. The planner still uses
-H3 depth. Its reference recipe is EMA DDIM8, TF32, fresh noise, K25/blend0:
-**2 Hz** planning. P11 remains the default model. P05 currently uses PyTorch;
-there are no P05/A TensorRT exports to substitute for it.
-
-## Change replanning frequency
-
-```bash
-.venv/bin/python g1_deploy/sim_diffusion.py \
-  --model p11_diffusion --replan-hz 5 --start supine --viewer
-```
-
-| Requested rate | Control ticks between plans | P11 setting |
-| --- | --- | --- |
-| 2.5 Hz | 20 | Selected default |
-| 5 Hz | 10 | Comparison |
-| 10 Hz | 5 | Comparison |
-
-The same flag works with P05. It changes only cadence: tracker stays at 50 Hz,
-horizon stays at 25 ticks, DDIM stays at eight steps, and noise/blending stay as
-saved. Requests must fit an integer number of control ticks and the horizon;
-unsupported rates are rejected rather than rounded. The saved config records
-both reference and actual settings. These comparisons can change recovery quality.
-
-MuJoCo pauses physics during sampling, so a simulated rate is not a compute
-qualification. The hardware launcher also accepts `--replan-hz`, retaining its
-100 ms reply-age allowance and horizon check. With that allowance, 2.5/5/10 Hz
-fit; 2 Hz needs the entire horizon and therefore is simulation-only. P05's
-hardware default is adapted from K25 to K20 for this reason. Very high requested
-rates may be limited by the single planner worker, even if the horizon fits.
-
-## Multiple starts
-
-```bash
-.venv/bin/python g1_deploy/sim_diffusion.py --model p11_diffusion \
-  --postures supine left_side right_side prone --episodes 2 --seconds 10 --video
-```
-
-Ground starts settle before policy time zero; they do not begin by dropping the
-robot. `--joint-jitter .05` perturbs joint poses before settling. A seated preset
-can recline during settling; no hidden controller holds it upright.
-
-The plant is built from the training URDF `g1_29dof_sonic.urdf` (MuJoCo's
-URDF import with a floating pelvis; `--robot` accepts another URDF or MJCF),
-so collision is the full training set: limb hulls, torso, head, logo and both
-rubber hands, with the URDF masses (33.3 kg). The earlier SONIC MJCF had
-visual-only hands, so fingers went up to 13 cm through the floor while
-pushing up; now hand contact penetration stays under 0.6 cm. It uses the
-tracker's saved PD/action scales, effort limits, armature and joint friction,
-with 200 Hz physics and 50 Hz control. Depth ray casting uses the same URDF's
-visual meshes, driven by MuJoCo body poses. Since September 14 every robot
-collision geom uses the firmer contact response (`solref .01 1`,
-`solimp .95 .99 .001`, priority 1); the head keeps a 3 mm envelope. MuJoCo's default softness let
-loaded feet and hands sink 1–3 cm into the floor and 5–6 cm behind stair
-risers, where prism side walls then trapped them. Masses, inertias, PD gains
-and the 200 Hz timestep are unchanged. Contact behavior is still not identical
-to Isaac. Measurements: [handoff section 8](../../notes/REAL_WORLD_DEPLOYMENT_HANDOFF.md).
-[Head-contact check](../../notes/validation/mujoco_head_contact_20260913.md). [Depth audit](../../notes/validation/mujoco_depth_20260913.md).
-Gyro is expressed in the pelvis frame used by its quaternion. Both P11 networks
-receive H3 calibrated depth at 30 Hz with causal 0–40 ms delivery delays. Valid
-far returns saturate at 2 m; no-hit and invalid returns stay masked. Camera corruption and domain randomization are disabled. Physics pauses during inference: it is not a wall-clock hardware
-latency test or an exact reproduction of Stanley's validation panel.
-
-For P11 TensorRT FP32 comparison, add `--backend tensorrt`. It changes numerical
-precision from the selected PyTorch TF32 recipe; recovery equivalence is not
-established. See [inference details](inference_latency.md).
-
-Legacy B20k/C10k diffusion and E20k/C10k flow remain available via
-`--model diffusion`, `--model flow`, or `--model both` (both legacy models).
-Those aliases keep their original samplers and default to TensorRT FP32.
-`compare_diffusion_samples.py` and `evaluate_recovery.py` still target those
-legacy models; use the commands above for P11.
-
-Implementation: `g1_deploy/sim_diffusion.py` and
-`motion_diffusion/behavioral/mujoco.py`, using the shared `NativeRecoveryPolicy`.
-For physical deployment, use the [robot guide](deploy_diffusion.md).
+Add `--video` only when an MP4 is wanted. [Steering commands](steering.md).

@@ -9,7 +9,7 @@ planner mode uses the official Start/Select/D-pad/X/Y/B state machine; other
 modes use A to start and stop.
 
 Episodes are directories: state.npz + frames.bin + meta.json.
-Read one back with sonic.common.episode.load_episode().
+Read one back with core.recording.episode.load_episode().
 """
 from __future__ import annotations
 
@@ -27,12 +27,12 @@ from unitree_sdk2py.utils.crc import CRC
 
 from core.common.command_helper import create_damping_cmd
 from core.common.depth_client import SimpleDepthClient
-from sonic.common.episode import Recorder, load_episode  # noqa: F401  (re-exported)
+from core.recording.episode import Recorder, load_episode
 from core.common.remote_controller import KeyMap
 from sonic.common.tactile_record import sample_fields as tactile_fields
 from sonic.common.unitree_crc import configure_materialized_unitree_crc
 from sonic.common.unitree_dds import configure_process_local_cyclonedds_log
-from sonic.common.unitree_mode import release_active_motion_mode
+from core.robot.mode import release_active_motion_mode
 from core.config import Config
 from core.robot.robot_interface import RobotInterface
 

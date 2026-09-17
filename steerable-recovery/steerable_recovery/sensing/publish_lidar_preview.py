@@ -4,6 +4,10 @@ No motor publishers. Live mode subscribes to an already-running Livox driver;
 replay mode never imports ROS or connects to the robot. The protocol explicitly
 marks this as diagnostic data rather than a qualified planner observation.
 """
+
+if __name__ == '__main__' and not __package__:
+    import _bootstrap  # System Python workers use this checkout, not the policy virtualenv.
+from steerable_recovery.paths import ROOT
 import argparse
 from pathlib import Path
 import sys
@@ -12,7 +16,6 @@ import uuid
 
 import numpy as np
 
-ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT/'g1_deploy'))
 sys.path.insert(0,str(ROOT/'motion_diffusion/behavioral/hardware'))
 sys.path.insert(0,str(Path(__file__).resolve().parent))

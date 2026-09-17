@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import sys
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, CONFIG_ROOT, PACKAGE_ROOT
 sys.path.insert(0,str(ROOT))
 
 RELEASE=Path('/nfs/turbo/coe-stellayu-extra/osher/projects/hv2/releases/fork3_rise_salmon15501_isaac6_20260911')
@@ -130,11 +130,11 @@ def prepare(output,model):
     import numpy as np
     import torch,yaml
     from omegaconf import OmegaConf
-    from g1_deploy.deploy_diffusion import model_settings
+    from steerable_recovery.settings import model_settings
     from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path
     from motion_diffusion.behavioral.mujoco import flat_model,MujocoNativePlant
     from motion_diffusion.behavioral.start_state import snapshot_start
-    cfg=yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text())
+    cfg=yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())
     root,manifest=load_bundle(model_settings(cfg,model)['bundle']);row=manifest['models'][model]
     checkpoint=torch.load(asset_path(root,row['controller']),map_location='cpu',weights_only=True,mmap=True)
     contract=checkpoint['action_vae']['model_contract']
@@ -216,9 +216,9 @@ def rank_pairs(runs):
 def search(output,model,backend,seeds,seconds,ids=None):
     import subprocess
     import yaml
-    from g1_deploy.deploy_diffusion import model_settings
+    from steerable_recovery.settings import model_settings
     from motion_diffusion.behavioral.hardware.bundle import load_bundle
-    settings=model_settings(yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text()),model)
+    settings=model_settings(yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text()),model)
     _,manifest=load_bundle(settings['bundle']);binding=manifest['models'][model]
     for prior in (output/'trials').glob('*/*/*/config.json'):
         config=json.loads(prior.read_text())
@@ -242,7 +242,7 @@ def search(output,model,backend,seeds,seconds,ids=None):
                 archive=output/'diagnostics'/f'incomplete_{candidate["id"]}_{time.time_ns()}'
                 archive.parent.mkdir(parents=True,exist_ok=True)
                 shutil.move(str(directory),str(archive))
-            command=[sys.executable,str(ROOT/'g1_deploy/sim_diffusion.py'),'--model',model,'--backend',backend,
+            command=[sys.executable,str(PACKAGE_ROOT / 'cli/sim.py'),'--model',model,'--backend',backend,
                 '--start',candidate['posture'],'--start-state',str(start),'--seed-list',*[str(s) for s in seeds],
                 '--sensor-seed','42','--pose-seed','42','--seconds',str(seconds),'--output',str(directory)]
             print(f'Testing {candidate["id"]}: seeds {seeds}',flush=True)

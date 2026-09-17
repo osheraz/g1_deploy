@@ -6,6 +6,10 @@ Raw message capture times and local receipt times are retained independently.
 """
 from __future__ import annotations
 
+if __name__ == '__main__' and not __package__:
+    import _bootstrap  # System Python workers use this checkout, not the policy virtualenv.
+from steerable_recovery.paths import ROOT
+
 import argparse
 import json
 import os
@@ -65,7 +69,7 @@ def main():
     from nav_msgs.msg import Odometry
     from unitree_sdk2py.core.channel import ChannelFactoryInitialize,ChannelSubscriber
     from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_,IMUState_
-    sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'motion_diffusion/behavioral/hardware'))
+    sys.path.insert(0,str(ROOT/'motion_diffusion/behavioral/hardware'))
     from fast_crc import CRC
 
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)

@@ -11,7 +11,7 @@ from pathlib import Path
 import sys
 import time
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, CONFIG_ROOT
 sys.path.insert(0,str(ROOT))
 PROFILES={
     'pytorch':dict(backend='pytorch'),
@@ -140,7 +140,7 @@ def main():
     from motion_diffusion.behavioral.runtime import load_frozen_planner
     torch.set_num_threads(1)
     torch.backends.cuda.matmul.allow_tf32=False;torch.backends.cudnn.allow_tf32=False
-    settings=yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text())
+    settings=yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())
     output=args.output or ROOT/'logs/native_recovery'/f'latency_{time.time_ns()}'
     output.mkdir(parents=True,exist_ok=False)
     report=dict(gpu=torch.cuda.get_device_name(args.device),torch=torch.__version__,cuda=torch.version.cuda,
@@ -149,7 +149,7 @@ def main():
     def save():(output/'report.json').write_text(json.dumps(report,indent=2,default=str)+'\n')
     save()
     for name in (('diffusion','flow') if args.model=='both' else (args.model,)):
-        from g1_deploy.deploy_diffusion import model_settings
+        from steerable_recovery.settings import model_settings
         selected=model_settings(settings,name)
         root,manifest=load_bundle(selected['bundle'])
         row=manifest['models'][name];checkpoint=asset_path(root,row['planner'])

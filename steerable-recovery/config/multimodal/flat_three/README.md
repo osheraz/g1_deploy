@@ -16,8 +16,8 @@ a 0.5-second horizon. The existing startup limiter applies only in the first
 ## Live MuJoCo
 
 ```bash
-.venv/bin/python g1_deploy/recovery_options.py --start prone
-.venv/bin/python g1_deploy/recovery_options.py --start supine
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/presets/flat.py --start prone
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/presets/flat.py --start supine
 ```
 
 Run one window at a time. **N** cycles the three selected seeds, **R** repeats
@@ -42,13 +42,13 @@ the hardware scheduling budget.
 
 ## Robot
 
-Keep [terminal 1's depth stream](../../../tutorials/deploy_diffusion.md#1-depth-stream--terminal-1)
+Keep [terminal 1's depth stream](../../../docs/deploy.md#terminal-1-depth)
 running. Place the robot on flat ground in the selected face-down or face-up
 orientation, then run **one** command:
 
 ```bash
-.venv/bin/python g1_deploy/recovery_options.py --start prone --robot --option 1
-.venv/bin/python g1_deploy/recovery_options.py --start supine --robot --option 1
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/presets/flat.py --start prone --robot --option 1
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/presets/flat.py --start supine --robot --option 1
 ```
 
 Use `--option 2` and `--option 3` for the other seeds. The command enters the
@@ -68,12 +68,12 @@ For **diffusion in either posture**, add `--model r8_s25_diffusion` (default
 new draws. This keeps the posture's same joint preset; it does not reproduce
 the selected catalog paths. Explicit `--replan-hz` overrides the model default.
 These runs include the model name in their output folder.
-See [all four robot commands](../../../tutorials/deploy_diffusion.md#both-diffusion-models-prone-and-supine).
+See [all four robot commands](../../../docs/deploy.md#terminal-2-recovery).
 
 Wait for saving to finish, then open the recording with:
 
 ```bash
-.venv/bin/python g1_deploy/replay_motion.py RUN_NAME
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/review/session.py RUN_NAME
 ```
 
 `--print-command` prints the expanded command without loading models or opening
@@ -101,4 +101,4 @@ Upright entry is the beginning of a one-second interval with pelvis height
 at least 0.55 m and upright cosine at least 0.75, a MuJoCo diagnostic rather
 than Isaac's training success definition. No physical trial was run for this
 selection. Results and confirmation are in
-[`logs/multimodal_recovery/three_modes_20260915`](../../../../logs/multimodal_recovery/three_modes_20260915/).
+[`logs/multimodal_recovery/three_modes_20260915`](../../../../../logs/multimodal_recovery/three_modes_20260915).

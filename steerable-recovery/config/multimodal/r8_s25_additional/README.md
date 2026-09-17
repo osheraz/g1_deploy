@@ -12,16 +12,16 @@ snapshots, not hardware joint-target presets.
 From `/home/osher/hv2`, run either command on the graphical desktop:
 
 ```bash
-.venv/bin/python g1_deploy/sim_diffusion.py \
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/cli/sim.py \
   --model r8_s25_diffusion --backend tensorrt --start prone \
-  --start-state g1_deploy/config/multimodal/r8_s25_additional/prone.json \
+  --start-state g1_deploy/steerable-recovery/config/multimodal/r8_s25_additional/prone.json \
   --seed random --sensor-seed 42 --pose-seed 42 --viewer
 ```
 
 ```bash
-.venv/bin/python g1_deploy/sim_diffusion.py \
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/cli/sim.py \
   --model r8_s25_diffusion --backend tensorrt --start supine \
-  --start-state g1_deploy/config/multimodal/r8_s25_additional/supine.json \
+  --start-state g1_deploy/steerable-recovery/config/multimodal/r8_s25_additional/supine.json \
   --seed random --sensor-seed 42 --pose-seed 42 --viewer
 ```
 
@@ -46,7 +46,7 @@ Follow-up: eight additional random prone seeds all recovered, with identical
 initial model inputs and different noise. Their strongest contrast was still
 leg placement/timing within a similar push-up recovery; distinct strategies and
 hardware multimodality are not established. Real joint targets also do not ensure
-identical measured starts. [Checks and experiment protocol](../../../../notes/validation/prone_same_start_20260914.md).
+identical measured starts. [Checks and experiment protocol](../../../../../notes/validation/prone_same_start_20260914.md).
 
 ## Use the additional prone joint targets on the robot
 
@@ -61,9 +61,9 @@ Keep the usual depth stream running. Place the robot face down, then run:
 ```bash
 cd /home/osher/hv2
 SESSION="logs/real_world/r8_prone321_$(date +%Y%m%d_%H%M%S)"
-.venv/bin/python g1_deploy/deploy_diffusion.py \
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/cli/deploy.py \
   --model r8_s25_diffusion --backend tensorrt \
-  --start-pose g1_deploy/config/multimodal/r8_s25_additional/prone_robot.json \
+  --start-pose g1_deploy/steerable-recovery/config/multimodal/r8_s25_additional/prone_robot.json \
   --seed random --actuate --release-controller --duration-s 60 \
   --live-odometry --record-sensors --record-label prone_teacher_321 \
   --external-camera --camera-size 1920x1080 --camera-fps 30 \

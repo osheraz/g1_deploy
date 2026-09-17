@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, PACKAGE_ROOT
 sys.path.insert(0,str(ROOT))
 
 
@@ -131,7 +131,7 @@ def main():
     output.mkdir(parents=True,exist_ok=False)
     directory=args.results_dir or output/'rollouts'
     if args.results_dir is None:
-        command=[sys.executable,str(ROOT/'g1_deploy/sim_diffusion.py'),'--model',args.model,
+        command=[sys.executable,str(PACKAGE_ROOT / 'cli/sim.py'),'--model',args.model,
                  '--start',args.start,'--episodes',str(args.samples),'--seconds',str(args.seconds),
                  '--seed',str(args.seed),'--pose-seed',str(args.pose_seed),'--sensor-seed',str(args.sensor_seed),
                  '--output',str(directory)]

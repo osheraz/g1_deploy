@@ -12,7 +12,7 @@ import time
 
 import numpy as np
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, CONFIG_ROOT, PACKAGE_ROOT
 sys.path.insert(0,str(ROOT))
 from motion_diffusion.behavioral.hardware.cli import PelvisOdometryReceiver
 
@@ -56,11 +56,11 @@ def replay(session,output,workspace):
     if not (raw/'sensors.npz').is_file():raise ValueError(f'Missing {raw}/sensors.npz')
     receiver=PelvisOdometryReceiver(0,background=True)
     port=receiver.socket.getsockname()[1]
-    command=['/usr/bin/python3',str(ROOT/'scripts/fall_recovery/validation/replay_dlio.py'),
-        str(raw/'bag'),'--config',str(ROOT/'g1_deploy/config/lidar/dlio.yaml'),
+    command=['/usr/bin/python3',str(PACKAGE_ROOT / 'sensing/replay_dlio.py'),
+        str(raw/'bag'),'--config',str(CONFIG_ROOT / 'lidar/dlio.yaml'),
         '--output',str(output/'dlio'),'--imu-unit','g','--scan-packets','3','--timeout-s','360',
         '--hardware-capture',str(raw),'--mount-calibration',
-        str(ROOT/'g1_deploy/config/lidar/mount_candidate_20260912.json'),'--odometry-port',str(port)]
+        str(CONFIG_ROOT / 'lidar/mount_candidate_20260912.json'),'--odometry-port',str(port)]
     setup='set -e; source /opt/ros/humble/setup.bash; source "$1"; shift; export ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=91 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1; exec "$@"'
     rows=[];proc=None;cpu_start=time.process_time();wall_start=time.monotonic()
     try:
@@ -127,7 +127,7 @@ def plot(rows,path):
 
 
 def main():
-    from record_motion import DEFAULT_WS
+    from steerable_recovery.recording.session import DEFAULT_WS
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('session',type=Path);p.add_argument('--replay',action='store_true')
     p.add_argument('--output',type=Path)
@@ -143,7 +143,7 @@ def main():
         with (gzip.open(path,'rt') if path.suffix=='.gz' else path.open()) as f:rows=[json.loads(line) for line in f]
     report=summarize(rows);report.update(context)
     if a.baseline:
-        from replay_motion import save_timing_report
+        from steerable_recovery.review.session import save_timing_report
         report['baseline_timing']=save_timing_report(a.baseline/'telemetry.jsonl.gz',output/'baseline_timing.json')
         report['baseline_caveat']='Separate run: pose, scheduling and model outputs may differ; compare distributions, not a proven incremental latency'
     (output/'evaluation.json').write_text(json.dumps(report,indent=2)+'\n');plot(rows,output/'motion.png')

@@ -1,7 +1,7 @@
 # Recovery starts with different spatial paths
 
 For the current simulation-to-robot comparison, use
-[the same-start experiment note](../../../../notes/real_world_same_start.md).
+[the same-start experiment note](../../../../../notes/real_world_same_start.md).
 It includes the robot-compatible supine simulation command and the latest
 six-run check. The original supine example below uses slightly different ankles.
 
@@ -26,14 +26,14 @@ separation does not apply to the flat start.
 Run from `/home/osher/hv2` on the graphical desktop, one window at a time:
 
 ```bash
-.venv/bin/python g1_deploy/multimodal_recovery.py \
-  --catalog g1_deploy/config/multimodal/r8_s25_spatial/catalog.json \
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/presets/multimodal.py \
+  --catalog g1_deploy/steerable-recovery/config/multimodal/r8_s25_spatial/catalog.json \
   --start supine
 ```
 
 ```bash
-.venv/bin/python g1_deploy/multimodal_recovery.py \
-  --catalog g1_deploy/config/multimodal/r8_s25_spatial/catalog.json \
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/presets/multimodal.py \
+  --catalog g1_deploy/steerable-recovery/config/multimodal/r8_s25_spatial/catalog.json \
   --start prone
 ```
 
@@ -54,8 +54,8 @@ Add `--replan-hz 5` or `--replan-hz 10` to either live command; explicitly use
 `--replan-hz 2.5` for the saved baseline. For example:
 
 ```bash
-.venv/bin/python g1_deploy/multimodal_recovery.py \
-  --catalog g1_deploy/config/multimodal/r8_s25_spatial/catalog.json \
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/presets/multimodal.py \
+  --catalog g1_deploy/steerable-recovery/config/multimodal/r8_s25_spatial/catalog.json \
   --start supine --replan-hz 5
 ```
 
@@ -88,7 +88,7 @@ The launcher and replanning-contract checks passed 43 tests.
 
 ## Supine on the robot
 
-Keep the [usual depth stream](../../../tutorials/deploy_diffusion.md#1-depth-stream--terminal-1)
+Keep the [usual depth stream](../../../docs/deploy.md#terminal-1-depth)
 running. Put the robot **face up** in the intended floor position. Set the
 planner rate explicitly in the first line below:
 
@@ -96,9 +96,9 @@ planner rate explicitly in the first line below:
 cd /home/osher/hv2
 REPLAN_HZ=2.5
 SESSION="logs/real_world/r8_supine_${REPLAN_HZ}hz_$(date +%Y%m%d_%H%M%S)"
-.venv/bin/python g1_deploy/deploy_diffusion.py \
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/cli/deploy.py \
   --model r8_s25_diffusion --backend tensorrt \
-  --start-pose g1_deploy/config/multimodal/r8_s25_spatial/supine_robot.json \
+  --start-pose g1_deploy/steerable-recovery/config/multimodal/r8_s25_spatial/supine_robot.json \
   --replan-hz "$REPLAN_HZ" --seed random \
   --actuate --release-controller --duration-s 60 \
   --live-odometry --record-sensors --record-label supine_spatial_6819 \
@@ -119,7 +119,7 @@ LiDAR, live XYZ and recording start automatically; no separate recorder command.
 Afterward, view the recorded camera, depth and estimated motion:
 
 ```bash
-.venv/bin/python g1_deploy/replay_motion.py "$SESSION"
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/review/session.py "$SESSION"
 ```
 
 The robot preset retains 27 simulation joint angles exactly; left/right ankle
@@ -157,8 +157,8 @@ Planner noise stays independent (`--seed random`).
 In MuJoCo, for either `--start prone` (flat, face down) or `--start supine`:
 
 ```bash
-.venv/bin/python g1_deploy/multimodal_recovery.py \
-  --catalog g1_deploy/config/multimodal/r8_s25_spatial/catalog.json \
+.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/presets/multimodal.py \
+  --catalog g1_deploy/steerable-recovery/config/multimodal/r8_s25_spatial/catalog.json \
   --start supine --random --replan-hz 2.5 --start-pose-jitter-deg 3
 ```
 

@@ -1,6 +1,6 @@
 # Robot geometry/limits only. Policy gains, default pose and action scale come
 # from the selected decoder checkpoint and its verified training config.
-extends: g1_29dof_sonic.yaml
+extends: ../../configs/g1_29dof_sonic.yaml
 
 bundle: /nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/experiments/fallrec_latent_planner_20260902/deployments/native_recovery_20260910b
 network_interface: enp132s0

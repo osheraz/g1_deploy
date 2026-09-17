@@ -3,6 +3,10 @@
 Source ROS and the built DLIO workspace first. Use an isolated nonzero ROS
 domain. Optional UDP output is for an isolated monitoring receiver only.
 """
+
+if __name__ == '__main__' and not __package__:
+    import _bootstrap  # System Python workers use this checkout, not the policy virtualenv.
+from steerable_recovery.paths import ROOT
 import argparse
 import json
 import os
@@ -15,7 +19,7 @@ import time
 
 import numpy as np
 # Keep ROS system Python independent of the training package dependencies.
-sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'motion_diffusion/behavioral/hardware'))
+sys.path.insert(0,str(ROOT/'motion_diffusion/behavioral/hardware'))
 from livox_imu_si import imu_to_si
 from livox_cloud_window import join_cloud_packets
 
@@ -71,7 +75,7 @@ def main():
     bridge=None
     if a.hardware_capture:
         from pelvis_odometry import G1Body,PelvisBridge
-        from replay_motion_state import RecordedStateReader
+        from scripts.fall_recovery.validation.replay_motion_state import RecordedStateReader
         state=RecordedStateReader(a.hardware_capture/'sensors.npz')
         # Subscription order ensures the replay time base exists before odometry.
         node.create_subscription(Imu,'/livox/imu',lambda msg:state.observe_imu(

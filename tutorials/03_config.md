@@ -1,33 +1,24 @@
 # Model and hardware configuration
 
-Current deployment uses [`configs/diffusion.yaml`](../configs/diffusion.yaml).
-It selects the model bundle, network, camera and optional neural exports.
-It inherits the existing 29-joint mapping/limits, but **not** SONIC's policy
-gains or action scale: those come from the selected decoder's verified bundle.
-Clock alignment is performed at startup. Ordinary depth-based policy execution needs no separate hardware JSON. Live XYZ
-monitoring uses the explicit mount candidate; qualified XYZ feedback additionally
-requires an independent clock calibration that is not yet available.
+Recovery settings: [`steerable-recovery/config/models.yaml`](../steerable-recovery/config/models.yaml).
+Shared robot geometry: [`configs/g1_29dof_sonic.yaml`](../configs/g1_29dof_sonic.yaml).
+The verified model bundle supplies training PD, default joints and action scale.
+Do not substitute SONIC gains or exchange paired trackers.
 
-`--backend tensorrt` selects compiled inference; `--actuate` enables the motor
-path: startup is idle; A starts policy from the current pose, A again stops in
-damping and exits. Before starting only, START optionally moves to default over
-two seconds, then holds for A. SELECT cancels/stops; Ctrl+C also stops.
-`--default-pose --actuate` waits for START, moves and holds; SELECT or A stops.
-If the built-in controller is active, add `--release-controller` with the robot
-already supported. It requests the SDK handover on A/START, after the startup
-pose check and before motor output; otherwise an active controller blocks takeover.
-`--config` is optional and selects another YAML when needed.
-The current config explicitly permits testing the older bundle with the new
-lens, logs the mismatch, and does not rewrite saved model calibration.
+```bash
+cd /home/osher/hv2
+.venv/bin/python g1_deploy/steerable-recovery/deploy.py --model r8_s25_diffusion --check
+.venv/bin/python g1_deploy/steerable-recovery/deploy.py --model r8_s50r_diffusion --check
+```
 
-The planner predicts action codes; the paired decoder consumes those codes and
-measured robot history. Neither the PPO teacher nor a target motion encoder
-runs at inference. Simulation and hardware share that implementation.
+These validate the selected bundle without sensors or motor commands.
+Use `--config PATH` for another configuration. Explicit model selection avoids
+the full launcher's historical P11 default.
 
-The `configs/g1_29dof_sonic.yaml` argument used by the **read-only viewer** supplies
-stream settings and motor order only. It does not select the diffusion model,
-and `sonic/check_streams.py` does not load a SONIC policy.
+[Operator commands](../steerable-recovery/docs/deploy.md) ·
+[Runtime layout](../steerable-recovery/docs/architecture.md) ·
+[Export/benchmark tooling](../steerable-recovery/docs/performance.md).
 
-See [the runtime reference](deployment_reference.md#model-bundle) for bundle validation and
-[the camera guide](04_cameras.md) for the current robot connection.
-Legacy VIGOR YAML instructions are [archived separately](../deprecated/tutorials/config_vigor.md).
+The read-only `sonic/check_streams.py` uses shared camera/joint settings; it does
+not select or load the recovery policy. VIGOR settings remain
+[separate](../deprecated/tutorials/config_vigor.md).

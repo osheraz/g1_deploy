@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run selected P11 recovery or legacy diffusion/flow in MuJoCo.
 
-python g1_deploy/sim_diffusion.py --video
-python g1_deploy/sim_diffusion.py --model p11_diffusion --viewer
-python g1_deploy/sim_diffusion.py --model flow --viewer --start supine
+python g1_deploy/steerable-recovery/steerable_recovery/cli/sim.py --video
+python g1_deploy/steerable-recovery/steerable_recovery/cli/sim.py --model p11_diffusion --viewer
+python g1_deploy/steerable-recovery/steerable_recovery/cli/sim.py --model flow --viewer --start supine
 """
 from __future__ import annotations
 
@@ -16,13 +16,13 @@ from pathlib import Path
 import sys
 import time
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, CONFIG_ROOT
 sys.path.insert(0,str(ROOT))
 
 
 def arguments(argv=None):
     from motion_diffusion.behavioral.mujoco_terrain import SIM_TERRAINS,DEFAULT_CACHE
-    from g1_deploy.deploy_diffusion import sampling_seed
+    from steerable_recovery.settings import sampling_seed
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--model',choices=('p11_diffusion','r8_f50r_flow','r8_s25_diffusion','r8_s50r_diffusion','r2_f50r_flow','p05_diffusion','diffusion','flow','both'),
         default='p11_diffusion')
@@ -468,8 +468,8 @@ def main(argv=None):
     from motion_diffusion.behavioral.hardware.engines import configure_controller,configure_planner
     from motion_diffusion.behavioral.mujoco import DEFAULT_ROBOT,scene_model,MujocoNativePlant
     torch.set_num_threads(1)
-    config=yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text())
-    from g1_deploy.deploy_diffusion import model_settings
+    config=yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())
+    from steerable_recovery.settings import model_settings
     output=(args.output or ROOT/'logs/native_recovery'/f'mujoco_{args.terrain}_{time.time_ns()}').resolve()
     output.mkdir(parents=True,exist_ok=False)
     print(f'Output: {output}',flush=True)

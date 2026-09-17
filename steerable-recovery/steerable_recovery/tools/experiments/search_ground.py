@@ -8,9 +8,9 @@ from itertools import combinations
 import json
 import sys
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, CONFIG_ROOT
 sys.path.insert(0,str(ROOT))
-from g1_deploy.search_multimodal_recovery import RELEASE,write_json,posture,prepare,search
+from steerable_recovery.tools.experiments.search_multimodal import RELEASE, write_json, posture, prepare, search
 
 
 def analyze_ground(output):
@@ -88,11 +88,11 @@ def export_ground(output,destination,ids,seeds_override=None):
     import hashlib,shutil
     import numpy as np
     import torch,yaml
-    from g1_deploy.deploy_diffusion import model_settings,hardware_settings
+    from steerable_recovery.settings import model_settings, hardware_settings
     from motion_diffusion.behavioral.hardware import bundle
     from motion_diffusion.behavioral.hardware.unitree import NativePDContract
     from motion_diffusion.behavioral.hardware.start_pose import validate_start_pose
-    settings=model_settings(yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text()),'r8_s25_diffusion')
+    settings=model_settings(yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text()),'r8_s25_diffusion')
     root,manifest=bundle.load_bundle(settings['bundle']);model=manifest['models']['r8_s25_diffusion']
     checkpoint=torch.load(bundle.asset_path(root,model['controller']),map_location='cpu',weights_only=True,mmap=True)
     contract=checkpoint['action_vae']['model_contract'];hardware=hardware_settings(settings,contract)
@@ -138,13 +138,13 @@ def check_robot_preparation(catalog_path,output):
     import numpy as np
     import torch,yaml
     from omegaconf import OmegaConf
-    from g1_deploy.deploy_diffusion import model_settings
+    from steerable_recovery.settings import model_settings
     from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path
     from motion_diffusion.behavioral.hardware.start_pose import start_pose_path
     from motion_diffusion.behavioral.mujoco import flat_model,MujocoNativePlant
     from motion_diffusion.behavioral.start_state import snapshot_start,restore_start
     catalog=json.loads(catalog_path.read_text());output.mkdir(parents=True,exist_ok=True)
-    cfg=yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text())
+    cfg=yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())
     root,manifest=load_bundle(model_settings(cfg,catalog['model'])['bundle']);model=manifest['models'][catalog['model']]
     checkpoint=torch.load(asset_path(root,model['controller']),map_location='cpu',weights_only=True,mmap=True)
     pd=json.loads(asset_path(root,model['pd_binding']).read_text())['deployment_pd']
@@ -198,11 +198,11 @@ def prepare_held(output):
     import numpy as np
     import torch,yaml
     from omegaconf import OmegaConf
-    from g1_deploy.deploy_diffusion import model_settings
+    from steerable_recovery.settings import model_settings
     from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path
     from motion_diffusion.behavioral.mujoco import flat_model,MujocoNativePlant
     from motion_diffusion.behavioral.start_state import snapshot_start
-    cfg=yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text())
+    cfg=yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())
     root,manifest=load_bundle(model_settings(cfg,'r8_s25_diffusion')['bundle']);model=manifest['models']['r8_s25_diffusion']
     checkpoint=torch.load(asset_path(root,model['controller']),map_location='cpu',weights_only=True,mmap=True)
     pd=json.loads(asset_path(root,model['pd_binding']).read_text())['deployment_pd']

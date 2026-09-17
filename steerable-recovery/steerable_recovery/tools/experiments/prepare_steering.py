@@ -10,9 +10,9 @@ import hashlib
 import json
 from pathlib import Path
 
-ROOT=Path(__file__).resolve().parents[1]
-SOURCE=ROOT/'g1_deploy/config/multimodal/stanley_flat/reference_routes'
-DEST=ROOT/'g1_deploy/config/steering/trajectories'
+from steerable_recovery.paths import ROOT, CONFIG_ROOT
+SOURCE=CONFIG_ROOT / 'multimodal/stanley_flat/reference_routes'
+DEST=CONFIG_ROOT / 'steering/trajectories'
 
 
 def extract_goal(source,*,waypoints='coarse'):

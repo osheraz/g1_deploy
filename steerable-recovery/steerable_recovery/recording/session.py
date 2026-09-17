@@ -3,6 +3,7 @@
 Read-only robot subscriptions. Owns only its sensor/estimator child processes.
 The planner keeps depth. Optional live odometry publishes to the runtime receiver.
 """
+from steerable_recovery.paths import RESULTS_ROOT, ROOT, CONFIG_ROOT, PACKAGE_ROOT
 import argparse
 import json
 import math
@@ -15,8 +16,6 @@ import time
 import threading
 from types import SimpleNamespace
 
-ROOT=Path(__file__).resolve().parents[1]
-RESULTS_ROOT=ROOT/'logs/real_world'
 DEFAULT_WS=str(Path.home()/'.local/share/hv2/lidar/ros2_ws')
 
 
@@ -85,7 +84,7 @@ class PolicyRecording:
         self.error=None;self.monitor_stop=threading.Event();self.monitor=None
         self.args=SimpleNamespace(interface=interface,seconds=seconds,label=label,
             existing_driver=existing_driver,record_only=True,mount_calibration=None,controlled=True,
-            driver_config=ROOT/'g1_deploy/config/lidar/MID360_bluefin.json',
+            driver_config=CONFIG_ROOT / 'lidar/MID360_bluefin.json',
             camera_device=None if camera is None else camera['device'],
             camera_size=None if camera is None else camera['size'],camera_fps=None if camera is None else camera['fps'])
         self.live_odometry=live_odometry
@@ -93,7 +92,7 @@ class PolicyRecording:
         self.camera=camera;self.camera_error=None;self.trigger=None
         if live_odometry is not None:
             self.args.record_only=False;self.args.scan_packets=3
-            self.args.dlio_config=ROOT/'g1_deploy/config/lidar/dlio.yaml'
+            self.args.dlio_config=CONFIG_ROOT / 'lidar/dlio.yaml'
             self.args.mount_calibration=Path(live_odometry['mount_calibration'])
             self.args.odometry_port=int(live_odometry['port'])
             self.args.clock_calibration=live_odometry.get('clock_calibration')
@@ -415,7 +414,7 @@ def camera_command(device,size,fps,target):
 
 def commands(args, output):
     hw=ROOT/'motion_diffusion/behavioral/hardware'
-    validation=ROOT/'scripts/fall_recovery/validation'
+    validation=PACKAGE_ROOT / 'sensing'
     result=[]
     if not args.existing_driver:
         result.append(('driver',['ros2','run','livox_ros_driver2','livox_ros_driver2_node','--ros-args',
@@ -443,7 +442,7 @@ def commands(args, output):
         result[-1][1].append('--controlled-record')
     if args.camera_device:
         if getattr(args,'controlled',False):
-            result.append(('camera',['/usr/bin/python3',str(ROOT/'g1_deploy/record_camera.py'),
+            result.append(('camera',['/usr/bin/python3',str(PACKAGE_ROOT / 'sensing/record_camera.py'),
                 '--device',args.camera_device,'--size',args.camera_size,'--fps',str(args.camera_fps),
                 '--output',str(output/'camera')]))
         else:
@@ -459,8 +458,8 @@ def main():
     p.add_argument('--seconds',type=float,default=90.);p.add_argument('--label',default='diffusion_recovery')
     p.add_argument('--output',type=Path);p.add_argument('--interface',default='enp132s0')
     p.add_argument('--ros-workspace',type=Path,default=os.environ.get('LIDAR_WS',DEFAULT_WS))
-    p.add_argument('--driver-config',type=Path,default=ROOT/'g1_deploy/config/lidar/MID360_bluefin.json')
-    p.add_argument('--dlio-config',type=Path,default=ROOT/'g1_deploy/config/lidar/dlio.yaml')
+    p.add_argument('--driver-config',type=Path,default=CONFIG_ROOT / 'lidar/MID360_bluefin.json')
+    p.add_argument('--dlio-config',type=Path,default=CONFIG_ROOT / 'lidar/dlio.yaml')
     p.add_argument('--mount-calibration',type=Path,help='Explicit fixed-mount calibration candidate; recorded for comparison')
     p.add_argument('--existing-driver',action='store_true',help='Subscribe to an already-running driver; do not start a second one')
     p.add_argument('--scan-packets',type=int,default=3,help='3 for 30 Hz raw input; 5 for 50 Hz input gives 100 ms sweeps')

@@ -25,7 +25,7 @@ the pinned driver and DLIO with:
 
 ```bash
 cd /home/osher/hv2
-bash g1_deploy/build_lidar_workspace.sh
+bash g1_deploy/steerable-recovery/setup/build_lidar_workspace.sh
 ```
 
 Add `--with-map` to also build the optional ETH packages. Building those packages
@@ -62,7 +62,7 @@ qualified by these tests.
 
 `mount_candidate_20260912.json` is an explicit **diagnostic candidate**, copied
 unchanged from `logs/lidar_live/mount_candidate.json` on bluefin. The opt-in
-`deploy_diffusion.py --live-odometry` path explicitly selects this candidate and
+`deploy.py --live-odometry` path explicitly selects this candidate and
 records its path; the standalone bridge still uses its nominal mount unless
 passed `--mount-calibration`. It preserves fit/validation
 provenance and limitations. For cached replay outputs, continue using the original
@@ -83,7 +83,7 @@ colcon build --packages-select direct_lidar_inertial_odometry --executor sequent
 ```
 
 Run the build from the workspace root. On a fresh `feature/ros2` checkout, apply the
-patch with `git apply /home/osher/hv2/g1_deploy/config/lidar/dlio_initialized_pose.patch`
+patch with `git apply /home/osher/hv2/g1_deploy/steerable-recovery/config/lidar/dlio_initialized_pose.patch`
 from the `direct_lidar_inertial_odometry` source directory first. Existing offline
 outputs generated with the old node must be regenerated; they are not fixed by a
 new viewer. Keep old outputs separately for comparison.

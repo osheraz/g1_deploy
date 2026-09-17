@@ -39,7 +39,8 @@ test = [
 managed = true
 
 [tool.setuptools]
-py-modules = ["deploy_diffusion", "deploy_vigor", "deploy_eskin"]
+py-modules = ["deploy_vigor", "deploy_eskin", "zero_torque"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "vigor*", "sonic*"]
+where = [".", "steerable-recovery"]
+include = ["core*", "vigor*", "sonic*", "steerable_recovery*"]

@@ -5,6 +5,7 @@ Simulation opens the live viewer, with depth, and records no video.
 --robot runs the normal deployment entry point with its recording options.
 """
 from __future__ import annotations
+from steerable_recovery.paths import RESULTS_ROOT, ROOT, CONFIG_ROOT, PACKAGE_ROOT
 
 import argparse
 import json
@@ -14,9 +15,8 @@ import shlex
 import sys
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CATALOG = ROOT / 'g1_deploy/config/multimodal/flat_three/catalog.json'
-DIFFUSION_RATES = {'r8_s25_diffusion': 2.5, 'r8_s50r_diffusion': 5.}
+DEFAULT_CATALOG = CONFIG_ROOT / 'multimodal/flat_three/catalog.json'
+from steerable_recovery.settings import DIFFUSION_RATES
 
 
 def command_for(args, catalog):
@@ -30,10 +30,10 @@ def command_for(args, catalog):
     common = ['--model', model, '--backend', 'tensorrt',
               '--noise-policy', 'fresh', '--replan-hz', str(rate)]
     if args.robot:
-        session = args.output or ROOT / 'logs/real_world' / (
+        session = args.output or RESULTS_ROOT / (
             (f'{model}_{args.start}_' if args.model else f'three_{args.start}_option{args.option}_') +
             time.strftime('%Y%m%d_%H%M%S'))
-        cmd = [sys.executable, str(ROOT / 'g1_deploy/deploy_diffusion.py'), *common,
+        cmd = [sys.executable, str(PACKAGE_ROOT / 'cli/deploy.py'), *common,
                '--start-pose', str(folder / row['robot_pose']), '--seed', seed,
                '--actuate', '--release-controller', '--duration-s', str(60 if args.seconds is None else args.seconds),
                '--record-sensors', '--record-depth', '--record-model',
@@ -43,7 +43,7 @@ def command_for(args, catalog):
         if args.external_camera:
             cmd += ['--external-camera', '--camera-size', '1920x1080', '--camera-fps', '30']
     else:
-        cmd = [sys.executable, str(ROOT / 'g1_deploy/sim_diffusion.py'), *common,
+        cmd = [sys.executable, str(PACKAGE_ROOT / 'cli/sim.py'), *common,
                '--terrain', 'flat', '--start', args.start,
                '--start-state', str(folder / row['sim_state']),
                '--sensor-seed', str(catalog['sensor_seed']), '--pose-seed', '42',
@@ -101,15 +101,15 @@ def main(argv=None):
     # Reuse the existing model/recipe check, then the normal launcher verifies
     # asset bytes and applies its usual initialization and operator controls.
     sys.path.insert(0, str(ROOT))
-    from g1_deploy.multimodal_recovery import configured_bundle
+    from steerable_recovery.presets.multimodal import configured_bundle
     row = catalog['starts'][args.start]
     if args.model and args.model != row['model']:
         # This is a model comparison, not a reproduction of the catalog's
         # selected motion. Each normal launcher validates its own paired assets.
         import yaml
-        from g1_deploy.deploy_diffusion import model_settings
+        from steerable_recovery.settings import model_settings
         from motion_diffusion.behavioral.hardware.bundle import load_bundle
-        settings=model_settings(yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text()),args.model)
+        settings=model_settings(yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text()),args.model)
         bundle,manifest=load_bundle(settings['bundle'])
         if args.model not in manifest['models']:raise ValueError('Selected model is absent from its configured bundle')
     else:bundle = configured_bundle(row)

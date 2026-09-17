@@ -9,7 +9,7 @@ reads the episode directories deploy_eskin.py writes:
         frames.bin    colour+depth, still encoded
         meta.json
 
-    python scripts/replay_episode.py --episode ~/episodes/episode_001
+    python g1_deploy/core/review/viewer.py --episode ~/episodes/episode_001
 
 Opens http://localhost:8080 -- scrub the Index slider or tick Play.
 ``--sessions FILE`` replays several recordings in one viewer with a dropdown and
@@ -31,8 +31,8 @@ if str(DEPLOY_ROOT) not in sys.path:
     sys.path.insert(0, str(DEPLOY_ROOT))
 sys.path.insert(0,str(DEPLOY_ROOT.parent))
 
-from sonic.common.episode import load_episode, load_native_recovery, load_raw_motion, attach_measured_translation, NoControlObservations  # noqa: E402
-from sonic.common.recovery_annotations import RecoveryInterval, validate_interval  # noqa: E402
+from core.recording.episode import load_episode, load_native_recovery, load_raw_motion, attach_measured_translation, NoControlObservations
+from core.recording.annotations import RecoveryInterval, validate_interval
 from core.common.viser_display import DeployViser  # noqa: E402
 from core.config import DEFAULT_URDF_PATH  # noqa: E402
 
@@ -66,7 +66,7 @@ def load_session(spec):
     ep=Path(spec.get('telemetry') or spec.get('capture') or spec['episode']).expanduser()
     external_camera=camera_query=camera_indices=None
     if spec.get('external_camera'):
-        from sonic.common.recorded_camera import RecordedCamera
+        from core.recording.camera import RecordedCamera
         external_camera=RecordedCamera(Path(spec['external_camera']))
     if spec.get('telemetry') or spec.get('capture'):
         try:
@@ -461,7 +461,7 @@ def main():
         """Rediscover the browsed folder: moved-out sessions disappear, moved-in ones appear."""
         nonlocal specs,labels,switching
         if not args.browse_argv:return
-        import replay_motion
+        import steerable_recovery.review.session as replay_motion
         specs[:]=replay_motion.rescan(json.loads(args.browse_argv),known)
         labels[:]=[s['label'] for s in specs]
         for label in list(loaded):

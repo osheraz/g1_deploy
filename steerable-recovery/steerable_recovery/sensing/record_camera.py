@@ -3,6 +3,10 @@
 Runs in a low-priority child. Reuses check_camera's byte-count/timestamp reader;
 there is no decoding or encoding, and no camera work in the control process.
 """
+
+if __name__ == '__main__' and not __package__:
+    import _bootstrap  # System Python workers use this checkout, not the policy virtualenv.
+from steerable_recovery.paths import ROOT
 import argparse
 from collections import deque
 import json
@@ -39,7 +43,7 @@ class TriggeredCameraWriter:
 
 
 def main():
-    from check_camera import Capture
+    from steerable_recovery.sensing.check_camera import Capture
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--device',required=True);p.add_argument('--size',required=True)
     p.add_argument('--fps',type=int,required=True);p.add_argument('--output',type=Path,required=True)

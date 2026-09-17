@@ -33,7 +33,7 @@ from sonic.model.inference_backend import (  # noqa: E402
 )
 from sonic.common.unitree_crc import _lfs_object  # noqa: E402
 from sonic.common.unitree_dds import configure_process_local_cyclonedds_log  # noqa: E402
-from sonic.common.unitree_mode import release_active_motion_mode  # noqa: E402
+from core.robot.mode import release_active_motion_mode
 from sonic.pico_reference import LOWER_BODY_IL_IDX, PicoReferenceWindow  # noqa: E402
 from sonic.scripts.sim2sim_sonic import (  # noqa: E402
     _KEYPAD_TELEOP_KEYS,
@@ -50,7 +50,7 @@ class MujocoKeyboardBindingTest(unittest.TestCase):
 
 class RecorderButtonOwnershipTest(unittest.TestCase):
     def test_automatic_only_recorder_does_not_consume_gamepad_x(self):
-        from sonic.common.episode import Recorder
+        from core.recording.episode import Recorder
         from core.common.remote_controller import KeyMap
 
         with tempfile.TemporaryDirectory() as tmp:

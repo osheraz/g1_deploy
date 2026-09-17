@@ -1,9 +1,9 @@
 """Diffusion recovery on G1: one config, default sensor-only inference.
 
-python g1_deploy/deploy_diffusion.py
-python g1_deploy/deploy_diffusion.py --check
-python g1_deploy/deploy_diffusion.py --default-pose --actuate --release-controller
-python g1_deploy/deploy_diffusion.py --actuate --release-controller
+python g1_deploy/steerable-recovery/steerable_recovery/cli/deploy.py
+python g1_deploy/steerable-recovery/steerable_recovery/cli/deploy.py --check
+python g1_deploy/steerable-recovery/steerable_recovery/cli/deploy.py --default-pose --actuate --release-controller
+python g1_deploy/steerable-recovery/steerable_recovery/cli/deploy.py --actuate --release-controller
 Motor mode: enter zero torque after robot connection. A starts policy from the current pose; A again stops.
 Before starting only, START optionally moves to default over 2 s. SELECT stops.
 With --start-pose prone, START optionally positions; A can start directly from the current pose.
@@ -18,52 +18,19 @@ import re
 import sys
 import time
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, CONFIG_ROOT
 sys.path.insert(0,str(ROOT))
 sys.path.insert(0,str(ROOT/'g1_deploy'))
 sys.path.insert(0,str(ROOT/'dependencies/isaac_utils'))
 
-from record_motion import DEFAULT_CAMERA, RESULTS_ROOT
+from steerable_recovery.recording.session import DEFAULT_CAMERA, RESULTS_ROOT
+from steerable_recovery.settings import sampling_seed, model_settings, hardware_settings
 
 
-def sampling_seed(value):
-    if value == 'random':
-        import secrets
-        return secrets.randbits(63)
-    try:
-        seed=int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError('Seed must be an integer or random') from exc
-    if not 0<=seed<2**63:
-        raise argparse.ArgumentTypeError('Seed must be in [0, 2**63)')
-    return seed
 
 
-def model_settings(settings, model):
-    """Resolve an explicit pair without changing the legacy diffusion/flow aliases."""
-    from copy import deepcopy
-    selected=deepcopy(settings)
-    selected.update(selected.get('models',{}).get(model,{}))
-    path=Path(selected['bundle'])
-    selected['bundle']=str(path if path.is_absolute() else ROOT/path)
-    return selected
 
 
-def hardware_settings(config, contract):
-    from motion_diffusion.behavioral.hardware.sensors import motor_indices
-    indices=motor_indices(contract['dof_names'])
-    configured=config['action_joint2motor_idx']
-    if len(configured)!=29 or set(configured)!=set(range(29)):
-        raise ValueError('Diffusion deployment requires all 29 physical joints')
-    order=[configured.index(i) for i in indices]
-    return dict(tracker_device=config['tracker_device'],planner_device=config['planner_device'],
-        robot=dict(interface=config['network_interface'],domain_id=0,tick_period_s=.001,
-            tick_clock=None,max_command_age_s=config['max_command_age_s'],require_remote_start=True),
-        camera=config['camera'],pd=dict(training_pd=None,mode_machine=config['mode_machine'],
-            lower_joint_limits=[config['dof_lower'][i] for i in order],
-            upper_joint_limits=[config['dof_upper'][i] for i in order],
-            max_joint_velocity_rad_s=config['max_joint_velocity'],
-            max_abs_requested_action=contract['action_clip']))
 
 
 def run_default_pose(config, model_contract, *, release_controller=None):
@@ -99,11 +66,11 @@ def run_default_pose(config, model_contract, *, release_controller=None):
     finally:robot.close()
 
 
-def main():
+def main(argv=None):
     from core.config import _load_config
     from motion_diffusion.behavioral.hardware import bundle
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--config',type=Path,default=ROOT/'g1_deploy/configs/diffusion.yaml')
+    parser.add_argument('--config',type=Path,default=CONFIG_ROOT / 'models.yaml')
     parser.add_argument('--model',choices=['p11_diffusion','r8_f50r_flow','r8_s25_diffusion','r8_s50r_diffusion','r2_f50r_flow','p05_diffusion','diffusion','flow'],
         default='p11_diffusion')
     parser.add_argument('--replan-hz',type=float,help='Planner rate, e.g. 2.5, 5 or 10 Hz; tracker stays 50 Hz; existing asynchronous horizon/age checks apply')
@@ -150,10 +117,10 @@ def main():
     parser.add_argument('--odometry-port',type=int,default=15560)
     parser.add_argument('--odometry-mode',choices=['monitor','required'],default='monitor',
         help='Monitor labels unqualified estimates; required enforces the existing steering receiver contract')
-    parser.add_argument('--odometry-mount',type=Path,default=ROOT/'g1_deploy/config/lidar/mount_candidate_20260912.json',
+    parser.add_argument('--odometry-mount',type=Path,default=CONFIG_ROOT / 'lidar/mount_candidate_20260912.json',
         help='Explicit diagnostic mount candidate used by live odometry')
     parser.add_argument('--odometry-clock',type=Path,help='Independent clock calibration JSON; never infer qualification from arrival jitter')
-    args=parser.parse_args()
+    args=parser.parse_args(argv)
     if not math.isfinite(args.start_pose_jitter_deg) or args.start_pose_jitter_deg<0:
         parser.error('--start-pose-jitter-deg must be finite and nonnegative')
     if (args.start_pose_jitter_deg or args.start_pose_seed is not None) and not args.start_pose:
@@ -228,7 +195,7 @@ def main():
         from motion_diffusion.behavioral.hardware.start_pose import load_start_pose,perturb_start_pose
         from motion_diffusion.behavioral.hardware.unitree import NativePDContract
         contract=dict(checkpoint['action_vae']['model_contract'],deployment_pd=config['pd']['training_pd'])
-        path=ROOT/'g1_deploy/config/poses/prone_ground_01.json' if args.start_pose=='prone' else Path(args.start_pose)
+        path=CONFIG_ROOT / 'poses/prone_ground_01.json' if args.start_pose=='prone' else Path(args.start_pose)
         pd=NativePDContract(contract,config['pd'])
         config['start_pose']=load_start_pose(path,pd)
         if args.start_pose_jitter_deg:
@@ -321,7 +288,7 @@ def main():
     def release_control():
         nonlocal motion_switcher
         from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-        from sonic.common.unitree_mode import release_active_motion_mode
+        from core.robot.mode import release_active_motion_mode
         print('Taking low-level control now. Keep the robot supported.',flush=True)
         ChannelFactoryInitialize(config['robot']['domain_id'],config['robot']['interface'])
         motion_switcher=release_active_motion_mode()
@@ -332,7 +299,7 @@ def main():
                 release_controller=release_control if args.actuate else None)
             return
         if args.record_sensors and not args.preflight:
-            from record_motion import PolicyRecording
+            from steerable_recovery.recording.session import PolicyRecording
             if not config['robot'].get('require_remote_start'):
                 raise ValueError('A-triggered recording requires require_remote_start')
             recording=PolicyRecording(output/'sensors',interface=config['robot']['interface'],
@@ -356,7 +323,7 @@ def main():
         # run() closes/damps the robot before this potentially expensive save.
         if recording is not None:recording.close()
         if not args.preflight and not args.default_pose:
-            from record_motion import session_manifest
+            from steerable_recovery.recording.session import session_manifest
             session_manifest(output)
     bundle.write_json(output/'COMPLETE.json',result)
     if args.preflight:

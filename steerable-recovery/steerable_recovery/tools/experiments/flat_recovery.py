@@ -19,12 +19,12 @@ import subprocess
 import sys
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, CONFIG_ROOT, PACKAGE_ROOT
 sys.path.insert(0, str(ROOT))
 BASE = Path('/nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/experiments/fallrec_latent_planner_20260902/deployments')
 SOURCE = BASE / 'five_candidates_20260915a'
 EVIDENCE = BASE / 'five_candidates_evidence_20260915a'
-CATALOG = ROOT / 'g1_deploy/config/multimodal/stanley_flat/catalog.json'
+CATALOG = CONFIG_ROOT / 'multimodal/stanley_flat/catalog.json'
 RESULTS = ROOT / 'logs/multimodal_recovery/stanley_flat_20260915'
 BUNDLE = ROOT / 'logs/native_recovery/bundles/r8_s50r_20260915a'
 
@@ -128,7 +128,7 @@ def prepare():
 
 def command_for(catalog, name, *, viewer=False, seeds=None, rate=None, output=None, seconds=None):
     row = catalog['cases'][name]
-    cmd = [str(ROOT / '.venv/bin/python'), str(ROOT / 'g1_deploy/sim_diffusion.py'),
+    cmd = [str(ROOT / '.venv/bin/python'), str(PACKAGE_ROOT / 'cli/sim.py'),
         '--model', row['model'], '--backend', catalog['backend'], '--terrain', 'flat',
         '--start', row['start'], '--start-state', str((CATALOG.parent / row['state']).resolve()),
         '--seed-list', *map(str, seeds or row['seeds']), '--sensor-seed', str(catalog['sensor_seed']),
@@ -165,7 +165,7 @@ def report(output, catalog):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from itertools import combinations
-    from g1_deploy.search_multimodal_recovery import describe_run
+    from steerable_recovery.tools.experiments.search_multimodal import describe_run
 
     groups = []
     for name in catalog['cases']:

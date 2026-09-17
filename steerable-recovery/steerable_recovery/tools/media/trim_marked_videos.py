@@ -1,10 +1,11 @@
 """Export saved camera intervals to logs/real_world_trimmed; keep originals.
 
-    .venv/bin/python g1_deploy/trim_marked_videos.py
+    .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/media/trim_marked_videos.py
 
 No robot, model, viewer, or odometry processing. Bounds are original camera
 frame indices, including the displayed end frame, not offsets into an MP4.
 """
+from steerable_recovery.paths import RESULTS_ROOT, ROOT
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
@@ -15,11 +16,10 @@ import sys
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from sonic.common.episode import load_native_recovery
-from sonic.common.recorded_camera import RecordedCamera
-from sonic.common.recovery_annotations import validate_interval
+from core.recording.episode import load_native_recovery
+from core.recording.camera import RecordedCamera
+from core.recording.annotations import validate_interval
 
 
 def json_file(path):
@@ -158,7 +158,7 @@ def export_run(plan):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('root', nargs='?', type=Path, default=ROOT/'logs/real_world')
+    parser.add_argument('root', nargs='?', type=Path, default=RESULTS_ROOT)
     args = parser.parse_args()
     root = args.root.resolve()
     output = ROOT/'logs/real_world_trimmed'

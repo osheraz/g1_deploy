@@ -33,7 +33,7 @@ def main():
     args = parser.parse_args()
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from sonic.common.unitree_mode import release_active_motion_mode
+    from core.robot.mode import release_active_motion_mode
     from unitree_sdk2py.core.channel import (
         ChannelFactoryInitialize, ChannelPublisher, ChannelSubscriber,
     )

@@ -1,8 +1,12 @@
 """Read-only LiDAR/robot/depth viewer and stream monitor, with offline replay.
 
-  python g1_deploy/check_lidar.py --replay logs/lidar_live/upright_torso_20260912_01 --viser
-  python g1_deploy/check_lidar.py --viser  # connect to running preview publisher
+  python g1_deploy/steerable-recovery/steerable_recovery/sensing/check_lidar.py --replay logs/lidar_live/upright_torso_20260912_01 --viser
+  python g1_deploy/steerable-recovery/steerable_recovery/sensing/check_lidar.py --viser  # connect to running preview publisher
 """
+
+if __name__ == '__main__' and not __package__:
+    import _bootstrap  # System Python workers use this checkout, not the policy virtualenv.
+from steerable_recovery.paths import ROOT, CONFIG_ROOT, PACKAGE_ROOT
 import argparse
 import os
 from pathlib import Path
@@ -13,9 +17,8 @@ import time
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from core.common.lidar_stream import LidarClient
-from record_motion import DEFAULT_WS
+from steerable_recovery.recording.session import DEFAULT_WS
 
-ROOT=Path(__file__).resolve().parents[1]
 
 
 def main():
@@ -25,7 +28,7 @@ def main():
     p.add_argument('--live',action='store_true',help='Start the local Livox driver and ROS preview bridge')
     p.add_argument('--interface',default='enp132s0')
     p.add_argument('--lidar-hz',type=float,default=50.,help='Live preview packet rate; does not change laser point rate or planner configuration')
-    p.add_argument('--driver-config',type=Path,default=ROOT/'g1_deploy/config/lidar/MID360_bluefin.json')
+    p.add_argument('--driver-config',type=Path,default=CONFIG_ROOT / 'lidar/MID360_bluefin.json')
     p.add_argument('--ros-workspace',type=Path,default=os.environ.get('LIDAR_WS',DEFAULT_WS))
     p.add_argument('--urdf',default=str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'))
     p.add_argument('--calibration',type=Path);p.add_argument('--depth-server');p.add_argument('--depth-port',type=int,default=15556)
@@ -38,14 +41,14 @@ def main():
     client=LidarClient(a.endpoint);children=[];depth=None;view=None;client.start()
     try:
         if a.replay:
-            children.append(subprocess.Popen([sys.executable,str(ROOT/'scripts/fall_recovery/validation/publish_lidar_preview.py'),
+            children.append(subprocess.Popen([sys.executable,str(PACKAGE_ROOT / 'sensing/publish_lidar_preview.py'),
                 '--capture',str(a.replay),'--loop','--endpoint',a.endpoint],start_new_session=True))
         if a.live:
             # Positional bash arguments keep paths and endpoints out of shell code.
             env_script='set -e; source /opt/ros/humble/setup.bash; source "$1"; shift; export ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=7; export PYTHONPATH=/home/osher/unitree_sdk2_python:${PYTHONPATH:-}; exec "$@"'
             def ros_process(command):
                 return subprocess.Popen(['bash','-c',env_script,'lidar-env',str(a.ros_workspace/'install/setup.bash'),*command],start_new_session=True)
-            children.append(ros_process(['/usr/bin/python3',str(ROOT/'scripts/fall_recovery/validation/publish_lidar_preview.py'),
+            children.append(ros_process(['/usr/bin/python3',str(PACKAGE_ROOT / 'sensing/publish_lidar_preview.py'),
                 '--interface',a.interface,'--endpoint',a.endpoint]))
             children.append(ros_process(['ros2','run','livox_ros_driver2','livox_ros_driver2_node','--ros-args',
                 '-p','xfer_format:=0','-p','multi_topic:=0','-p','data_src:=0','-p',f'publish_freq:={a.lidar_hz}',

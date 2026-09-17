@@ -2,6 +2,7 @@
 
 Run after deployment stops. Never connects to the robot or starts a sensor driver.
 """
+from steerable_recovery.paths import RESULTS_ROOT, PAPER_RESULTS_ROOT, HIGHLIGHTS_ROOT, PAPER_HIGHLIGHTS_ROOT, ABORTED_ROOT, ROOT, CONFIG_ROOT, PACKAGE_ROOT
 import argparse
 import json
 import os
@@ -10,10 +11,9 @@ import subprocess
 import sys
 import time
 
-ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from record_motion import DEFAULT_WS, camera_report, capture_saved
+from steerable_recovery.recording.session import DEFAULT_WS, camera_report, capture_saved
 
 
 def read_json(path):
@@ -23,7 +23,7 @@ def read_json(path):
 def resolve_session(path):
     path=path.expanduser()
     if not path.is_absolute() and len(path.parts)==1 and path.name!='..' and not path.is_dir():
-        path=ROOT/'logs/real_world'/path
+        path=RESULTS_ROOT/path
     path=path.resolve()
     # Accept the "Saved and verified raw sensors" path as well as "Session".
     if path.name=='sensors' and (path.parent/'telemetry.jsonl.gz').is_file():path=path.parent
@@ -215,204 +215,6 @@ def export_frames(session,recording,review):
     return str(root)
 
 
-HIGHLIGHTS=ROOT/'logs/real_world_hightlight'
-_segmenter=None
-
-
-def highlight_directory(session):
-    """New-run exports stay in logs; explicitly opened paper archives stay there."""
-    for root,highlight in ((ROOT/'logs/real_world',HIGHLIGHTS),(ROOT/'paper/real_world',ROOT/'paper/real_world_hightlight')):
-        try:rel=session.relative_to(root)
-        except ValueError:continue
-        return highlight/rel
-    return None
-
-
-def highlight_picks(highlight):
-    """Your picked frames NN_*.png (or NN_*.jpg), in order."""
-    return sorted(p for p in highlight.glob('[0-9][0-9]_*') if p.suffix.lower() in ('.png','.jpg','.jpeg'))
-
-
-def people_mask(image,moving=None):
-    """People in a frame (spotters, operators), so they are not ghosted.
-    Mask R-CNN also calls the humanoid a person; the robot is silver and black,
-    so an instance counts as a person only on positive evidence: skin tones, or
-    saturated clothing with little white shell (bright, unsaturated pixels). Colour is
-    read on the instance's moving pixels when `moving` is given, so a static tan
-    background (plywood) leaking into a loose mask does not pass for skin."""
-    import cv2,numpy as np,torch
-    global _segmenter
-    if _segmenter is None:
-        from torchvision.models.detection import maskrcnn_resnet50_fpn_v2,MaskRCNN_ResNet50_FPN_V2_Weights
-        device='cuda' if torch.cuda.is_available() else 'cpu'
-        _segmenter=(maskrcnn_resnet50_fpn_v2(weights=MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT).eval().to(device),device)
-    model,device=_segmenter
-    tensor=torch.from_numpy(np.ascontiguousarray(image[...,::-1])).permute(2,0,1).float().div(255).to(device)
-    with torch.no_grad():found=model([tensor])[0]
-    hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV);hue,saturation,value=hsv[...,0],hsv[...,1],hsv[...,2]
-    white=(saturation<40)&(value>150);skin=(hue<=20)&(saturation>=45)&(saturation<=170)&(value>=90)
-    people=np.zeros(image.shape[:2],bool)
-    for score,label,mask in zip(found['scores'],found['labels'],found['masks']):
-        if int(label)!=1 or float(score)<.2:continue
-        region=(mask[0]>.5).cpu().numpy()
-        if not region.any():continue
-        sample=region&moving if moving is not None and (region&moving).sum()>=500 else region
-        if skin[sample].mean()>=.08 or (white[sample].mean()<.15 and np.percentile(saturation[sample],85)>=90):people|=region
-    return cv2.dilate(people.astype(np.uint8),np.ones((25,25),np.uint8)).astype(bool)
-
-
-def robot_cutouts(frames):
-    """Scene (per-pixel median of the frames) and one feathered robot mask per frame:
-    where the frame differs from the scene, people excluded, small specks dropped."""
-    import cv2,numpy as np
-    scene=np.median(np.stack(frames),axis=0).astype(np.uint8);scene_blur=cv2.GaussianBlur(scene,(7,7),0)
-    scene_people=people_mask(scene)  # someone standing still in most picks ends up in the scene
-    masks=[]
-    for img in frames:
-        m=(cv2.absdiff(cv2.GaussianBlur(img,(7,7),0),scene_blur).max(axis=2)>28).astype(np.uint8)
-        m[people_mask(img,m.astype(bool))|scene_people]=0
-        m=cv2.morphologyEx(m,cv2.MORPH_OPEN,np.ones((5,5),np.uint8));m=cv2.morphologyEx(m,cv2.MORPH_CLOSE,np.ones((15,15),np.uint8))
-        n,labels,stats,_=cv2.connectedComponentsWithStats(m);keep=np.zeros(m.shape,np.uint8)
-        for k in range(1,n):
-            if stats[k,cv2.CC_STAT_AREA]>2500:keep[labels==k]=1
-        keep=cv2.dilate(keep,np.ones((5,5),np.uint8))
-        masks.append(cv2.GaussianBlur(keep.astype(np.float32),(9,9),0)[...,None])
-    return scene,masks
-
-
-def robot_blob(image,mask,previous=None):
-    """Bounding box (x, y, w, h) of the robot in one pick: the largest blob that shows
-    the robot's white shell and, given the previous pick's box, lies near it (the robot
-    moves gradually between picks; a spotter elsewhere does not); None when the mask is empty."""
-    import cv2,numpy as np
-    n,labels,stats,_=cv2.connectedComponentsWithStats((mask[...,0]>.5).astype(np.uint8))
-    if n<2:return None
-    hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV);white=(hsv[...,1]<40)&(hsv[...,2]>150)
-    boxes=[tuple(int(v) for v in stats[1+k,:4]) for k in range(n-1)]
-    shell=[white[labels==1+k].mean() for k in range(n-1)];areas=stats[1:,cv2.CC_STAT_AREA]
-    candidates=[k for k in range(n-1) if shell[k]>=.08] or list(range(n-1))
-    if previous is not None:
-        px,py,pw,ph=previous;reach=max(500,2*max(pw,ph))
-        near=[k for k in candidates if np.hypot(boxes[k][0]+boxes[k][2]/2-px-pw/2,boxes[k][1]+boxes[k][3]/2-py-ph/2)<=reach]
-        candidates=near or candidates
-    best=max(candidates,key=lambda k:areas[k]);x,y,w,h=boxes[best]
-    # An occluded robot splits into stacked blobs (legs below a torso); rejoin them.
-    for k in candidates:
-        bx,by,bw,bh=boxes[k];overlap=min(x+w,bx+bw)-max(x,bx);gap=max(by-(y+h),y-(by+bh))
-        if k!=best and overlap>=.4*min(w,bw) and gap<=120:
-            x0,y0=min(x,bx),min(y,by);x1,y1=max(x+w,bx+bw),max(y+h,by+bh);x,y,w,h=x0,y0,x1-x0,y1-y0
-    return (x,y,w,h)
-
-
-def robot_boxes(frames,masks):
-    """The robot's box in every pick (None where nothing moved), tracked pick to pick."""
-    boxes=[];previous=None
-    for f,m in zip(frames,masks):
-        box=robot_blob(f,m,previous);boxes.append(box);previous=box or previous
-    return boxes
-
-
-def robot_box(frames,masks,pad=60):
-    """One compact rectangle around the robot across all picks: the robot blob of
-    each pick unioned, plus a margin."""
-    height,width=masks[0].shape[:2]
-    boxes=[b for b in robot_boxes(frames,masks) if b is not None]
-    if not boxes:return 0,0,width,height
-    return (max(0,min(b[0] for b in boxes)-pad),max(0,min(b[1] for b in boxes)-pad),
-            min(width,max(b[0]+b[2] for b in boxes)+pad),min(height,max(b[1]+b[3] for b in boxes)+pad))
-
-
-def robot_windows(frames,masks,pad=60):
-    """One window per pick, all the same size, each centred on that pick's robot:
-    the window follows the robot, so people standing beside its path stay out."""
-    import numpy as np
-    height,width=masks[0].shape[:2];boxes=robot_boxes(frames,masks)
-    if all(b is None for b in boxes):return [(0,0,width,height)]*len(masks)
-    last=next(b for b in boxes if b is not None);boxes=[last:=(b if b is not None else last) for b in boxes]
-    w=min(width,max(b[2] for b in boxes)+2*pad);h=min(height,max(b[3] for b in boxes)+2*pad);windows=[]
-    for x,y,bw,bh in boxes:
-        x0=int(np.clip(x+bw//2-w//2,0,width-w));y0=int(np.clip(y+bh//2-h//2,0,height-h));windows.append((x0,y0,x0+w,y0+h))
-    return windows
-
-
-def export_overlay(session,recording,review,*,opacity=(.4,.7)):
-    """Motion overlays from the highlight frames you picked (real_world_hightlight/<run>/NN_*.png).
-
-    The scene is the per-pixel median of the picks. Each pick's robot is cut out as
-    where that pick differs from the scene (people excluded) and pasted onto the
-    scene with a feathered edge: earlier picks at rising opacity, the last pick fully
-    opaque. overlay_12345 uses all picks; every subset keeping the first and last
-    pick is written too (overlay_15, overlay_135, overlay_1245, ...). overlay =
-    overlay_12345. PNGs go to the highlight folder, JPEGs to review/.
-    """
-    import cv2,itertools,numpy as np,shutil
-    highlight=highlight_directory(session)
-    if highlight is None:return None
-    picks=highlight_picks(highlight)
-    marker=review/'overlay.json'
-    if len(picks)<2:return None
-    signature=[[p.name,p.stat().st_size] for p in picks];method=f'cutout_evidence_{opacity[0]:g}_{opacity[1]:g}'
-    previous=read_json(marker)
-    if previous.get('picks')==signature and previous.get('method')==method and (review/'overlay.jpg').is_file():return str(review/'overlay.jpg')
-    for folder in (review,highlight):
-        for stale in list(folder.glob('overlay*.jpg'))+list(folder.glob('overlay*.png'))+list(folder.glob('keyframes*.jpg')):stale.unlink()
-    frames=[cv2.imread(str(p)) for p in picks]
-    scene,masks=robot_cutouts(frames);floats=[f.astype(np.float32) for f in frames];x0,y0,x1,y1=robot_box(frames,masks)
-    middle=range(1,len(picks)-1);written=[]
-    for count in range(len(middle)+1):
-        for chosen in itertools.combinations(middle,count):
-            keys=[0,*chosen,len(picks)-1];name='overlay_'+''.join(str(k+1) for k in keys)
-            canvas=scene.astype(np.float32);opacities=np.linspace(opacity[0],opacity[1],len(keys)-1)
-            for a,k in zip(opacities,keys[:-1]):
-                alpha=a*masks[k];canvas=(1-alpha)*canvas+alpha*floats[k]
-            alpha=masks[keys[-1]];canvas=(1-alpha)*canvas+alpha*floats[keys[-1]]
-            image=canvas.astype(np.uint8)[y0:y1,x0:x1]
-            cv2.imwrite(str(review/f'{name}.jpg'),image,[cv2.IMWRITE_JPEG_QUALITY,92])
-            cv2.imwrite(str(highlight/f'{name}.png'),image,[cv2.IMWRITE_PNG_COMPRESSION,3]);written.append(name)
-    for folder,ext in ((review,'jpg'),(highlight,'png')):shutil.copy(folder/f'{written[-1]}.{ext}',folder/f'overlay.{ext}')
-    marker.write_text(json.dumps(dict(picks=signature,method=method,overlays=written,
-        note='Robot cut-outs from the highlight picks pasted onto the median scene; earlier picks at '
-             f'{opacity[0]:g}-{opacity[1]:g} opacity (oldest lowest), the last pick opaque; people excluded. '
-             'Change the highlight files or --overlay-opacity and rerun --export-overlay.'),indent=2)+'\n')
-    return str(review/'overlay.jpg')
-
-
-def export_strip(session,recording,review,*,width=384,gap=8):
-    """strip_12345: the highlight picks side by side, left to right, each `width` px
-    wide, white gaps; every subset keeping the first and last pick is written too.
-    strip = all picks. Each thumbnail is the same-size window centred on that pick's
-    robot. PNGs go to the highlight folder, JPEGs to review/."""
-    import cv2,itertools,numpy as np,shutil
-    highlight=highlight_directory(session)
-    if highlight is None:return None
-    picks=highlight_picks(highlight)
-    if len(picks)<2:return None
-    signature=[[p.name,p.stat().st_size] for p in picks];marker=review/'strip.json';method=f'strip_evidence_{width}_{gap}'
-    previous=read_json(marker)
-    if previous.get('picks')==signature and previous.get('method')==method and (review/'strip.jpg').is_file():return str(review/'strip.jpg')
-    for folder in (review,highlight):
-        for stale in list(folder.glob('strip*.jpg'))+list(folder.glob('strip*.png')):stale.unlink()
-    frames=[cv2.imread(str(p)) for p in picks]
-    _,masks=robot_cutouts(frames);windows=robot_windows(frames,masks)
-    thumbs=[]
-    for img,(x0,y0,x1,y1) in zip(frames,windows):
-        crop=img[y0:y1,x0:x1];thumbs.append(cv2.resize(crop,(width,round(crop.shape[0]*width/crop.shape[1])),interpolation=cv2.INTER_AREA))
-    spacer=np.full((thumbs[0].shape[0],gap,3),255,np.uint8)
-    middle=range(1,len(picks)-1);written=[]
-    for count in range(len(middle)+1):
-        for chosen in itertools.combinations(middle,count):
-            keys=[0,*chosen,len(picks)-1];name='strip_'+''.join(str(k+1) for k in keys)
-            parts=[]
-            for k in keys:parts+=[thumbs[k],spacer]
-            image=np.hstack(parts[:-1])
-            cv2.imwrite(str(review/f'{name}.jpg'),image,[cv2.IMWRITE_JPEG_QUALITY,92])
-            cv2.imwrite(str(highlight/f'{name}.png'),image,[cv2.IMWRITE_PNG_COMPRESSION,3]);written.append(name)
-    for folder,ext in ((review,'jpg'),(highlight,'png')):shutil.copy(folder/f'{written[-1]}.{ext}',folder/f'strip.{ext}')
-    marker.write_text(json.dumps(dict(picks=signature,method=method,strips=written,
-        windows=[[int(v) for v in w] for w in windows],
-        note='Highlight picks side by side, left to right, each in a same-size window centred on the robot. '
-             'strip uses all picks. Change the picks and rerun --export-strip.'),indent=2)+'\n')
-    return str(review/'strip.jpg')
 
 
 def has_live_odometry(telemetry):
@@ -445,8 +247,8 @@ def prepare_xyz(session,raw,telemetry,calibration,*,capture_only=False):
         print('Replaying saved LiDAR offline; no live sensors or motor connection.',flush=True)
         shell='set -e; source /opt/ros/humble/setup.bash; source "$1"; shift; export ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=91; exec "$@"'
         subprocess.run(['bash','-c',shell,'replay-env',str(setup),'/usr/bin/python3',
-            str(ROOT/'scripts/fall_recovery/validation/replay_dlio.py'),str(raw/'bag'),
-            '--config',str(ROOT/'g1_deploy/config/lidar/dlio.yaml'),'--output',str(odom),
+            str(PACKAGE_ROOT / 'sensing/replay_dlio.py'),str(raw/'bag'),
+            '--config',str(CONFIG_ROOT / 'lidar/dlio.yaml'),'--output',str(odom),
             '--imu-unit','g','--scan-packets','3','--timeout-s','360'],check=True)
         report=read_json(odom/'summary.json')
     if report.get('error'):raise ValueError(f'Offline DLIO failed: {report["error"]}')
@@ -456,7 +258,7 @@ def prepare_xyz(session,raw,telemetry,calibration,*,capture_only=False):
         odometry_mtime_ns=(odom/'odometry.npz').stat().st_mtime_ns)
     if not (pose/'measured_pose.jsonl').is_file() or read_json(pose/'source.json')!=signature:
         preserve_attempt(pose)
-        command=[sys.executable,str(ROOT/'scripts/fall_recovery/validation/evaluate_measured_motion.py'),
+        command=[sys.executable,str(PACKAGE_ROOT / 'sensing/evaluate_measured_motion.py'),
             str(odom/'odometry.npz'),'--capture',str(raw),'--output',str(pose)]
         if calibration:command+=['--mount-calibration',calibration]
         with (replay/'pose_evaluation.log').open('w') as log:
@@ -524,8 +326,8 @@ def parser():
 
 def browse_target(session):
     target=session.expanduser()
-    if not target.is_absolute() and not target.exists() and (ROOT/'logs/real_world'/target).exists():
-        target=ROOT/'logs/real_world'/target
+    if not target.is_absolute() and not target.exists() and (RESULTS_ROOT/target).exists():
+        target=RESULTS_ROOT/target
     return target.resolve()
 
 
@@ -537,7 +339,7 @@ def browse_sessions(target):
 def cached_viewer_spec(a,session,*,policy_trials_only=False):
     """Open an already reviewed run without rereading every telemetry stream.
 
-    Frame decoding and robot/depth loading remain lazy in replay_episode. Explicit
+    Frame decoding and robot/depth loading remain lazy in the shared viewer. Explicit
     exports, validation and reconstruction still go through the full review path.
     """
     if any(getattr(a,key,False) for key in ('prepare_only','export_video','export_depth',
@@ -592,7 +394,7 @@ def archive_empty_launch(session):
             for line in stream:events[json.loads(line).get('event')]+=1
         except EOFError:pass  # Interrupted launch: complete records were already counted.
     if events.get('control') or events.get('plan'):return None
-    archive=ROOT/'logs/aborted_deployments';archive.mkdir(exist_ok=True)
+    archive=ABORTED_ROOT;archive.mkdir(exist_ok=True)
     destination=archive/session.name
     if destination.exists():destination=archive/f'{session.name}_{time.time_ns()}'
     shutil.move(str(session),str(destination))
@@ -664,13 +466,13 @@ def main():
     manifest.write_text(json.dumps(specs,indent=2)+'\n')
     if a.prepare_only or not specs:return
     print('Opening viewer; recordings load when selected (no batch replay or video export).',flush=True)
-    os.execv(sys.executable,[sys.executable,str(ROOT/'g1_deploy/sonic/scripts/replay_episode.py'),
+    os.execv(sys.executable,[sys.executable,str(ROOT/'g1_deploy/core/review/viewer.py'),
         '--sessions',str(manifest),'--browse-argv',json.dumps(sys.argv[1:]),*(['--preload'] if a.preload else []),
         '--urdf',str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'),'--port',str(a.port)])
 
 
 def viewer_command(spec,port):
-    command=[sys.executable,str(ROOT/'g1_deploy/sonic/scripts/replay_episode.py'),
+    command=[sys.executable,str(ROOT/'g1_deploy/core/review/viewer.py'),
         '--urdf',str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'),'--port',str(port)]
     for key in ('telemetry','capture','external_camera','depth_recording','measured_pose'):
         if spec.get(key):command+=['--'+key.replace('_','-'),spec[key]]
@@ -712,8 +514,10 @@ def review(p,a,session,*,quick=False,policy_trials_only=False):
         if policy_trials_only and result['timing'].get('commands_issued')==0:
             raise ValueError(f'{session.name}: no policy commands; excluded from trial browser')
         if a.export_overlay and result['camera']['available'] and result['timing'].get('commands_issued'):
+            from steerable_recovery.tools.media.figures import export_overlay
             result['overlay']=export_overlay(session,recording,review,opacity=tuple(a.overlay_opacity))
         if a.export_strip and result['camera']['available'] and result['timing'].get('commands_issued'):
+            from steerable_recovery.tools.media.figures import export_strip
             result['strip']=export_strip(session,recording,review)
     spec=dict(label=session.name,capture=str(session/'raw') if a.capture_only else None,
         telemetry=None if a.capture_only else str(telemetry),
@@ -728,7 +532,7 @@ def review(p,a,session,*,quick=False,policy_trials_only=False):
     use_live=not camera_only and (a.live_estimates or (not a.pose_only and not a.offline_xyz and not a.mount_calibration
                                   and not a.capture_only and has_live_odometry(telemetry)))
     if use_live:
-        from sonic.common.episode import load_native_recovery
+        from core.recording.episode import load_native_recovery
         try:
             load_native_recovery(telemetry,live_estimates=True)
             spec['live_estimates']=True;result['xyz_source']='recorded_live'
@@ -745,7 +549,7 @@ def review(p,a,session,*,quick=False,policy_trials_only=False):
                 pose=prepare_xyz(session,recording/'raw',telemetry,calibration,capture_only=a.capture_only)
             elif not pose.is_file():
                 raise ValueError('No live XYZ or cached offline estimate. Use --offline-xyz to reconstruct; record with --live-odometry next time')
-            from sonic.common.episode import load_native_recovery, load_raw_motion, attach_measured_translation
+            from core.recording.episode import load_native_recovery, load_raw_motion, attach_measured_translation
             state,_,meta=(load_raw_motion(recording/'raw') if a.capture_only else load_native_recovery(telemetry))
             attach_measured_translation(state,meta,pose,allow_late_origin=True)
             result['xyz_evaluation']=read_json(pose.parent/'evaluation.json')

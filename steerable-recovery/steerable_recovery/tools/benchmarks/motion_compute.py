@@ -12,7 +12,7 @@ import time
 import numpy as np
 import psutil
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, PACKAGE_ROOT
 
 
 def role(pid,parent,command):
@@ -71,7 +71,7 @@ def main():
     for repeat in range(a.repeats):
         for mode in a.modes:
             output=a.output/f'{repeat+1}_{mode}'
-            cmd=[sys.executable,str(ROOT/'g1_deploy/deploy_diffusion.py'),'--backend','tensorrt',
+            cmd=[sys.executable,str(PACKAGE_ROOT / 'cli/deploy.py'),'--backend','tensorrt',
                 '--model',a.model,
                 '--duration-s',str(a.seconds),'--output',str(output),'--record-label','stationary_hoist_benchmark']
             cmd+=['--no-record-sensors'] if mode=='baseline' else ['--record-sensors']

@@ -12,7 +12,7 @@ import sys
 import xml.etree.ElementTree as ET
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, CONFIG_ROOT
 sys.path.insert(0, str(ROOT))
 DEFAULT_OUT = ROOT/'logs/lab_recovery_9x24x36'
 
@@ -62,8 +62,8 @@ def make_scene(path, spec):
 def binding(model):
     import yaml
     from motion_diffusion.behavioral.hardware.bundle import load_bundle
-    from g1_deploy.deploy_diffusion import model_settings
-    selected=model_settings(yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text()),model)
+    from steerable_recovery.settings import model_settings
+    selected=model_settings(yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text()),model)
     bundle,manifest=load_bundle(selected['bundle'])
     return selected,bundle,manifest['models'][model]
 
@@ -124,7 +124,7 @@ def prepare(output,height,case_names=None):
         directory=output/'cases'/case['name'];directory.mkdir(parents=True,exist_ok=True)
         path=make_scene(directory/'scene.xml',case['scene'])
         plant=MujocoNativePlant(scene_model(path),contract,pd,robot,command_limits='bounded')
-        source=ROOT/'g1_deploy/config/multimodal/flat_three'/f'{case["posture"]}.json'
+        source=CONFIG_ROOT / 'multimodal/flat_three'/f'{case["posture"]}.json'
         preset=json.loads(source.read_text())
         q=np.array([preset['joint_positions_rad'][n] for n in plant.names])
         rot=Rotation.from_quat(preset['root_quat_xyzw'])
@@ -199,7 +199,7 @@ def search(a):
     import torch
     from contextlib import redirect_stdout
     from motion_diffusion.behavioral.mujoco import scene_model,MujocoNativePlant
-    from g1_deploy.sim_diffusion import arguments,run_episode
+    from steerable_recovery.cli.sim import arguments, run_episode
     torch.set_num_threads(1)
     catalog=json.loads((a.output/'catalog.json').read_text())
     cases=[c for c in catalog['cases'] if c['eligible'] and (not a.cases or c['name'] in a.cases)]
@@ -381,7 +381,7 @@ def main():
     elif a.action=='render':render_cases(a)
     else:
         if not a.cases or len(a.cases)!=1:p.error('view needs --cases CASE_NAME')
-        from g1_deploy.sim_diffusion import main as simulate
+        from steerable_recovery.cli.sim import main as simulate
         base=a.output/'cases'/a.cases[0];case=json.loads((base/'case.json').read_text())
         model=a.models[0];hz=(a.rates or ([2.5] if 's25' in model else [5.]))[0]
         simulate(['--model',model,'--backend','tensorrt','--robot',str(base/'scene.xml'),

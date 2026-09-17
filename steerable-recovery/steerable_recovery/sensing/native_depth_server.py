@@ -14,7 +14,7 @@ import time
 import numpy as np
 
 if __package__:
-    from .depth_wire import encode_depth
+    from core.common.depth_wire import encode_depth
 elif __name__ == '__main__':  # Standalone copy on the camera computer.
     from depth_wire import encode_depth
 else:  # Direct file loading in deployment contract checks.

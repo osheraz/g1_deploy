@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import sys
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT
 sys.path.insert(0,str(ROOT))
 
 
@@ -20,7 +20,7 @@ def run(policy,plant,capture,args,output,seed,own):
     import torch
     from motion_diffusion.behavioral.hardware.execution import AsyncNativeRecovery,sample_snapshot,_cpu_snapshot
     from motion_diffusion.behavioral.mujoco import WarpDepth
-    from g1_deploy.compare_startup_commands import restore_recorded_start,startup_fraction,shape_startup
+    from steerable_recovery.tools.diagnostics.startup_commands import restore_recorded_start, startup_fraction, shape_startup
     planner=policy.planner;model=planner.model;controller=policy.controller
     info=dict(H=model.H,H_z=model.H_z,F=model.F,latent_dim=model.action_dim,
         relative_attitude=planner.relative_attitude,contract=planner.contract,
@@ -142,7 +142,7 @@ def main():
                        default=['training','startup50'])
     own,remaining=extra.parse_known_args()
     sys.argv=[sys.argv[0],*remaining]
-    from g1_deploy import sim_diffusion as sim
+    from steerable_recovery.cli import sim as sim
     original=sim.arguments
     def arguments():
         args=original()

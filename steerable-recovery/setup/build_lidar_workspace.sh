@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Build pinned sensor dependencies without starting sensors or changing system packages.
 set -eo pipefail
-config_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/config/lidar" && pwd)"
+config_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../config/lidar" && pwd)"
 stack_dir="${LIDAR_STACK_ROOT:-$HOME/.local/share/hv2/lidar}"
 with_map=false
 if [[ "${1:-}" == --with-map ]]; then with_map=true; shift; fi
 if [[ $# != 0 ]]; then
-  echo 'Usage: bash g1_deploy/build_lidar_workspace.sh [--with-map]' >&2; exit 2
+  echo 'Usage: bash g1_deploy/steerable-recovery/setup/build_lidar_workspace.sh [--with-map]' >&2; exit 2
 fi
 
 # Do not embed an active virtualenv or old ROS overlay in the new install.

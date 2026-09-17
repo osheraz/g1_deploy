@@ -6,6 +6,7 @@ and live odometry. --sensor-only: measure the complete robot inference path with
 no motor output. --feedback estimated explicitly selects experimental XYZ.
 """
 from __future__ import annotations
+from steerable_recovery.paths import VALIDATION_ROOT, RESULTS_ROOT, ROOT, CONFIG_ROOT, PACKAGE_ROOT
 
 import argparse
 import json
@@ -15,11 +16,10 @@ import shlex
 import sys
 import time
 
-ROOT=Path(__file__).resolve().parents[1]
-POSES=ROOT/'g1_deploy/config/multimodal/stanley_flat'
-TRAJECTORIES=ROOT/'g1_deploy/config/steering/trajectories'
+POSES=CONFIG_ROOT / 'multimodal/stanley_flat'
+TRAJECTORIES=CONFIG_ROOT / 'steering/trajectories'
 SELECTED_WAYPOINTS={1:'dense',2:'coarse',3:'coarse'}
-MODEL_RATES={'r8_s25_diffusion':2.5,'r8_s50r_diffusion':5.}
+from steerable_recovery.settings import DIFFUSION_RATES as MODEL_RATES
 sys.path.insert(0,str(ROOT))
 sys.path.insert(0,str(ROOT/'g1_deploy'))
 
@@ -40,8 +40,8 @@ def command_for(args):
     suffix='' if strength is None else f'_g{strength:g}'
     if strength is not None:common+=['--guidance-scale',str(strength)]
     if args.robot:
-        output=args.output or ROOT/('logs/deployment_validation' if args.sensor_only else 'logs/real_world')/f'pelvis_{args.model}_{rate:g}hz_{args.waypoints}_option{args.option}{suffix}_{time.time_ns()}'
-        cmd=[sys.executable,str(ROOT/'g1_deploy/deploy_diffusion.py'),*common,
+        output=args.output or (VALIDATION_ROOT if args.sensor_only else RESULTS_ROOT)/f'pelvis_{args.model}_{rate:g}hz_{args.waypoints}_option{args.option}{suffix}_{time.time_ns()}'
+        cmd=[sys.executable,str(PACKAGE_ROOT / 'cli/deploy.py'),*common,
              '--duration-s',str(60. if args.seconds is None else args.seconds),'--live-odometry',
              '--record-sensors','--record-depth','--record-model',
              '--steering-feedback',args.feedback,
@@ -51,7 +51,7 @@ def command_for(args):
         if args.external_camera:cmd+=['--external-camera']
         if args.odometry_clock:cmd+=['--odometry-clock',str(args.odometry_clock)]
     else:
-        cmd=[sys.executable,str(ROOT/'g1_deploy/sim_diffusion.py'),*common,
+        cmd=[sys.executable,str(PACKAGE_ROOT / 'cli/sim.py'),*common,
              '--terrain','flat','--start','supine','--start-state',str(pose_root/'supine_151.json'),
              '--sensor-seed','42','--noise-only','--fixed-camera']
         if not args.headless:cmd+=['--viewer']
@@ -64,13 +64,13 @@ def benchmark(args):
     """Actual spawned planner and TRT tracker, synthetic observations, no sensors."""
     import torch
     from core.config import _load_config
-    from g1_deploy.deploy_diffusion import model_settings,hardware_settings,sampling_seed
+    from steerable_recovery.settings import model_settings, hardware_settings, sampling_seed
     from motion_diffusion.behavioral.hardware import bundle
     from motion_diffusion.behavioral.hardware.cli import load_controller
     from motion_diffusion.behavioral.hardware.engines import configure_controller
     from motion_diffusion.behavioral.hardware.execution import PlannerProcess,AsyncNativeRecovery
     torch.set_num_threads(1)
-    path=ROOT/'g1_deploy/configs/diffusion.yaml'
+    path=CONFIG_ROOT / 'models.yaml'
     settings=model_settings(_load_config(path),args.model)
     root,manifest=bundle.load_bundle(settings['bundle']);row=manifest['models'][args.model]
     ckpt=torch.load(bundle.asset_path(root,row['controller']),map_location='cpu',weights_only=True,mmap=True)
@@ -96,7 +96,7 @@ def benchmark(args):
             motors_opened=False,sensors_opened=False,cold=cold,warm=warm,
             planner_backend='pytorch',tracker_backend='tensorrt',
             scope='Synthetic pre-clock warmup; not concurrent sensor/recording or dynamic accuracy qualification')
-        output=args.output or ROOT/'logs/deployment_validation'/f'steering_benchmark_{time.time_ns()}'
+        output=args.output or VALIDATION_ROOT/f'steering_benchmark_{time.time_ns()}'
         output.mkdir(parents=True,exist_ok=False)
         (output/'benchmark.json').write_text(json.dumps(report,indent=2)+'\n')
         print(f'Saved {output}/benchmark.json')

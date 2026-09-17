@@ -2,7 +2,7 @@
 """Isolate tracker pre-start history with matched physics and identical latent actions.
 
 Accepts sim_diffusion.py arguments; headless only. Example:
-  .venv/bin/python g1_deploy/compare_tracker_startup.py --model r8_s25_diffusion \
+  .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/diagnostics/tracker_startup.py --model r8_s25_diffusion \
     --backend tensorrt --terrain fork3 --start prone --seconds 2
 
 Three arms: normal planning with repeated tracker history; an identical-code
@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 import sys
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT
 sys.path.insert(0,str(ROOT))
 
 
@@ -139,7 +139,7 @@ def main():
     if not any(value=='--command-limits' or value.startswith('--command-limits=') for value in remaining):
         remaining.extend(['--command-limits','training'])
     sys.argv=[sys.argv[0],*remaining]
-    from g1_deploy import sim_diffusion as sim
+    from steerable_recovery.cli import sim as sim
     arguments=sim.arguments;run=sim.run_episode
     def comparison_arguments():
         args=arguments()

@@ -8,15 +8,19 @@ Viser controls: capture mode (restarts the camera), display scale, JPEG quality,
 frame skipping and background-versus-panel display. Display settings never affect
 what the recorder saves.
 
-  .venv/bin/python g1_deploy/check_camera.py                      # default camera, 1280x720@30
-  .venv/bin/python g1_deploy/check_camera.py --list-modes
-  .venv/bin/python g1_deploy/check_camera.py --size 1920x1080
+  .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/sensing/check_camera.py                      # default camera, 1280x720@30
+  .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/sensing/check_camera.py --list-modes
+  .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/sensing/check_camera.py --size 1920x1080
 
 Timed capture: the recorder child itself (file output, nice +10) for N seconds, then
 the same post-stop report the deployment writes to recording_result.json.
 
-  .venv/bin/python g1_deploy/check_camera.py --seconds 10 --output logs/real_world/camera_check
+  .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/sensing/check_camera.py --seconds 10 --output logs/real_world/camera_check
 """
+
+if __name__ == '__main__' and not __package__:
+    import _bootstrap  # System Python workers use this checkout, not the policy virtualenv.
+from steerable_recovery.paths import ROOT
 import argparse
 import json
 import queue
@@ -31,8 +35,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from record_motion import (CAMERA_FRAME_PATTERN,CAMERA_RATE_PATTERN,DEFAULT_CAMERA,DEFAULT_WS,RecorderProcesses,
-                           camera_command,camera_modes,camera_report)
+from steerable_recovery.recording.session import CAMERA_FRAME_PATTERN, CAMERA_RATE_PATTERN, DEFAULT_CAMERA, DEFAULT_WS, RecorderProcesses, camera_command, camera_modes, camera_report
 
 SOI=b'\xff\xd8'
 

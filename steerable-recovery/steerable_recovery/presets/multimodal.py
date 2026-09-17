@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live recovery demonstrations: same resting state, different diffusion noise.
 
-python g1_deploy/multimodal_recovery.py --start supine
+python g1_deploy/steerable-recovery/steerable_recovery/presets/multimodal.py --start supine
 N: next selected seed. R: repeat current seed. SPACE: pause. Close window: exit.
 """
 from pathlib import Path
@@ -11,17 +11,17 @@ import json
 import sys
 import time
 
-ROOT=Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT, CONFIG_ROOT
 sys.path.insert(0,str(ROOT))
-DEFAULT_CATALOG=ROOT/'g1_deploy/config/multimodal/r8_s25/catalog.json'
+DEFAULT_CATALOG=CONFIG_ROOT / 'multimodal/r8_s25/catalog.json'
 
 
 def configured_bundle(catalog):
     """Bind selected seeds to the evaluated weights and sampling recipe."""
     import yaml
-    from g1_deploy.deploy_diffusion import model_settings
+    from steerable_recovery.settings import model_settings
     from motion_diffusion.behavioral.hardware.bundle import load_bundle
-    settings=model_settings(yaml.safe_load((ROOT/'g1_deploy/configs/diffusion.yaml').read_text()),catalog['model'])
+    settings=model_settings(yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text()),catalog['model'])
     bundle,manifest=load_bundle(settings['bundle'])
     row=manifest['models'][catalog['model']]
     for key in ('controller','planner'):
@@ -39,7 +39,7 @@ def simulation_arguments(args,catalog):
         raise ValueError('Demo starting-state file differs from the selected catalog')
     random_seed=getattr(args,'random',False)
     if random_seed:
-        from g1_deploy.deploy_diffusion import sampling_seed
+        from steerable_recovery.settings import sampling_seed
         seeds=[sampling_seed('random')]
     else:seeds=args.seeds or row['seeds']
     if len(seeds)!=len(set(seeds)) or any(s<0 or s>=2**63 for s in seeds):
@@ -102,7 +102,7 @@ def main(argv=None):
         saved_hz=50/catalog['reference_inference']['replan_every_ticks']
         print(f'Replanning override: {args.replan_hz:g} Hz (catalog: {saved_hz:g} Hz). '
               'Tracker remains 50 Hz; the recovery paths may change.',flush=True)
-    from g1_deploy.sim_diffusion import main as simulate
+    from steerable_recovery.cli.sim import main as simulate
     simulate(command)
 
 

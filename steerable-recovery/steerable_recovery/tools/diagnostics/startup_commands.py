@@ -2,7 +2,7 @@
 """Headless, matched comparisons of startup command shaping.
 
 Uses sim_diffusion.py model/terrain/seed options. Example:
-  .venv/bin/python g1_deploy/compare_startup_commands.py --model r8_s25_diffusion \
+  .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/diagnostics/startup_commands.py --model r8_s25_diffusion \
     --backend tensorrt --terrain fork3 --start prone --seconds 10
 
 All arms run the planner normally, observe actual motion and feed back the
@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+from steerable_recovery.paths import ROOT
 sys.path.insert(0, str(ROOT))
 
 
@@ -119,7 +119,7 @@ def compare(run, own, policy, plant, capture, args, output, seed):
             directory.mkdir()
             selected = copy(args)
             if own.n_start:
-                from g1_deploy.sim_diffusion import sample_start_offset
+                from steerable_recovery.cli.sim import sample_start_offset
                 selected.start_offset = sample_start_offset(args.pose_seed,
                     xy_m=args.n_xy_m, tilt_deg=args.n_tilt_deg, yaw_deg=args.n_yaw_deg)
                 selected.start_jitter = args.n_joint_jitter
@@ -227,7 +227,7 @@ def main():
     if len(set(own.arms)) != len(own.arms):
         extra.error('Comparison arms must be unique')
     sys.argv = [sys.argv[0], *remaining]
-    from g1_deploy import sim_diffusion as sim
+    from steerable_recovery.cli import sim as sim
     original_arguments, original_run = sim.arguments, sim.run_episode
     def arguments():
         args = original_arguments()
