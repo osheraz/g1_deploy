@@ -59,7 +59,7 @@ sonic_motion_clip: "sonic/model/motion_neutral_default.npz"
 sonic_motion_loop: false
 # The local Python wrapper mirrors the official C++ planner. Only the large
 # released model remains external to this small deployment repository.
-sonic_planner_onnx: "{REMOTE_ROOT}/../others/GR00T-WholeBodyControl/gear_sonic_deploy/planner/target_vel/V2/planner_sonic.onnx"
+sonic_planner_onnx: "{REMOTE_ROOT}/../research/repos/GR00T-WholeBodyControl/gear_sonic_deploy/planner/target_vel/V2/planner_sonic.onnx"
 sonic_planner_version: 2
 sonic_planner_default_height: 0.788740
 # The planner emits a finite motion chunk. Refresh ordinary locomotion at its

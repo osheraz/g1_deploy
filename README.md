@@ -1,5 +1,7 @@
 # G1 deployment
 
+Temporary handoff: [current deployment status](DEPLOYMENT_STATUS.md).
+
 | Project | Start here |
 | --- | --- |
 | **Steerable Recovery** — diffusion, MuJoCo, steering, recording | [Project guide](steerable-recovery/README.md) |

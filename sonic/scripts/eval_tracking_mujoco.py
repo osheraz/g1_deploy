@@ -155,9 +155,10 @@ def main() -> None:
     ap.add_argument("--steps", type=int, default=500)
     ap.add_argument("--config", default=None)
     ap.add_argument("--model-profile", default=None)
-    ap.add_argument("--mjcf", default=str(Path(
-        "~/e_skin/others/GR00T-WholeBodyControl/gear_sonic_deploy/g1/scene_23dof.xml"
-    ).expanduser()))
+    ap.add_argument("--mjcf", default=str(
+        Path(__file__).resolve().parents[3]
+        / "research/repos/GR00T-WholeBodyControl/gear_sonic_deploy/g1/scene_23dof.xml"
+    ))
     ap.add_argument("--json", default=None, help="append the metrics dict to this file")
     args = ap.parse_args()
 

@@ -117,7 +117,7 @@ The planner ONNX is ~774 MB, so it is not vendored. Point the config at a
 checkout that has it. The wrapper itself is vendored locally:
 
 ```yaml
-sonic_planner_onnx: "{REMOTE_ROOT}/../others/GR00T-WholeBodyControl/gear_sonic_deploy/planner/target_vel/V2/planner_sonic.onnx"
+sonic_planner_onnx: "{REMOTE_ROOT}/../research/repos/GR00T-WholeBodyControl/gear_sonic_deploy/planner/target_vel/V2/planner_sonic.onnx"
 sonic_planner_version: 2
 pico_server_ip: "127.0.0.1"
 pico_server_port: 5556

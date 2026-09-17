@@ -71,7 +71,7 @@ def main() -> None:
         raise SystemExit("this diagnostic sweep is intentionally limited to +/-30 deg")
 
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "others/GR00T-WholeBodyControl")
+    env["PYTHONPATH"] = str(ROOT / "research/repos/GR00T-WholeBodyControl")
     env["PYTHONNOUSERSITE"] = "1"
     env["LD_LIBRARY_PATH"] = ":".join(
         filter(

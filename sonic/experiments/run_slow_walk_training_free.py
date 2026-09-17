@@ -370,7 +370,7 @@ def main() -> None:
     if not PYTHON.is_file():
         raise SystemExit(f"deployment Python is missing: {PYTHON}")
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "others/GR00T-WholeBodyControl")
+    env["PYTHONPATH"] = str(ROOT / "research/repos/GR00T-WholeBodyControl")
     env["PYTHONNOUSERSITE"] = "1"
     env["LD_LIBRARY_PATH"] = ":".join(filter(None, [
         str(TRT / "lib"),

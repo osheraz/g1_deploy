@@ -33,7 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_LOG_ROOT = Path(f"/data/{getpass.getuser()}/logs/e_skin/teleop")
 DEFAULT_URDF = (
     REPO_ROOT
-    / "others/GR00T-WholeBodyControl/gear_sonic/data/robots/g1/old/g1_23dof.urdf"
+    / "research/repos/GR00T-WholeBodyControl/gear_sonic/data/robots/g1/old/g1_23dof.urdf"
 )
 
 PHYSICAL_MOTOR_INDICES = np.array(
