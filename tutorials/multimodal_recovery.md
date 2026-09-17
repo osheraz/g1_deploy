@@ -1,5 +1,17 @@
 # Same start, different recoveries
 
+For the current **three prone and three supine examples on flat ground**, use
+[the September 15 options](../config/multimodal/flat_three/README.md):
+
+```bash
+.venv/bin/python g1_deploy/recovery_options.py --start prone
+.venv/bin/python g1_deploy/recovery_options.py --start supine
+```
+
+N cycles the three selected samples. That guide also contains the matching
+robot presets and commands. The earlier selections below are retained as
+historical experiments; their limiter settings and starting poses differ.
+
 For **large spatial path differences**, start with the
 [verified supine/prone spatial examples](../config/multimodal/r8_s25_spatial/README.md).
 Their camera stays fixed; add `--random` to explore unselected seeds.

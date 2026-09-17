@@ -6,7 +6,7 @@ python g1_deploy/deploy_diffusion.py --default-pose --actuate --release-controll
 python g1_deploy/deploy_diffusion.py --actuate --release-controller
 Motor mode: enter zero torque after robot connection. A starts policy from the current pose; A again stops.
 Before starting only, START optionally moves to default over 2 s. SELECT stops.
-With --start-pose prone, START slowly positions first; A then starts recovery.
+With --start-pose prone, START optionally positions; A can start directly from the current pose.
 Default-pose-only mode also waits for START, then holds until SELECT/A/Ctrl+C.
 --actuate automatically releases the built-in controller for startup zero torque;
 --release-controller remains a compatibility flag. Place the robot at rest or supported before launch.
@@ -104,14 +104,18 @@ def main():
     from motion_diffusion.behavioral.hardware import bundle
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',type=Path,default=ROOT/'g1_deploy/configs/diffusion.yaml')
-    parser.add_argument('--model',choices=['p11_diffusion','r8_f50r_flow','r8_s25_diffusion','r2_f50r_flow','p05_diffusion','diffusion','flow'],
+    parser.add_argument('--model',choices=['p11_diffusion','r8_f50r_flow','r8_s25_diffusion','r8_s50r_diffusion','r2_f50r_flow','p05_diffusion','diffusion','flow'],
         default='p11_diffusion')
     parser.add_argument('--replan-hz',type=float,help='Planner rate, e.g. 2.5, 5 or 10 Hz; tracker stays 50 Hz; existing asynchronous horizon/age checks apply')
+    parser.add_argument('--goal-json',type=Path,help='Stanley physical-clock steering goal; PyTorch planner + selected tracker backend; invalid measured XYZ falls back to unguided recovery')
+    parser.add_argument('--guidance-scale',type=float,help='Override trajectory steering strength, e.g. 50 versus source 300; does not change motor PD gains')
+    parser.add_argument('--steering-feedback',choices=('qualified','estimated'),default='qualified',
+        help='estimated explicitly permits experimental XYZ with receipt-estimated clock; geometry and freshness checks remain')
     parser.add_argument('--noise-policy',choices=('fresh','fixed_episode'),default='fresh',
         help='fresh: new noise every plan (default); fixed_episode: sample once at policy start and reuse for replanning')
     parser.add_argument('--seed',type=sampling_seed,default=42,
         help='Planner sampling seed: integer or random. Saved in the session; default 42')
-    parser.add_argument('--start-pose',help='prone or a prone/supine joint-preset JSON: START moves to it, then A starts recovery; requires --actuate')
+    parser.add_argument('--start-pose',help='prone or a prone/supine joint-preset JSON: optional START moves to it; A starts from the current pose; requires --actuate')
     parser.add_argument('--start-pose-jitter-deg',type=float,default=0.,help='Random joint offsets up to +/- this many degrees before START positioning; default 0')
     parser.add_argument('--start-pose-seed',type=sampling_seed,help='Pose jitter seed, separate from planner --seed; default random when jitter is enabled')
     parser.add_argument('--check',action='store_true',help='Verify selected weights, PD binding and synthetic inference; no sensors or motors')
@@ -181,6 +185,14 @@ def main():
         if args.odometry_clock is not None:
             from motion_diffusion.behavioral.hardware.pelvis_odometry import load_clock_calibration
             load_clock_calibration(args.odometry_clock)
+    if args.goal_json:
+        from motion_diffusion.behavioral.hardware.steering import motion_goal,with_guidance_scale
+        _,goal_contract=motion_goal(with_guidance_scale(bundle.read_json(args.goal_json),args.guidance_scale))
+        if args.default_pose:parser.error('Steering requires policy inference')
+        if goal_contract['requires_position'] and not (args.live_odometry or args.check):
+            parser.error('This steering goal needs --live-odometry')
+    elif args.steering_feedback!='qualified':parser.error('--steering-feedback requires --goal-json')
+    if args.guidance_scale is not None and not args.goal_json:parser.error('--guidance-scale requires --goal-json')
     # DDS, depth and journaling share this interpreter. The default 5 ms GIL
     # timeslice is a quarter of a control tick; give I/O threads shorter turns.
     sys.setswitchinterval(.001)
@@ -193,9 +205,23 @@ def main():
     torch.set_num_threads(1)
     checkpoint=torch.load(bundle.asset_path(root,row['controller']),map_location='cpu',weights_only=True,mmap=True)
     hardware=hardware_settings(settings,checkpoint['action_vae']['model_contract'])
+    if args.live_odometry or args.goal_json and args.check:
+        hardware.update(pelvis_odometry_port=args.odometry_port,pelvis_odometry_mode=args.odometry_mode)
     replan_ticks=bundle.replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])
     config,receipt=bundle.resolve_session(root,manifest,args.model,config_path,hardware_config=hardware,
-        replan_ticks=replan_ticks,seed=args.seed,noise_policy=args.noise_policy)
+        replan_ticks=replan_ticks,seed=args.seed,noise_policy=args.noise_policy,
+        guidance_scale=args.guidance_scale,
+        guided_timing=settings.get('guided_timing') if args.goal_json else None,
+        task='motion-command' if args.goal_json else 'recovery',goal_path=args.goal_json)
+    if args.goal_json:
+        config['steering_feedback']=args.steering_feedback
+        receipt['steering_feedback']=args.steering_feedback
+        print(f'Steering: {args.goal_json.name}; PyTorch planner, {args.backend} tracker. '
+              f"Guidance scale: {config['planner_options']['motion_goal']['guidance_scale']:g}. "
+              f'Feedback mode: {args.steering_feedback}. XYZ must be available at A; '
+              'invalid feedback disables guidance while recovery continues.',flush=True)
+        if args.steering_feedback=='estimated':
+            print('Experimental XYZ: clock offset and dynamic accuracy are unqualified. This test does not certify either.',flush=True)
     config['startup_zero_torque']=bool(args.actuate)
     receipt['startup_zero_torque']=bool(args.actuate)
     if args.start_pose:
@@ -251,6 +277,7 @@ def main():
         config['live_odometry']=live_odometry
     if args.backend!='pytorch' and not args.default_pose:
         for component,key in [('controller','controller'),('planner',args.model)]:
+            if args.goal_json and component=='planner':continue  # analytic gradients require PyTorch
             if key not in settings['exports']:
                 parser.error(f'No compiled export for {args.model}/{key}; use --backend pytorch')
             export=Path(settings['exports'][key])
@@ -263,6 +290,8 @@ def main():
     output=output.resolve();output.mkdir(parents=True,exist_ok=False)
     if config.get('start_pose') is not None:
         bundle.write_json(output/'start_pose.json',config['start_pose'])
+    if args.goal_json:
+        bundle.write_json(output/'steering_goal.json',config['planner_options']['motion_goal'])
     if args.record_sensors and args.odometry_mount.is_file():
         import shutil
         mount_snapshot=output/'odometry_mount.json'
@@ -277,6 +306,7 @@ def main():
         prepare_trace(output/'model_trace',config,ROOT)
         print('Model recording enabled: exact inputs, depth history, noise and outputs; asynchronous disk writes.',flush=True)
     receipt.update(config_path=str(config_path),backend=args.backend,
+        planner_backend='pytorch' if args.goal_json else args.backend,
         mode='default_pose' if args.default_pose else ('actuation' if args.actuate else 'preflight' if args.preflight else 'sensor_dry_run'),
         release_controller_requested=args.release_controller,
         release_controller_on_startup=bool(args.actuate))
@@ -284,7 +314,7 @@ def main():
     print(f'Session: {output}',flush=True)
     if not args.default_pose:
         print(f'Command limits: {args.command_limits}'+
-            (' — targets start at measured pose; half-rate for 1 s, gradual release to normal rate by 2 s.'
+            (' — added target limits apply for the first 0.5 s only, then direct controller targets.'
              if args.command_limits=='bounded' else ' — original direct PD targets.'),flush=True)
     from motion_diffusion.behavioral.hardware.cli import run
     motion_switcher=None;recording=None

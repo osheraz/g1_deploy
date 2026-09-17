@@ -44,7 +44,14 @@ checkout "$stack_dir/ros2_ws/src/livox_ros_driver2" https://github.com/Livox-SDK
 checkout "$stack_dir/ros2_ws/src/direct_lidar_inertial_odometry" https://github.com/vectr-ucla/direct_lidar_inertial_odometry \
   c8acc37100e349d70a9d8432d656cbce7e5072cd
 apply_once "$stack_dir/Livox-SDK2" "$config_dir/livox_system_spdlog.patch"
-apply_once "$stack_dir/ros2_ws/src/direct_lidar_inertial_odometry" "$config_dir/dlio_initialized_pose.patch"
+dlio_dir="$stack_dir/ros2_ws/src/direct_lidar_inertial_odometry"
+# Upgrade the earlier initialization-only patch to coherent state/time snapshots.
+if ! git -C "$dlio_dir" apply --reverse --check "$config_dir/dlio_pose_snapshot.patch" 2>/dev/null; then
+  if git -C "$dlio_dir" apply --reverse --check "$config_dir/dlio_initialized_pose.patch" 2>/dev/null; then
+    git -C "$dlio_dir" apply --reverse "$config_dir/dlio_initialized_pose.patch"
+  fi
+  apply_once "$dlio_dir" "$config_dir/dlio_pose_snapshot.patch"
+fi
 
 driver_dir="$stack_dir/ros2_ws/src/livox_ros_driver2"
 if [[ -e "$driver_dir/package.xml" ]] && ! cmp -s "$driver_dir/package.xml" "$driver_dir/package_ROS2.xml"; then

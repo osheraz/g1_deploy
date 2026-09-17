@@ -45,6 +45,7 @@ class DeployViser:
         joint_names: Optional[list[str]] = None,
         port: int = 8080,
         replay_layout: bool = False,
+        robot_visible: bool = True,
     ) -> None:
         self.server = viser.ViserServer(port=port)
         self.joint_names_by_motor_index = list(
@@ -60,6 +61,7 @@ class DeployViser:
             "/base",
             position=(0.0, 0.0, 0.0),
             show_axes=False,
+            visible=robot_visible,
         )
 
         self.urdf_vis = ViserUrdf(
@@ -78,6 +80,8 @@ class DeployViser:
         )
 
         state_folder = self.server.gui.add_folder("Robot State",expand_by_default=not replay_layout)
+        self.state_folder=state_folder
+        state_folder.visible=robot_visible
         with state_folder:
             self.tick_handle = self.server.gui.add_number("Tick", 0, disabled=True)
             self.mode_pr_handle = self.server.gui.add_number(

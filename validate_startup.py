@@ -31,6 +31,7 @@ def run(policy,plant,capture,args,output,seed,own):
     restored_delta=limiter.max_delta.copy()
     original_delta=restored_delta/limiter.velocity_fraction
     original_release=limiter.release_after_s
+    original_window=limiter.active_for_s
     for arm in own.arms:
         directory=output/arm;directory.mkdir()
         rows=restore_recorded_start(plant,own.start_session) if own.start_session else plant.reset(args.start,seed=seed)
@@ -40,6 +41,9 @@ def run(policy,plant,capture,args,output,seed,own):
             recorded_plan=next(row for row in rows if row.get('event')=='plan')['prediction']
         plant.command_limiter=limiter if arm.startswith(('bounded','rate','startup')) else None
         limiter.release_after_s=original_release if arm=='startup50' else None
+        # startup50 follows today's deployment profile; bounded/rate arms
+        # intentionally compare continuous bounds.
+        limiter.active_for_s=original_window if arm=='startup50' else None
         if limiter:limiter.reset()
         if arm!='startup50':limiter.max_delta=original_delta*(float(arm[4:].split('_')[0])/100 if arm.startswith('rate') else 1.)
         sensor=WarpDepth(plant,capture,args.sensor_seed,device=controller.device)
@@ -84,7 +88,8 @@ def run(policy,plant,capture,args,output,seed,own):
                 action=shape_startup(action,obs.q,plant.default,plant.scale,fraction)
                 if issued_count==0:first[arm]=dict(q=obs.q.copy(),history=runtime.tracker_history.flatten().numpy().copy(),
                                                  code=result['native_code'].numpy().copy(),proposed=proposed.copy())
-            # Startup holds must not consume the command-shaping duration.
+            # Hold the measured pose without shaping; the episode clock still
+            # advances and does not extend a finite deployment window.
             active_limiter=plant.command_limiter
             if result is None:plant.command_limiter=None
             request,target,torque,clipped=plant.step(action)
@@ -111,6 +116,7 @@ def run(policy,plant,capture,args,output,seed,own):
             max_raw=float(values['raw'].max()),first_target_step=float(abs(values['target_delta'][command]).max()),
             max_target_step_first_second=float(abs(values['target_delta'][early]).max()),
             issued_commands=issued_count,physics_warning=any(w.number for w in plant.data.warning),
+            command_limits=None if plant.command_limiter is None else plant.command_limiter.contract(),
             matched_recorded_plan=own.recorded_first_plan)
         (directory/'summary.json').write_text(json.dumps(results[arm],indent=2)+'\n')
         print(f'{seed} {arm}: {results[arm]}',flush=True)
@@ -123,6 +129,7 @@ def run(policy,plant,capture,args,output,seed,own):
     plant.command_limiter=limiter
     limiter.max_delta=restored_delta
     limiter.release_after_s=original_release
+    limiter.active_for_s=original_window
     return report
 
 

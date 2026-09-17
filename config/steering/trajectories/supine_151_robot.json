@@ -1,0 +1,41 @@
+{
+  "schema": "hv2.joint_start_pose.v1",
+  "name": "supine_151_joint_hold",
+  "posture": "supine",
+  "joint_positions_rad": {
+    "left_hip_pitch_joint": -0.35740625858306885,
+    "left_hip_roll_joint": 0.2182835191488266,
+    "left_hip_yaw_joint": 0.052716732025146484,
+    "left_knee_joint": 0.4551975429058075,
+    "left_ankle_pitch_joint": 0.05210377648472786,
+    "left_ankle_roll_joint": -0.16980230808258057,
+    "right_hip_pitch_joint": -0.8943467140197754,
+    "right_hip_roll_joint": -0.3141067922115326,
+    "right_hip_yaw_joint": -0.10543242841959,
+    "right_knee_joint": 1.5420572757720947,
+    "right_ankle_pitch_joint": 0.013697290793061256,
+    "right_ankle_roll_joint": 0.08038664609193802,
+    "waist_yaw_joint": -0.02507791668176651,
+    "waist_roll_joint": 0.04840647056698799,
+    "waist_pitch_joint": 0.26478853821754456,
+    "left_shoulder_pitch_joint": 0.7388795614242554,
+    "left_shoulder_roll_joint": 0.6159646511077881,
+    "left_shoulder_yaw_joint": 0.2923717200756073,
+    "left_elbow_joint": 0.351380854845047,
+    "left_wrist_roll_joint": 0.9153093099594116,
+    "left_wrist_pitch_joint": 0.1724620908498764,
+    "left_wrist_yaw_joint": -0.19585780799388885,
+    "right_shoulder_pitch_joint": 0.8251548409461975,
+    "right_shoulder_roll_joint": -0.7296784520149231,
+    "right_shoulder_yaw_joint": -0.4742219150066376,
+    "right_elbow_joint": 0.514515221118927,
+    "right_wrist_roll_joint": -1.0369964838027954,
+    "right_wrist_pitch_joint": 0.35774344205856323,
+    "right_wrist_yaw_joint": 0.30326414108276367
+  },
+  "source": {
+    "from_snapshot": "g1_deploy/config/steering/trajectories/supine_151.json",
+    "snapshot_sha256": "88fff8b7d27061c46610106c03d879e731ea4ce2f3bb812e6d093c210432968d"
+  },
+  "scope": "Original named source joints, held with nominal PD. Operator places the base face up on flat ground; joints do not constrain root position, attitude or contact forces."
+}

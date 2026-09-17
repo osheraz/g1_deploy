@@ -34,6 +34,24 @@ exports:
 # The launcher defaults to this exact selected pair. The diffusion/flow keys
 # above retain the September 10 models for explicit legacy comparisons.
 models:
+  # September 15 R8 S50R40k: explicit simulation/robot option. Same R8+6k
+  # tracker/PD as S25, one-second diffusion horizon, fresh noise at 5 Hz.
+  # Materialized by compare_flat_recovery.py prepare; earlier aliases stay pinned.
+  r8_s50r_diffusion:
+    default_backend: tensorrt
+    bundle: logs/native_recovery/bundles/r8_s50r_20260915a
+    exports:
+      controller: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_controller
+      r8_s50r_diffusion: logs/native_recovery/exports_five_20260915/r8_s50r_diffusion_planner
+    camera:
+      source: network
+      endpoint: tcp://127.0.0.1:15556
+      clock_endpoint: tcp://127.0.0.1:15558
+      serial: '247122073927'
+      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
+      mount_confirmed: true
+      allow_intrinsics_mismatch: false
+
   p11_diffusion:
     default_backend: pytorch
     bundle: logs/native_recovery/bundles/p11_20260913
@@ -73,6 +91,11 @@ models:
   r8_s25_diffusion:
     default_backend: pytorch
     bundle: logs/native_recovery/bundles/r8_s25_20260914a
+    # Experimental trajectory steering; preserve the original unguided bundle.
+    # F25 / K20 leaves 5 ticks for an asynchronous reply at 2.5 Hz.
+    guided_timing:
+      max_plan_age_ticks: 5
+      scope: 'Experimental S25 pelvis-trajectory steering; 100 ms reply budget, not hardware qualification.'
     exports:
       controller: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_controller
       r8_s25_diffusion: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_planner

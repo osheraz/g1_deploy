@@ -3,6 +3,11 @@ import threading
 import zmq
 import numpy as np
 
+if __package__:
+    from .depth_wire import decode_depth, PNG
+else:
+    from depth_wire import decode_depth, PNG
+
 try:
     import cv2
 except ModuleNotFoundError:  # A headless --no-camera launch does not need it.
@@ -84,6 +89,7 @@ class SimpleDepthClient(threading.Thread):
             while self.running:
                 parts = self.socket.recv_multipart()
                 depth_scale = DEPTH_SCALE
+                metadata = None
                 if len(parts) == 2:
                     color_msg, depth_msg = parts
                     if color_msg.startswith(b"{"):
@@ -101,11 +107,10 @@ class SimpleDepthClient(threading.Thread):
                 else:
                     depth_msg = parts[0]
                     self.latest_color_jpg = None
-                self.latest_depth_png = depth_msg
-
-                depth = cv2.imdecode(
-                    np.frombuffer(depth_msg, dtype=np.uint8), cv2.IMREAD_UNCHANGED
-                )
+                self.latest_depth_png = (depth_msg if metadata is None or
+                    metadata.get('encoding',PNG)==PNG else None)
+                depth = (decode_depth(metadata, depth_msg) if metadata is not None else
+                    cv2.imdecode(np.frombuffer(depth_msg, dtype=np.uint8), cv2.IMREAD_UNCHANGED))
 
                 if depth is None:
                     continue

@@ -102,7 +102,8 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
                     if limiter is not None:
                         if generation != row['generation']: limiter.reset()
                         generation = row['generation']
-                        issued, target, _ = limiter.apply(proposed, row['observation']['q'])
+                        issued, target, _ = limiter.apply(proposed, row['observation']['q'],
+                            elapsed_s=(row.get('command_shaping') or {}).get('elapsed_s'))
                     else:
                         issued = proposed
                         target = controller.default_joint_pos.cpu().numpy()+np.asarray(config['pd']['training_pd']['action_scale'])*issued
@@ -116,14 +117,8 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
 
     if component in ('all', 'planner'):
         options = dict(config['planner_options'])
-        goal = options.pop('pelvis_path_goal', None)
-        if goal is not None:
-            from motion_diffusion.behavioral.hardware.goals import persistent_pelvis_path
-            options['guidance_fn'] = persistent_pelvis_path(goal)
-        runtime = load_frozen_planner(config['planner_checkpoint'], device=config.get('planner_device', 'cuda'), **options)
-        if goal is not None:
-            runtime.guidance_requires_context = True
-            runtime.guidance_contract.update(name='pelvis_path', goal=goal)
+        from motion_diffusion.behavioral.hardware.steering import load_hardware_planner
+        runtime = load_hardware_planner(config['planner_checkpoint'], device=config.get('planner_device', 'cuda'), **options)
         configure_planner(runtime, config['planner_checkpoint'], config.get('planner_engine'))
         verify_engines('planner', runtime.model)
         for row in read_trace(directory/'planner'):

@@ -1,0 +1,193 @@
+{
+  "schema": "hv2.hardware_motion_goal.v1",
+  "clock": "physical_elapsed_s",
+  "frame": "initial_pelvis_origin_causal_heading",
+  "mode": "waypoint_pose",
+  "guidance_scale": 300.0,
+  "guidance_max_grad_norm": 1.0,
+  "position_error_scale_m": 0.1,
+  "yaw_error_scale_deg": 12.0,
+  "simulation_reference": {
+    "model": "R8_S50R",
+    "checkpoint_step": 40000,
+    "motion_id": 151,
+    "target_bundle": {
+      "path": "/gpfs/accounts/stellayu_owned_root/stellayu_owned1/clhsieh/hv2_diffusion/experiments/fallrec_latent_planner_20260902/evaluations/steering_overnight_20260915b/control/multi_confirmation/three_dense/targets/dense_0.json",
+      "sha256": "9b53db658e3abb3f9368e9ba80b9f51cb5cfe7202788660940319361f36e6087"
+    },
+    "terrain": "flat",
+    "source_group": "legacy_flat_waypoint",
+    "K": 10,
+    "feedback": "oracle"
+  },
+  "hardware_qualified": false,
+  "target": {
+    "pose_waypoints": {
+      "schema": "hv2.pose_waypoints.v1",
+      "clock": "physical_elapsed_s",
+      "frame": "initial_pelvis_origin_causal_heading",
+      "rotation_convention": "xyzw_body_to_initial_heading",
+      "times_s": [
+        0.0,
+        2.98,
+        3.86,
+        4.72,
+        6.04,
+        6.74
+      ],
+      "positions_m": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.027930615469813347,
+          0.0711585283279419,
+          -0.07807218283414841
+        ],
+        [
+          -0.01299246121197939,
+          0.33650216460227966,
+          0.08004307746887207
+        ],
+        [
+          -0.33136168122291565,
+          0.3751581907272339,
+          0.18571257591247559
+        ],
+        [
+          -0.6044787764549255,
+          0.5634516477584839,
+          0.25353941321372986
+        ],
+        [
+          -0.7028383612632751,
+          0.6082828640937805,
+          0.5208847522735596
+        ]
+      ],
+      "quaternion_xyzw": [
+        [
+          0.662882387638092,
+          0.0010508305858820677,
+          0.7485225796699524,
+          -0.017318949103355408
+        ],
+        [
+          0.7296478748321533,
+          0.057016000151634216,
+          0.6731446981430054,
+          0.10601597279310226
+        ],
+        [
+          0.3746013641357422,
+          0.5148023962974548,
+          0.46989721059799194,
+          0.6114318370819092
+        ],
+        [
+          0.13362321257591248,
+          0.50745689868927,
+          0.48500195145606995,
+          0.6995751857757568
+        ],
+        [
+          -0.054048120975494385,
+          0.20732147991657257,
+          0.39800578355789185,
+          0.892013430595398
+        ],
+        [
+          -0.12977129220962524,
+          0.09143485128879547,
+          0.13720731437206268,
+          0.9777388572692871
+        ]
+      ],
+      "position_deadband_m": 0.03,
+      "rotation_deadband_deg": 5.0,
+      "rotation_error_scale_deg": 20.0,
+      "rotation_weight": 1.0,
+      "donor_fit_position_max_m": 0.08284324407577515,
+      "donor_fit_position_rmse_m": 0.04312538355588913,
+      "donor_fit_rotation_max_deg": 31.134428024291992,
+      "compression": "Actual donor knots; largest normalized XYZ/full-rotation residual; >=0.1s spacing; <=16knots",
+      "donor_ticks": [
+        0,
+        149,
+        193,
+        236,
+        302,
+        337
+      ]
+    }
+  },
+  "provenance": {
+    "source_file": "g1_deploy/config/multimodal/stanley_flat/reference_routes/flat_pose_0.json",
+    "source_sha256": "0c94da356e86b296ff6c1f4ea24f1bf452b57162b2765afd35f795e8342b8088",
+    "selection": "coarse",
+    "episode_id": "multi_commands:151:m0:s114",
+    "mode_support": {
+      "representative": 14,
+      "discovery_members": [
+        7,
+        14,
+        15,
+        22,
+        32,
+        33,
+        36,
+        38,
+        69,
+        75,
+        76,
+        81,
+        100,
+        102,
+        103
+      ],
+      "audit_members": [
+        27,
+        29,
+        31,
+        115
+      ],
+      "discovery_support": 15,
+      "audit_support": 4,
+      "mean_normalized_distance": 0.6676530241966248,
+      "donor_seed": 114,
+      "source": {
+        "seed": 114,
+        "path": "/nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/experiments/fallrec_latent_planner_20260902/orchestration/empirical_steering_40k_20260914a/results/R8_S50R/unguided_s114",
+        "trace_sha256": "8b5f5db9323d199093661249f389fbd068dfff91300c60b9cfee63b04a51815f"
+      },
+      "end_tick": 337,
+      "discovery_seeds": [
+        107,
+        114,
+        115,
+        122,
+        801,
+        802,
+        805,
+        807,
+        838,
+        844,
+        845,
+        850,
+        869,
+        871,
+        872
+      ],
+      "support_seeds": [
+        127,
+        129,
+        131,
+        884
+      ]
+    },
+    "schedule_changes": "None: original XYZ, full orientation, timestamps and tolerances.",
+    "execution": "Original schedule holds its final pose after the final timestamp; no custom cutoff."
+  }
+}

@@ -5,7 +5,9 @@ It includes the depth command, policy command, A/stop controls and synchronized 
 Do not run a second recorder beside deployment.
 
 New hardware runs default to `logs/real_world/`; all artifacts and processed review
-stay inside the run. Old results and model assets are not moved.
+stay inside the run. After reviewing a run, move it to `paper/` manually if you
+want to retain it for the paper. Existing recordings and model assets are not moved.
+Replay accepts an explicit path to a reviewed run under `paper/`.
 
 ## What is saved
 
@@ -19,7 +21,7 @@ stay inside the run. Old results and model assets are not moved.
 | `sensors/depth/{frames.bin,frames.jsonl,metadata.json,summary.json}` | Original-resolution lossless depth, calibration/units, capture/receipt times and recorder errors/drops |
 | `odometry_mount.json` | Snapshot of the selected mount calibration, shared by live/offline pelvis conversion |
 | `model_trace/control/` | Tracker history, native code, selected depth frame references/metadata/masks, raw/clipped output, issued request/target and command shaping |
-| `model_trace/planner/` | Live/preview planner inputs, histories/masks, depth frame references, explicit noise, generator state, predictions and anchor |
+| `model_trace/planner/` | Policy planner inputs, histories/masks, depth frame references, explicit noise, generator state, predictions and anchor |
 | `model_trace/{manifest.json,source.tar.gz}` | Resolved settings, dependency versions, checkpoint hashes and the actual source including uncommitted changes; each component also saves engine identities in `runtime.json` |
 | `model_trace/summary.json` | Completion and drop/error counters for both processes |
 
@@ -28,21 +30,36 @@ DLIO and pelvis conversion; without that flag, XYZ can be reconstructed offline.
 Sensor-only runs record when `--live-odometry` or `--record-sensors` is selected.
 Preflight/default-pose mode does not start this recorder.
 
-The recorder buffers up to five seconds before A and saves after motor cleanup.
+Sensors and estimators warm up before A; video, depth and model-call recording
+start with the accepted policy A. Small setup/status files remain available for
+startup diagnosis. Raw LiDAR/IMU/joints retain up to five seconds in RAM for
+odometry initialization and save that context only for a started run.
 It runs separately at lower CPU priority; [measured compute cost](../notes/deployment_compute.md)
 is nonzero. Support contacts are not estimated by this recorder.
 
 Recorded deployments save the **original 640×480 uint16 depth**, losslessly,
-once per exposure. The network camera queues the original PNG bytes already
-received; a writer thread handles checksums and disk writes. USB capture copies
-the original pixels and encodes PNG on the writer thread. There is no second
+once per exposure. PNG network transport queues the original bytes already
+received; a writer thread handles checksums and disk writes. Raw network transport
+and USB capture copy the original pixels and encode PNG on that writer thread. There is no second
 stream, GPU work or codec in the capture/control loop. A full queue drops
 recording frames and reports it in `sensors/depth/summary.json`; it never stalls
-the policy. Capture begins when the camera connects and ends after motor cleanup.
+the policy. Archiving begins at policy start and ends after motor cleanup.
+A bounded half-second of prior depth is retained in RAM and saved at A so the
+first model call's causal depth history can still be reproduced.
 Use `--no-record-depth` to disable it. Viser applies the same calibrated crop
 and finite-positive validity handling at native pixel resolution: **576×464**
 with the current 32/8-pixel border crop. The complete 640×480 source remains in
 the archive. Near/far display limits affect visualization only.
+With `--processing vigor`, this source is the filtered camera image as received,
+with source missing/near/far categories preserved, not the unfiltered sensor
+image. `vigor_legacy` recordings contain the original hole-filled output and
+retain their original processing label. `metadata.json/source_processing` stores the
+filter recipe and SDK version once. Network PNG bytes are saved unchanged;
+raw network pixels become lossless PNG on bluefin. `frames.jsonl` records
+`wire_encoding`, payload size and decode/preparation time separately from the
+archive's PNG encoding. Replay derives
+both the video and model views from these bytes without filtering again. Use
+`--processing raw` at server launch to record the previous unfiltered source.
 Model traces store each exposure's exact capture reference, age, availability
 and capture-state metadata. Replay uses the same calibrated ray sampling to
 64×48 and the same model pixel transform; it does not use a generic resize or
@@ -55,7 +72,8 @@ saved 64×48 resolution; their missing original detail cannot be recovered.
 
 ## Reproduce model decisions offline
 
-Model recording is **on by default**, including sensor-only inference and preview.
+Model recording is **on by default** for policy and sensor-only inference.
+Waiting-for-A previews are evaluated but not archived as model calls.
 Depth recording defaults on with model recording. Explicit `--no-record-depth`
 retains the older inline model-image trace so model replay remains possible;
 use the defaults for compact storage and depth visualization.
@@ -95,14 +113,14 @@ to a recorded policy session. `check_camera.py --list-modes` prints the MJPG siz
 and rates the camera offers; the driver clamps a request it cannot serve (the
 Brio 101 is 30 fps at every size) and the report shows `requested_fps`, the
 effective `fps` and `measured_fps`. The
-recorder then starts one `v4l2-ctl` child at the same low priority that writes
-the camera's MJPEG frames straight from the driver buffers to
+recorder keeps one `v4l2-ctl` stream warm in a separate low-priority process.
+The existing camera-check byte-count reader forwards original MJPEG frames to
 `sensors/camera/frames.mjpg` and logs every frame's driver sequence number and
-start-of-exposure timestamp to `sensors/camera.log`. No decoding, no encoding,
-no per-frame user-space work (measured 0.00 s CPU for 300 frames; ffmpeg's
-V4L2 input spins at about 30% of a core and was rejected). The control process
-never touches the camera. Recording runs from recorder launch to stop, so the
-pre-A idle is included.
+start-of-exposure timestamp to `sensors/camera.log` only for saved frames.
+There is no decoding or encoding. The byte copies and file writes run in that
+child, never the control process. Frames before the accepted A timestamp are
+discarded; the device stays open, avoiding a camera restart at policy onset.
+The new forwarding path has offline checks but no new hardware CPU measurement.
 
 Timestamps are `CLOCK_MONOTONIC`, the same clock as `time.monotonic()` in the
 policy telemetry, the raw recorder's `receipt_monotonic_s` and
@@ -136,11 +154,25 @@ Prepare the full video and synchronized robot replay after stopping:
 ```
 
 This saves `review/review.json` and `review/README.md` and opens Viser on port 8081.
+If a run stopped before recording policy observations but saved external camera
+frames, the same command opens camera-only playback with scrubbing and Restart.
+Robot pose and XYZ remain unavailable for that recording.
+When browsing a folder, only runs with recorded policy commands are included;
+startup-only attempts and sensor checks are excluded.
 Playback, camera and depth appear first; diagnostics start collapsed. It uses
 recorded live XYZ when present, otherwise cached offline XYZ. Default checks
 validate the whole frame index and decode only three camera samples. Add
 `--full-validation` to decode every frame, `--prepare-only` for checks without
 Viser, or `--export-video` to encode `review/external.mp4` for sharing.
+You can pass just the run name instead of a full path; replay looks it up under
+`logs/real_world/` in this checkout. Existing directory paths still work.
+
+For a stopped run whose telemetry gzip was interrupted, the review command
+preserves the original and writes complete recoverable records to
+`review/telemetry_recovered.jsonl.gz`, with a recovery report. The end may be
+missing; no stop event or robot state is invented. Reused sensor timestamps
+are retained and replayed using the recorded control clock, with an explicit
+diagnostic. Camera and depth keep their original exposure timestamps.
 Viser reads the indexed raw JPEGs on demand, using exposure timestamps
 rather than assuming frame number equals a policy tick. It keeps only the current
 decoded frame and sends a preview at up to 960 pixels wide; the MP4 stays full resolution.
@@ -153,6 +185,66 @@ check; a single uncalibrated view is not 3D truth.
 
 ## XYZ options and older recordings
 
+### Mark recovery start and first standing
+
+```bash
+cd /home/osher/hv2
+.venv/bin/python g1_deploy/replay_motion.py logs/real_world --port 8081
+```
+
+Open **http://localhost:8081** (forward port 8081 in VS Code). The viewer starts
+paused. Already reviewed runs open from their saved index; only the selected
+recording is loaded. Do not add `--prepare-only` (it does not open a viewer),
+`--preload`, or export flags when marking clips. In each recording:
+
+1. The start defaults to **0 seconds**. Use **Mark start** only to change it.
+2. Scrub to the end and click **Mark next**. This marks the end and opens the
+   next recording. Repeat for each recording.
+3. When finished, click **Save all**.
+
+The **Mark clip** panel shows **NOT MARKED**, **START MARKED**,
+**✅ MARKED — not saved yet**, or **✅ MARKED — saved**.
+Drafts stay in this viewer until **Save all**; save before closing or restarting.
+The recording dropdown lets you revisit a clip. Saved marks reload when you
+reopen a recording. For recovery measurements,
+mark the end at first standing, before subsequent drifting.
+
+To finish only recordings that have no saved marks:
+
+```bash
+.venv/bin/python g1_deploy/replay_motion.py logs/real_world --unmarked --port 8081
+```
+
+Each run stores `review/recovery_interval.json`: the exact robot sample indices,
+replay timestamps, displayed external-camera exposure references and your label.
+Marking does not modify or trim the recording. The analysis uses the marked start
+as its origin and the marked standing/end as its cutoff; later drift is excluded.
+
+Once all marks are saved, create trimmed copies:
+
+```bash
+.venv/bin/python g1_deploy/trim_marked_videos.py
+```
+
+Clips appear under `logs/real_world_trimmed/`, with the same category/run folders.
+Each has `external.mp4`, matching `depth_aligned.mp4` when depth was recorded,
+and a manifest of the exact source frames. The marked end frame is included.
+Original recordings stay unchanged. Already exported, unchanged clips are reused.
+
+Check marking progress or compute the ten-per-posture summary after labeling:
+
+```bash
+.venv/bin/python scripts/fall_recovery/validation/summarize_real_world_standing.py --status
+.venv/bin/python scripts/fall_recovery/validation/summarize_real_world_standing.py
+```
+
+The summary requires saved **First standing** intervals for ten prone and ten
+supine recordings. It never falls back to automatic endpoints. Results go to
+`logs/analysis/real_world_standing_marked/`; XYZ is reported only when both
+marked endpoints are valid. No recovery-time metric is reported.
+
+### XYZ sources
+
 Use only after the policy has stopped. Set `SESSION` to the existing run path:
 
 ```bash
@@ -161,6 +253,9 @@ SESSION=logs/real_world/YOUR_SESSION_DIRECTORY
 .venv/bin/python g1_deploy/replay_motion.py "$SESSION" --port 8081
 ```
 
+Pass a folder instead of one session (`logs/real_world`, or a category folder
+inside it) to browse every recording under it in one viewer, with a dropdown and
+Previous/Next buttons; `--preload` loads them all before opening.
 This opens saved motion without recomputing DLIO. It starts no sensor driver or
 robot connection. Use `--offline-xyz` explicitly to reconstruct raw LiDAR when
 live XYZ is absent, or to compare against it. Offline interpolation differs from
@@ -174,7 +269,7 @@ overrides it. [Build instructions](config/lidar/README.md).
 If DLIO has no estimate at A, the offline viewer labels its later position origin
 and hides the earlier XYZ interval. That trace is not displacement since A.
 Deployment automatically waits for the requested streams and five seconds of
-pre-roll before allowing startup. This applies to sensor-only checks too. The
+warmup before allowing startup. This applies to sensor-only checks too. The
 countdown is before motor takeover; it adds no wait/check to running control.
 Its receipt is saved in `sensors/startup_warmup.json`.
 Offline conversion uses the run's `odometry_mount.json` when present. For older

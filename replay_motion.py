@@ -21,11 +21,60 @@ def read_json(path):
 
 
 def resolve_session(path):
-    path=path.expanduser().resolve()
+    path=path.expanduser()
+    if not path.is_absolute() and len(path.parts)==1 and path.name!='..' and not path.is_dir():
+        path=ROOT/'logs/real_world'/path
+    path=path.resolve()
     # Accept the "Saved and verified raw sensors" path as well as "Session".
     if path.name=='sensors' and (path.parent/'telemetry.jsonl.gz').is_file():path=path.parent
     if not path.is_dir():raise ValueError(f'Session directory not found: {path}')
     return path
+
+
+def review_telemetry(source,review,*,quick=False):
+    """Recover complete records from an interrupted gzip, keeping raw bytes intact.
+
+    Only an absent gzip ending is recoverable here. CRC failures and malformed
+    complete JSON records remain errors, rather than silently skipping data.
+    quick reuses a previous recovery of the same unchanged raw file.
+    """
+    import gzip
+    import hashlib
+    pending=review/'telemetry_recovered.pending.gz'
+    recovered=review/'telemetry_recovered.jsonl.gz'
+    report_path=review/'telemetry_recovery.json'
+    if quick and recovered.is_file() and report_path.is_file():
+        report=json.loads(report_path.read_text())
+        if report.get('source_bytes')==source.stat().st_size:return recovered,report
+    buffer=b'';records=0;interrupted=None
+    try:
+        with gzip.open(source,'rb') as stream,gzip.open(pending,'wb',compresslevel=1) as output:
+            while True:
+                try:chunk=stream.read1(65536)
+                except EOFError as exc:
+                    interrupted=str(exc);break
+                if not chunk:break
+                buffer+=chunk
+                while b'\n' in buffer:
+                    line,buffer=buffer.split(b'\n',1)
+                    json.loads(line)
+                    output.write(line+b'\n');records+=1
+            if not interrupted and buffer:
+                json.loads(buffer)
+            if interrupted and not records:
+                raise ValueError(f'No complete telemetry records recoverable from {source}')
+        if not interrupted:return source,None
+        pending.replace(recovered)
+        with source.open('rb') as stream:sha=hashlib.file_digest(stream,'sha256').hexdigest()
+        report=dict(source=str(source),source_sha256=sha,source_bytes=source.stat().st_size,
+            recovered=str(recovered),complete_records=records,discarded_tail_bytes=len(buffer),
+            error=interrupted,note='Recovered complete JSON records only. Raw telemetry is unchanged. '
+            'The end of this run may be missing; no state, commands or stop event were invented.')
+        report_path.write_text(json.dumps(report,indent=2)+'\n')
+        print(f'Telemetry was interrupted: recovered {records} complete records; original preserved.',flush=True)
+        return recovered,report
+    finally:
+        pending.unlink(missing_ok=True)
 
 
 def finalize_camera(recording,review,*,export_video=True):
@@ -45,23 +94,325 @@ def finalize_camera(recording,review,*,export_video=True):
         return result
     # MP4 is for sharing. Viser uses indexed MJPEG exposure times instead.
     video=review/'external.mp4';raw=camera/'frames.mjpg'
-    if export_video and (not video.is_file() or video.stat().st_mtime_ns<raw.stat().st_mtime_ns):
-        import numpy as np
-        with np.load(camera/'frames.npz') as index:fps=float(index['fps'])
+    start=policy_start_frame(recording)
+    if export_video and (not video.is_file() or video.stat().st_mtime_ns<raw.stat().st_mtime_ns
+                         or read_json(review/'export.json').get('start_frame')!=start):
+        import numpy as np,shutil
+        with np.load(camera/'frames.npz') as index:fps=float(index['fps']);offset=int(index['offset'][start]);frames=len(index['seq'])-start
         pending=review/'external.pending.mp4'
         print('Preparing external.mp4 after recording stopped...',flush=True)
-        with (review/'video_export.log').open('w') as log:
+        with (review/'video_export.log').open('w') as log,raw.open('rb') as source:
             try:
-                subprocess.run(['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y',
-                    '-f','mjpeg','-framerate',str(fps),'-i',str(raw),'-an',
+                source.seek(offset)
+                encoder=subprocess.Popen(['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y',
+                    '-f','mjpeg','-framerate',str(fps),'-i','-','-an',
                     '-c:v','libx264','-threads','2','-preset','fast','-crf','20',
                     '-pix_fmt','yuv420p','-movflags','+faststart',str(pending)],
-                    stdout=log,stderr=subprocess.STDOUT,check=True,timeout=600)
+                    stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT)
+                try:shutil.copyfileobj(source,encoder.stdin,1<<20)
+                finally:encoder.stdin.close();encoder.wait(timeout=600)
+                if encoder.returncode:raise subprocess.CalledProcessError(encoder.returncode,'ffmpeg')
                 pending.replace(video)
+                (review/'export.json').write_text(json.dumps(dict(start_frame=start,frames=frames,fps=fps,
+                    note='external.mp4, depth_aligned.mp4 and frames/ begin at the first camera frame after A (policy start)'),indent=2)+'\n')
             except (OSError,subprocess.SubprocessError) as exc:
                 result['error']=f'Video export failed: {exc}; see {review}/video_export.log'
     if video.is_file():result['mp4']=str(video)
     return result
+
+
+def policy_start_frame(recording):
+    """Index of the first camera frame at or after A; 0 when the policy never started."""
+    import numpy as np
+    start=read_json(recording/'policy_start.json').get('monotonic_s')
+    if start is None:return 0
+    with np.load(recording/'camera/frames.npz') as index:times=index['ts_monotonic_s']
+    return min(int(np.searchsorted(times,start)),len(times)-1)
+
+
+def export_depth_video(session,recording,review):
+    """review/depth_aligned.mp4: one frame per external camera frame, showing the
+    latest depth capture at that exposure, so it plays in step with external.mp4."""
+    import numpy as np
+    from motion_diffusion.behavioral.hardware.depth_recording import RecordedDepth
+    camera=recording/'camera';depth_dir=recording/'depth';video=review/'depth_aligned.mp4'
+    if not (camera/'frames.npz').is_file() or not (depth_dir/'frames.jsonl').is_file():return None
+    start=policy_start_frame(recording);marker=review/'depth_export.json'
+    if (video.is_file() and video.stat().st_mtime_ns>=(depth_dir/'frames.bin').stat().st_mtime_ns
+            and read_json(marker).get('start_frame')==start):return str(video)
+    import torch;torch.set_num_threads(1)
+    with np.load(camera/'frames.npz') as index:times=index['ts_monotonic_s'].astype(float)[start:];fps=float(index['fps'])
+    depth=RecordedDepth(depth_dir);indices=depth.indices_at(times)
+    runtime=session/'model_trace/planner/runtime.json'
+    view=(json.loads(runtime.read_text()).get('sampling_contract',{}).get('depth_condition',{}) if runtime.is_file() else {})
+    vmin,vmax=(float(view['min_depth_m']),float(view['max_depth_m'])) if view.get('enabled') else (.1,2.)
+    height,width=depth.view_shape;scale=max(1,320//width)
+    pending=review/'depth_aligned.pending.mp4'
+    with (review/'depth_export.log').open('w') as log:
+        encoder=subprocess.Popen(['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y',
+            '-f','rawvideo','-pix_fmt','bgr24','-s',f'{width*scale}x{height*scale}','-r',str(fps),'-i','-',
+            '-an','-c:v','libx264','-threads','2','-preset','fast','-crf','20','-pix_fmt','yuv420p',
+            '-movflags','+faststart',str(pending)],stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT)
+        last=None;image=np.full((height,width,3),(100,0,130),np.uint8)
+        try:
+            for i in indices:
+                if i!=last:
+                    last=int(i)
+                    if last<0:image=np.full((height,width,3),(100,0,130),np.uint8)
+                    else:
+                        d,valid=depth.frame(last)
+                        g=(np.clip((d-vmin)/max(vmax-vmin,1e-3),0.,1.)*255).astype(np.uint8)
+                        image=np.stack([g,g,g],axis=-1);image[~valid]=(100,0,130)
+                encoder.stdin.write(np.repeat(np.repeat(image,scale,axis=0),scale,axis=1).tobytes())
+        finally:
+            encoder.stdin.close();encoder.wait(timeout=600)
+    if encoder.returncode:raise ValueError(f'Depth video export failed; see {review}/depth_export.log')
+    pending.replace(video)
+    marker.write_text(json.dumps(dict(start_frame=start,frames=len(times),fps=fps),indent=2)+'\n')
+    return str(video)
+
+
+def export_frames(session,recording,review):
+    """review/frames/external/NNNNNN.jpg (original camera JPEG bytes) and
+    review/frames/depth/NNNNNN.png with the same numbering as depth_aligned.mp4."""
+    import numpy as np
+    camera=recording/'camera';depth_dir=recording/'depth';root=review/'frames'
+    if not (camera/'frames.npz').is_file():return None
+    import shutil
+    start=policy_start_frame(recording)
+    with np.load(camera/'frames.npz') as index:
+        times=index['ts_monotonic_s'].astype(float)[start:];offsets=index['offset'][start:];sizes=index['bytes'][start:];fps=float(index['fps'])
+    if read_json(root/'index.json').get('first_camera_frame')!=start:shutil.rmtree(root,ignore_errors=True)
+    external=root/'external';external.mkdir(parents=True,exist_ok=True)
+    if len(list(external.glob('*.jpg')))!=len(times):
+        with (camera/'frames.mjpg').open('rb') as raw:
+            for i,(offset,size) in enumerate(zip(offsets,sizes)):
+                raw.seek(int(offset));(external/f'{i:06d}.jpg').write_bytes(raw.read(int(size)))
+    indices=[]
+    if (depth_dir/'frames.jsonl').is_file():
+        import cv2,torch;torch.set_num_threads(1)
+        from motion_diffusion.behavioral.hardware.depth_recording import RecordedDepth
+        depth_out=root/'depth';depth_out.mkdir(exist_ok=True)
+        depth=RecordedDepth(depth_dir);indices=depth.indices_at(times)
+        if len(list(depth_out.glob('*.png')))!=len(times):
+            runtime=session/'model_trace/planner/runtime.json'
+            view=(json.loads(runtime.read_text()).get('sampling_contract',{}).get('depth_condition',{}) if runtime.is_file() else {})
+            vmin,vmax=(float(view['min_depth_m']),float(view['max_depth_m'])) if view.get('enabled') else (.1,2.)
+            height,width=depth.view_shape;last=None;image=np.full((height,width,3),(100,0,130),np.uint8)
+            for i,k in enumerate(indices):
+                if int(k)!=last:
+                    last=int(k)
+                    if last<0:image=np.full((height,width,3),(100,0,130),np.uint8)
+                    else:
+                        d,valid=depth.frame(last)
+                        g=(np.clip((d-vmin)/max(vmax-vmin,1e-3),0.,1.)*255).astype(np.uint8)
+                        image=np.stack([g,g,g],axis=-1);image[~valid]=(100,0,130)
+                cv2.imwrite(str(depth_out/f'{i:06d}.png'),image)
+    (root/'index.json').write_text(json.dumps(dict(first_camera_frame=start,frames=len(times),fps=fps,exposure_monotonic_s=times.tolist(),
+        depth_frame_index=[int(k) for k in indices],note='Frame 000000 is the first camera frame after A (policy start). '
+        'external/NNNNNN.jpg is the original camera JPEG; depth/NNNNNN.png is the latest depth capture at that exposure '
+        '(purple = no valid depth), same numbering as depth_aligned.mp4'),indent=None)+'\n')
+    return str(root)
+
+
+HIGHLIGHTS=ROOT/'logs/real_world_hightlight'
+_segmenter=None
+
+
+def highlight_directory(session):
+    """New-run exports stay in logs; explicitly opened paper archives stay there."""
+    for root,highlight in ((ROOT/'logs/real_world',HIGHLIGHTS),(ROOT/'paper/real_world',ROOT/'paper/real_world_hightlight')):
+        try:rel=session.relative_to(root)
+        except ValueError:continue
+        return highlight/rel
+    return None
+
+
+def highlight_picks(highlight):
+    """Your picked frames NN_*.png (or NN_*.jpg), in order."""
+    return sorted(p for p in highlight.glob('[0-9][0-9]_*') if p.suffix.lower() in ('.png','.jpg','.jpeg'))
+
+
+def people_mask(image,moving=None):
+    """People in a frame (spotters, operators), so they are not ghosted.
+    Mask R-CNN also calls the humanoid a person; the robot is silver and black,
+    so an instance counts as a person only on positive evidence: skin tones, or
+    saturated clothing with little white shell (bright, unsaturated pixels). Colour is
+    read on the instance's moving pixels when `moving` is given, so a static tan
+    background (plywood) leaking into a loose mask does not pass for skin."""
+    import cv2,numpy as np,torch
+    global _segmenter
+    if _segmenter is None:
+        from torchvision.models.detection import maskrcnn_resnet50_fpn_v2,MaskRCNN_ResNet50_FPN_V2_Weights
+        device='cuda' if torch.cuda.is_available() else 'cpu'
+        _segmenter=(maskrcnn_resnet50_fpn_v2(weights=MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT).eval().to(device),device)
+    model,device=_segmenter
+    tensor=torch.from_numpy(np.ascontiguousarray(image[...,::-1])).permute(2,0,1).float().div(255).to(device)
+    with torch.no_grad():found=model([tensor])[0]
+    hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV);hue,saturation,value=hsv[...,0],hsv[...,1],hsv[...,2]
+    white=(saturation<40)&(value>150);skin=(hue<=20)&(saturation>=45)&(saturation<=170)&(value>=90)
+    people=np.zeros(image.shape[:2],bool)
+    for score,label,mask in zip(found['scores'],found['labels'],found['masks']):
+        if int(label)!=1 or float(score)<.2:continue
+        region=(mask[0]>.5).cpu().numpy()
+        if not region.any():continue
+        sample=region&moving if moving is not None and (region&moving).sum()>=500 else region
+        if skin[sample].mean()>=.08 or (white[sample].mean()<.15 and np.percentile(saturation[sample],85)>=90):people|=region
+    return cv2.dilate(people.astype(np.uint8),np.ones((25,25),np.uint8)).astype(bool)
+
+
+def robot_cutouts(frames):
+    """Scene (per-pixel median of the frames) and one feathered robot mask per frame:
+    where the frame differs from the scene, people excluded, small specks dropped."""
+    import cv2,numpy as np
+    scene=np.median(np.stack(frames),axis=0).astype(np.uint8);scene_blur=cv2.GaussianBlur(scene,(7,7),0)
+    scene_people=people_mask(scene)  # someone standing still in most picks ends up in the scene
+    masks=[]
+    for img in frames:
+        m=(cv2.absdiff(cv2.GaussianBlur(img,(7,7),0),scene_blur).max(axis=2)>28).astype(np.uint8)
+        m[people_mask(img,m.astype(bool))|scene_people]=0
+        m=cv2.morphologyEx(m,cv2.MORPH_OPEN,np.ones((5,5),np.uint8));m=cv2.morphologyEx(m,cv2.MORPH_CLOSE,np.ones((15,15),np.uint8))
+        n,labels,stats,_=cv2.connectedComponentsWithStats(m);keep=np.zeros(m.shape,np.uint8)
+        for k in range(1,n):
+            if stats[k,cv2.CC_STAT_AREA]>2500:keep[labels==k]=1
+        keep=cv2.dilate(keep,np.ones((5,5),np.uint8))
+        masks.append(cv2.GaussianBlur(keep.astype(np.float32),(9,9),0)[...,None])
+    return scene,masks
+
+
+def robot_blob(image,mask,previous=None):
+    """Bounding box (x, y, w, h) of the robot in one pick: the largest blob that shows
+    the robot's white shell and, given the previous pick's box, lies near it (the robot
+    moves gradually between picks; a spotter elsewhere does not); None when the mask is empty."""
+    import cv2,numpy as np
+    n,labels,stats,_=cv2.connectedComponentsWithStats((mask[...,0]>.5).astype(np.uint8))
+    if n<2:return None
+    hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV);white=(hsv[...,1]<40)&(hsv[...,2]>150)
+    boxes=[tuple(int(v) for v in stats[1+k,:4]) for k in range(n-1)]
+    shell=[white[labels==1+k].mean() for k in range(n-1)];areas=stats[1:,cv2.CC_STAT_AREA]
+    candidates=[k for k in range(n-1) if shell[k]>=.08] or list(range(n-1))
+    if previous is not None:
+        px,py,pw,ph=previous;reach=max(500,2*max(pw,ph))
+        near=[k for k in candidates if np.hypot(boxes[k][0]+boxes[k][2]/2-px-pw/2,boxes[k][1]+boxes[k][3]/2-py-ph/2)<=reach]
+        candidates=near or candidates
+    best=max(candidates,key=lambda k:areas[k]);x,y,w,h=boxes[best]
+    # An occluded robot splits into stacked blobs (legs below a torso); rejoin them.
+    for k in candidates:
+        bx,by,bw,bh=boxes[k];overlap=min(x+w,bx+bw)-max(x,bx);gap=max(by-(y+h),y-(by+bh))
+        if k!=best and overlap>=.4*min(w,bw) and gap<=120:
+            x0,y0=min(x,bx),min(y,by);x1,y1=max(x+w,bx+bw),max(y+h,by+bh);x,y,w,h=x0,y0,x1-x0,y1-y0
+    return (x,y,w,h)
+
+
+def robot_boxes(frames,masks):
+    """The robot's box in every pick (None where nothing moved), tracked pick to pick."""
+    boxes=[];previous=None
+    for f,m in zip(frames,masks):
+        box=robot_blob(f,m,previous);boxes.append(box);previous=box or previous
+    return boxes
+
+
+def robot_box(frames,masks,pad=60):
+    """One compact rectangle around the robot across all picks: the robot blob of
+    each pick unioned, plus a margin."""
+    height,width=masks[0].shape[:2]
+    boxes=[b for b in robot_boxes(frames,masks) if b is not None]
+    if not boxes:return 0,0,width,height
+    return (max(0,min(b[0] for b in boxes)-pad),max(0,min(b[1] for b in boxes)-pad),
+            min(width,max(b[0]+b[2] for b in boxes)+pad),min(height,max(b[1]+b[3] for b in boxes)+pad))
+
+
+def robot_windows(frames,masks,pad=60):
+    """One window per pick, all the same size, each centred on that pick's robot:
+    the window follows the robot, so people standing beside its path stay out."""
+    import numpy as np
+    height,width=masks[0].shape[:2];boxes=robot_boxes(frames,masks)
+    if all(b is None for b in boxes):return [(0,0,width,height)]*len(masks)
+    last=next(b for b in boxes if b is not None);boxes=[last:=(b if b is not None else last) for b in boxes]
+    w=min(width,max(b[2] for b in boxes)+2*pad);h=min(height,max(b[3] for b in boxes)+2*pad);windows=[]
+    for x,y,bw,bh in boxes:
+        x0=int(np.clip(x+bw//2-w//2,0,width-w));y0=int(np.clip(y+bh//2-h//2,0,height-h));windows.append((x0,y0,x0+w,y0+h))
+    return windows
+
+
+def export_overlay(session,recording,review,*,opacity=(.4,.7)):
+    """Motion overlays from the highlight frames you picked (real_world_hightlight/<run>/NN_*.png).
+
+    The scene is the per-pixel median of the picks. Each pick's robot is cut out as
+    where that pick differs from the scene (people excluded) and pasted onto the
+    scene with a feathered edge: earlier picks at rising opacity, the last pick fully
+    opaque. overlay_12345 uses all picks; every subset keeping the first and last
+    pick is written too (overlay_15, overlay_135, overlay_1245, ...). overlay =
+    overlay_12345. PNGs go to the highlight folder, JPEGs to review/.
+    """
+    import cv2,itertools,numpy as np,shutil
+    highlight=highlight_directory(session)
+    if highlight is None:return None
+    picks=highlight_picks(highlight)
+    marker=review/'overlay.json'
+    if len(picks)<2:return None
+    signature=[[p.name,p.stat().st_size] for p in picks];method=f'cutout_evidence_{opacity[0]:g}_{opacity[1]:g}'
+    previous=read_json(marker)
+    if previous.get('picks')==signature and previous.get('method')==method and (review/'overlay.jpg').is_file():return str(review/'overlay.jpg')
+    for folder in (review,highlight):
+        for stale in list(folder.glob('overlay*.jpg'))+list(folder.glob('overlay*.png'))+list(folder.glob('keyframes*.jpg')):stale.unlink()
+    frames=[cv2.imread(str(p)) for p in picks]
+    scene,masks=robot_cutouts(frames);floats=[f.astype(np.float32) for f in frames];x0,y0,x1,y1=robot_box(frames,masks)
+    middle=range(1,len(picks)-1);written=[]
+    for count in range(len(middle)+1):
+        for chosen in itertools.combinations(middle,count):
+            keys=[0,*chosen,len(picks)-1];name='overlay_'+''.join(str(k+1) for k in keys)
+            canvas=scene.astype(np.float32);opacities=np.linspace(opacity[0],opacity[1],len(keys)-1)
+            for a,k in zip(opacities,keys[:-1]):
+                alpha=a*masks[k];canvas=(1-alpha)*canvas+alpha*floats[k]
+            alpha=masks[keys[-1]];canvas=(1-alpha)*canvas+alpha*floats[keys[-1]]
+            image=canvas.astype(np.uint8)[y0:y1,x0:x1]
+            cv2.imwrite(str(review/f'{name}.jpg'),image,[cv2.IMWRITE_JPEG_QUALITY,92])
+            cv2.imwrite(str(highlight/f'{name}.png'),image,[cv2.IMWRITE_PNG_COMPRESSION,3]);written.append(name)
+    for folder,ext in ((review,'jpg'),(highlight,'png')):shutil.copy(folder/f'{written[-1]}.{ext}',folder/f'overlay.{ext}')
+    marker.write_text(json.dumps(dict(picks=signature,method=method,overlays=written,
+        note='Robot cut-outs from the highlight picks pasted onto the median scene; earlier picks at '
+             f'{opacity[0]:g}-{opacity[1]:g} opacity (oldest lowest), the last pick opaque; people excluded. '
+             'Change the highlight files or --overlay-opacity and rerun --export-overlay.'),indent=2)+'\n')
+    return str(review/'overlay.jpg')
+
+
+def export_strip(session,recording,review,*,width=384,gap=8):
+    """strip_12345: the highlight picks side by side, left to right, each `width` px
+    wide, white gaps; every subset keeping the first and last pick is written too.
+    strip = all picks. Each thumbnail is the same-size window centred on that pick's
+    robot. PNGs go to the highlight folder, JPEGs to review/."""
+    import cv2,itertools,numpy as np,shutil
+    highlight=highlight_directory(session)
+    if highlight is None:return None
+    picks=highlight_picks(highlight)
+    if len(picks)<2:return None
+    signature=[[p.name,p.stat().st_size] for p in picks];marker=review/'strip.json';method=f'strip_evidence_{width}_{gap}'
+    previous=read_json(marker)
+    if previous.get('picks')==signature and previous.get('method')==method and (review/'strip.jpg').is_file():return str(review/'strip.jpg')
+    for folder in (review,highlight):
+        for stale in list(folder.glob('strip*.jpg'))+list(folder.glob('strip*.png')):stale.unlink()
+    frames=[cv2.imread(str(p)) for p in picks]
+    _,masks=robot_cutouts(frames);windows=robot_windows(frames,masks)
+    thumbs=[]
+    for img,(x0,y0,x1,y1) in zip(frames,windows):
+        crop=img[y0:y1,x0:x1];thumbs.append(cv2.resize(crop,(width,round(crop.shape[0]*width/crop.shape[1])),interpolation=cv2.INTER_AREA))
+    spacer=np.full((thumbs[0].shape[0],gap,3),255,np.uint8)
+    middle=range(1,len(picks)-1);written=[]
+    for count in range(len(middle)+1):
+        for chosen in itertools.combinations(middle,count):
+            keys=[0,*chosen,len(picks)-1];name='strip_'+''.join(str(k+1) for k in keys)
+            parts=[]
+            for k in keys:parts+=[thumbs[k],spacer]
+            image=np.hstack(parts[:-1])
+            cv2.imwrite(str(review/f'{name}.jpg'),image,[cv2.IMWRITE_JPEG_QUALITY,92])
+            cv2.imwrite(str(highlight/f'{name}.png'),image,[cv2.IMWRITE_PNG_COMPRESSION,3]);written.append(name)
+    for folder,ext in ((review,'jpg'),(highlight,'png')):shutil.copy(folder/f'{written[-1]}.{ext}',folder/f'strip.{ext}')
+    marker.write_text(json.dumps(dict(picks=signature,method=method,strips=written,
+        windows=[[int(v) for v in w] for w in windows],
+        note='Highlight picks side by side, left to right, each in a same-size window centred on the robot. '
+             'strip uses all picks. Change the picks and rerun --export-strip.'),indent=2)+'\n')
+    return str(review/'strip.jpg')
 
 
 def has_live_odometry(telemetry):
@@ -148,19 +499,191 @@ def save_timing_report(telemetry,output):
     return result
 
 
-def main():
+def parser():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('session',type=Path,help='Session directory or its sensors/ directory')
+    p.add_argument('session',type=Path,help='Run name under logs/real_world, or a session/sensors directory path')
     p.add_argument('--port',type=int,default=8081)
+    p.add_argument('--unmarked',action='store_true',help='Open only recordings without saved start/end marks')
     p.add_argument('--pose-only',action='store_true',help='Joints, orientation and video; skip XYZ processing')
     p.add_argument('--live-estimates',action='store_true',help='Use XYZ actually logged during deployment; no offline DLIO')
     p.add_argument('--offline-xyz',action='store_true',help='Explicitly reconstruct XYZ from raw LiDAR; default reuses live estimates or cached offline motion')
     p.add_argument('--export-video',action='store_true',help='Also encode a shareable MP4; Viser reads the original camera frames directly')
+    p.add_argument('--export-depth',action='store_true',help='Also encode review/depth_aligned.mp4, frame-aligned with external.mp4')
+    p.add_argument('--export-frames',action='store_true',help='Also write every camera frame (jpg) and aligned depth frame (png) under review/frames/')
+    p.add_argument('--export-overlay',action='store_true',help='Also blend the picked highlight frames into review/overlay_*.jpg')
+    p.add_argument('--export-strip',action='store_true',help='Also put the picked highlight frames side by side into review/strip_*.jpg')
+    p.add_argument('--overlay-opacity',type=float,nargs=2,default=(.4,.7),metavar=('OLDEST','NEWEST'),
+                   help='Opacity of the earlier robot cut-outs in the overlay, from the oldest to the newest pick; the last pick is opaque')
     p.add_argument('--full-validation',action='store_true',help='Decode all video frames; default validates index and samples three frames')
     p.add_argument('--prepare-only',action='store_true',help='Save checks/requested exports without starting Viser')
     p.add_argument('--capture-only',action='store_true',help='Standalone raw capture without policy telemetry (also autodetected)')
     p.add_argument('--mount-calibration',type=Path,help='Optional explicit fixed-mount calibration candidate')
-    a=p.parse_args();session=resolve_session(a.session)
+    p.add_argument('--preload',action='store_true',help='Browsing a folder: load every session before opening Viser so Next is instant')
+    return p
+
+
+def browse_target(session):
+    target=session.expanduser()
+    if not target.is_absolute() and not target.exists() and (ROOT/'logs/real_world'/target).exists():
+        target=ROOT/'logs/real_world'/target
+    return target.resolve()
+
+
+def browse_sessions(target):
+    """Session directories under target, in path order; anything under a hidden folder is skipped."""
+    return sorted(t.parent for t in target.rglob('telemetry.jsonl.gz') if 'hidden' not in t.relative_to(target).parts)
+
+
+def cached_viewer_spec(a,session,*,policy_trials_only=False):
+    """Open an already reviewed run without rereading every telemetry stream.
+
+    Frame decoding and robot/depth loading remain lazy in replay_episode. Explicit
+    exports, validation and reconstruction still go through the full review path.
+    """
+    if any(getattr(a,key,False) for key in ('prepare_only','export_video','export_depth',
+            'export_frames','export_overlay','full_validation','offline_xyz',
+            'mount_calibration','capture_only')):
+        return None
+    if a.live_estimates and a.pose_only:return None
+    telemetry=session/'telemetry.jsonl.gz'
+    review=session/'review';recording=session/'sensors'
+    paths=[review/'review.json',session/'motion_replay/deployment_timing.json',
+           session/'motion_replay/replay_validation.json']
+    if not telemetry.is_file() or any(not path.is_file() for path in paths):return None
+    if any(path.stat().st_mtime_ns<telemetry.stat().st_mtime_ns for path in paths):return None
+    result=read_json(paths[0]);timing=read_json(paths[1])
+    if policy_trials_only and timing.get('commands_issued')==0:
+        raise ValueError(f'{session.name}: no policy commands; excluded from trial browser')
+    recovered=review/'telemetry_recovered.jsonl.gz'
+    if result.get('telemetry_recovery'):
+        report=read_json(review/'telemetry_recovery.json')
+        if (not recovered.is_file() or report.get('source_bytes')!=telemetry.stat().st_size
+                or recovered.stat().st_mtime_ns<telemetry.stat().st_mtime_ns):return None
+        telemetry=recovered
+    spec=dict(label=session.name,telemetry=str(telemetry),capture=None,
+        external_camera=None,depth_recording=None,live_estimates=False,
+        measured_pose=None,allow_late_origin=False)
+    if result.get('camera',{}).get('available'):
+        if not all((recording/'camera'/name).is_file() for name in ('frames.mjpg','frames.npz')):return None
+        spec['external_camera']=str(recording/'camera')
+    if (recording/'depth/frames.jsonl').is_file():spec['depth_recording']=str(recording/'depth')
+    if a.live_estimates and result.get('xyz_source')!='recorded_live':return None
+    if not a.pose_only:
+        if result.get('xyz_source')=='recorded_live':spec['live_estimates']=True
+        elif result.get('xyz_source')=='offline_dlio':
+            selection=read_json(review/'xyz_selection.json').get('pose')
+            if not selection or not (session/selection).is_file():return None
+            spec.update(measured_pose=str(session/selection),allow_late_origin=True)
+    return spec
+
+
+def archive_empty_launch(session):
+    """Move a launch where A was never pressed and nothing was recorded to logs/aborted_deployments.
+
+    Returns the destination, or None when the session holds any episode data.
+    """
+    import collections,gzip,shutil
+    sensors=session/'sensors'
+    if (sensors/'policy_start.json').is_file() or read_json(sensors/'recording_result.json').get('started'):return None
+    events=collections.Counter()
+    recovered=session/'review/telemetry_recovered.jsonl.gz'
+    with gzip.open(recovered if recovered.is_file() else session/'telemetry.jsonl.gz','rt') as stream:
+        try:
+            for line in stream:events[json.loads(line).get('event')]+=1
+        except EOFError:pass  # Interrupted launch: complete records were already counted.
+    if events.get('control') or events.get('plan'):return None
+    archive=ROOT/'logs/aborted_deployments';archive.mkdir(exist_ok=True)
+    destination=archive/session.name
+    if destination.exists():destination=archive/f'{session.name}_{time.time_ns()}'
+    shutil.move(str(session),str(destination))
+    receipt=archive/f'cleanup_no_policy_{time.strftime("%Y%m%d")}_browse.json'
+    report=read_json(receipt) or dict(reason='Browse cleanup: A never pressed, no policy commands, no recorded episode; all files preserved',moves=[])
+    report['moves'].append(dict(source=str(session),destination=str(destination),events=dict(events)))
+    receipt.write_text(json.dumps(report,indent=2)+'\n')
+    return destination
+
+
+def browse_specs(p,a,target,known=None):
+    """Viewer specs for the sessions currently under target.
+
+    known maps labels to earlier specs (reused) or None (skipped once, silently
+    thereafter); it is updated in place so repeated rescans stay quiet. Launches
+    that never ran the policy are moved out of the browsed folder.
+    """
+    known={} if known is None else known;specs=[]
+    for s in browse_sessions(target):
+        label=str(s.relative_to(target))
+        # Keep this browser's queue stable after Save all, while a new launch
+        # resumes only the recordings still missing marks.
+        if a.unmarked and label not in known and (s/'review/recovery_interval.json').is_file():continue
+        if label not in known:
+            try:
+                spec=cached_viewer_spec(a,s,policy_trials_only=True)
+                if spec is None:
+                    print(f'Preparing replay: {label}',flush=True)
+                    spec=review(p,a,s,quick=True,policy_trials_only=True)
+                known[label]=dict(spec,label=label)
+            except ValueError as exc:
+                known[label]=None
+                moved=archive_empty_launch(s) if 'no policy commands' in str(exc) else None
+                print(f'  moved empty launch {label} to {moved.relative_to(ROOT)}' if moved else f'  skipping {exc}',flush=True)
+        if known[label] is not None:specs.append(known[label])
+    return specs
+
+
+def rescan(argv,known):
+    """Called by the viewer: rediscover the browsed folder with the original command-line options."""
+    p=parser();a=p.parse_args(argv)
+    return browse_specs(p,a,browse_target(a.session),known)
+
+
+def main():
+    p=parser();a=p.parse_args();target=browse_target(a.session)
+    collection=(target.is_dir() and target.name!='sensors' and not (target/'telemetry.jsonl.gz').is_file()
+                and not (target/'raw/sensors.npz').is_file())
+    sessions=browse_sessions(target) if collection else []
+    if a.unmarked:
+        if collection:
+            sessions=[s for s in sessions if not (s/'review/recovery_interval.json').is_file()]
+            if not sessions:
+                print('All recordings are marked. Nothing left to mark.',flush=True);return
+        elif (target/'review/recovery_interval.json').is_file():
+            print('This recording is already marked.',flush=True);return
+    if not sessions:
+        try:
+            session=resolve_session(target)
+            spec=cached_viewer_spec(a,session)
+            if spec is None:spec=review(p,a,session)
+        except ValueError as exc:sys.exit(str(exc))
+        if not a.prepare_only:os.execv(sys.executable,viewer_command(spec,a.port))
+        return
+    print(f'{len(sessions)} sessions under {target}:',
+          *[f'  {i+1:3d}. {s.relative_to(target)}' for i,s in enumerate(sessions)],sep='\n',flush=True)
+    specs=browse_specs(p,a,target)
+    manifest=target/('review_sessions_unmarked.json' if a.unmarked else 'review_sessions.json')
+    manifest.write_text(json.dumps(specs,indent=2)+'\n')
+    if a.prepare_only or not specs:return
+    print('Opening viewer; recordings load when selected (no batch replay or video export).',flush=True)
+    os.execv(sys.executable,[sys.executable,str(ROOT/'g1_deploy/sonic/scripts/replay_episode.py'),
+        '--sessions',str(manifest),'--browse-argv',json.dumps(sys.argv[1:]),*(['--preload'] if a.preload else []),
+        '--urdf',str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'),'--port',str(a.port)])
+
+
+def viewer_command(spec,port):
+    command=[sys.executable,str(ROOT/'g1_deploy/sonic/scripts/replay_episode.py'),
+        '--urdf',str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'),'--port',str(port)]
+    for key in ('telemetry','capture','external_camera','depth_recording','measured_pose'):
+        if spec.get(key):command+=['--'+key.replace('_','-'),spec[key]]
+    for key in ('live_estimates','allow_late_origin'):
+        if spec.get(key):command.append('--'+key.replace('_','-'))
+    return command
+
+
+def review(p,a,session,*,quick=False,policy_trials_only=False):
+    """Check one session, write its review files and return the viewer spec.
+
+    quick reuses a previous validation instead of decoding camera samples again.
+    """
     telemetry=session/'telemetry.jsonl.gz'
     if not telemetry.is_file() and (session/'raw/sensors.npz').is_file():a.capture_only=True
     if a.live_estimates and (a.capture_only or a.pose_only or a.mount_calibration or a.offline_xyz):
@@ -178,24 +701,41 @@ def main():
         capture_error=capture_saved(recording) if recording.is_dir() else 'No raw recording',
         xyz_source='none',xyz_error=None)
     result['camera']=finalize_camera(recording,review,export_video=a.export_video)
+    result['depth_video']=export_depth_video(session,recording,review) if a.export_depth and result['camera']['available'] else None
+    result['frames']=export_frames(session,recording,review) if a.export_frames and result['camera']['available'] else None
+    result['overlay']=None
     if not a.capture_only:
-        result['timing']=save_timing_report(telemetry,session/'motion_replay/deployment_timing.json')
-    viewer=[sys.executable,str(ROOT/'g1_deploy/sonic/scripts/replay_episode.py'),
-        *(['--capture',str(session/'raw')] if a.capture_only else ['--telemetry',str(telemetry)]),
-        '--urdf',str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'),'--port',str(a.port)]
-    if result['camera']['available']:viewer+=['--external-camera',str(recording/'camera')]
-    if (recording/'depth/frames.jsonl').is_file():viewer+=['--depth-recording',str(recording/'depth')]
-    use_live=a.live_estimates or (not a.pose_only and not a.offline_xyz and not a.mount_calibration
-                                  and not a.capture_only and has_live_odometry(telemetry))
+        telemetry,result['telemetry_recovery']=review_telemetry(telemetry,review,quick=quick)
+        timing=session/'motion_replay/deployment_timing.json'
+        result['timing']=(read_json(timing) if quick and timing.is_file() and timing.stat().st_mtime>=telemetry.stat().st_mtime
+                          else save_timing_report(telemetry,timing))
+        if policy_trials_only and result['timing'].get('commands_issued')==0:
+            raise ValueError(f'{session.name}: no policy commands; excluded from trial browser')
+        if a.export_overlay and result['camera']['available'] and result['timing'].get('commands_issued'):
+            result['overlay']=export_overlay(session,recording,review,opacity=tuple(a.overlay_opacity))
+        if a.export_strip and result['camera']['available'] and result['timing'].get('commands_issued'):
+            result['strip']=export_strip(session,recording,review)
+    spec=dict(label=session.name,capture=str(session/'raw') if a.capture_only else None,
+        telemetry=None if a.capture_only else str(telemetry),
+        external_camera=str(recording/'camera') if result['camera']['available'] else None,
+        depth_recording=str(recording/'depth') if (recording/'depth/frames.jsonl').is_file() else None,
+        live_estimates=False,measured_pose=None,allow_late_origin=False)
+    camera_only=(not a.capture_only and result.get('timing',{}).get('control_ticks')==0
+                 and result['camera']['available'])
+    if camera_only:
+        result['xyz_error']='No policy observations or XYZ trajectory; showing the recorded camera footage.'
+        print('No policy observations: recorded camera footage is available for Viser playback.',flush=True)
+    use_live=not camera_only and (a.live_estimates or (not a.pose_only and not a.offline_xyz and not a.mount_calibration
+                                  and not a.capture_only and has_live_odometry(telemetry)))
     if use_live:
         from sonic.common.episode import load_native_recovery
         try:
             load_native_recovery(telemetry,live_estimates=True)
-            viewer+=['--live-estimates'];result['xyz_source']='recorded_live'
+            spec['live_estimates']=True;result['xyz_source']='recorded_live'
         except ValueError as exc:
             result['xyz_error']=str(exc)
             print(f'Live XYZ unavailable: {exc}. Showing joints, orientation and video.',flush=True)
-    if not a.pose_only and not use_live:
+    if not a.pose_only and not use_live and not camera_only:
         try:
             calibration=a.mount_calibration or (session/'odometry_mount.json' if (session/'odometry_mount.json').is_file() else None)
             selection=read_json(review/'xyz_selection.json')
@@ -209,14 +749,18 @@ def main():
             state,_,meta=(load_raw_motion(recording/'raw') if a.capture_only else load_native_recovery(telemetry))
             attach_measured_translation(state,meta,pose,allow_late_origin=True)
             result['xyz_evaluation']=read_json(pose.parent/'evaluation.json')
-            viewer+=['--measured-pose',str(pose),'--allow-late-origin'];result['xyz_source']='offline_dlio'
+            spec.update(measured_pose=str(pose),allow_late_origin=True);result['xyz_source']='offline_dlio'
             (review/'xyz_selection.json').write_text(json.dumps(dict(pose=str(pose.relative_to(session))),indent=2)+'\n')
         except (OSError,ValueError,RuntimeError,subprocess.SubprocessError) as exc:
             result['xyz_error']=str(exc)
             print(f'XYZ unavailable: {exc}. Continuing with recorded joints, orientation and video.',flush=True)
     validation=session/'motion_replay/replay_validation.json'
-    subprocess.run([*viewer,'--validate-only',*(['--full-validation'] if a.full_validation else []),
-                    '--validation-output',str(validation)],check=True)
+    if not (quick and validation.is_file() and validation.stat().st_mtime>=telemetry.stat().st_mtime):
+        run=subprocess.run([*viewer_command(spec,a.port),'--validate-only',*(['--full-validation'] if a.full_validation else []),
+                           '--validation-output',str(validation)],capture_output=True,text=True)
+        if run.returncode:
+            reason=(run.stderr.strip().splitlines() or [f'exit status {run.returncode}'])[-1]
+            raise ValueError(f'{session.name} cannot be replayed: {reason}')
     result['replay']=read_json(validation)
     (review/'review.json').write_text(json.dumps(result,indent=2)+'\n')
     ending=next(iter(result['policy_end']),'no policy end marker')
@@ -228,23 +772,30 @@ def main():
         '- [Checks and timing](review.json)',
         f'- Model: {result["model"] or "not recorded"}.',
         f'- Policy outcome: {ending} {detail}.',
+        '- Playback: camera only; robot pose and XYZ are unavailable.' if result['replay'].get('camera_only') else '- Playback: recorded robot observations.',
         f'- XYZ source: {result["xyz_source"]}. Estimated motion, not ground truth.',
         f'- Position origin delay: {result["replay"].get("position_origin_delay_s")} s (0 means policy start).',
         f'- XYZ coverage: {100*result["replay"]["translation_coverage"]:.1f}%.',
+        f'- Reused/regressed observation timestamps: {result["replay"].get("nonincreasing_capture_steps",0)}. '
+        f'Playback clock: {result["replay"].get("timeline_source","capture")}.',
         f'- Recording error: {result["capture_error"] or result["recording"].get("error") or "none reported"}.',
         f'- XYZ error: {result["xyz_error"] or "none reported"}.',
         f'- Camera error: {result["camera"]["error"] or "none reported"}.','',
+        ('Telemetry: interrupted; replay uses recovered complete records. The original is preserved; '
+         'the end may be missing. See [recovery details](telemetry_recovery.json).'
+         if result.get('telemetry_recovery') else 'Telemetry: complete gzip stream.'),'',
         f'- Depth error: {result["replay"].get("depth_error") or "none reported"}.',
-        'The MP4 includes pre/post-policy footage on a uniform frame timeline. Viser synchronizes indexed exposures.',
+        'Exported videos and frames start at the first camera frame after A (policy start) and keep the footage after the stop. Viser synchronizes indexed exposures.',
         ('Depth: metric frames recorded.' if result['replay'].get('depth') else 'Depth: not recorded in this run.'),
         'Camera/odometry clocks and dynamic XYZ accuracy are not independently qualified.','']
     (review/'README.md').write_text('\n'.join(lines))
-    print(f'Review ready: {review}/README.md',flush=True)
-    if result['camera']['mp4']:print(f'Video: {result["camera"]["mp4"]}',flush=True)
+    if not quick:
+        print(f'Review ready: {review}/README.md',flush=True)
+        if result['camera']['mp4']:print(f'Video: {result["camera"]["mp4"]}',flush=True)
     if result['capture_error']:print(f'Recording warning: {result["capture_error"]}',flush=True)
     if result['camera']['error']:print(f'Camera warning: {result["camera"]["error"]}',flush=True)
     if result['replay'].get('depth_error'):print(f'Depth warning: {result["replay"]["depth_error"]}',flush=True)
-    if not a.prepare_only:os.execv(sys.executable,viewer)
+    return spec
 
 
 if __name__=='__main__':main()

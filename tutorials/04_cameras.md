@@ -22,8 +22,9 @@ python g1_deploy/sonic/check_streams.py \
 
 Open **http://localhost:8080**. Over remote VS Code, forward port 8080.
 
-This displays all 29 joints, pelvis IMU orientation and uncropped 640×480 raw
-depth. Position is anchored in the viewer, not measured odometry. RGB is blank
+This displays all 29 joints, pelvis IMU orientation and uncropped 640×480
+streamed depth, including the server's selected filters. Position is anchored
+in the viewer, not measured odometry. RGB is blank
 because this publisher sends depth only. No policy or motor publisher is created.
 Stop both terminals with Ctrl+C.
 
@@ -44,11 +45,18 @@ any cached depth with the new capture settings; changing metadata alone does
 not change old rendered images.
 
 [`native_depth_server.py`](../core/common/native_depth_server.py) publishes
-`[JSON metadata, lossless uint16 PNG]` at 30 Hz. Metadata carries capture time,
-clock domain, sequence, serial, intrinsics and depth scale. It does not apply
-temporal smoothing, hole filling or color alignment.
+`[JSON metadata, lossless uint16 pixels]` with 30 Hz capture. PNG is the default
+wire encoding; `--encoding raw` removes camera-side compression on gigabit.
+The viewer accepts both. See [server update and launch](deploy_diffusion.md#1-depth-stream--terminal-1).
+Metadata carries capture time,
+clock domain, sequence, serial, intrinsics, depth scale and processing mode.
+The default `--processing vigor` applies the old filter path, then restores any
+pixel whose missing/near/far classification changed. This retains unavailable
+depth rather than inventing valid terrain for the policy. `--processing raw`
+bypasses filtering; `--processing vigor_legacy` reproduces the original hole
+filling for comparison. No mode applies color alignment or the old unused 3 m threshold.
 
-The viewer shows raw depth in metres. It is **not** the planner's processed
+The viewer shows streamed depth in metres. It is **not** the planner's processed
 image. Current inference uses the shared calibrated crop/ray sampler,
 64×48 range/mask and causal history; see [deployment](deploy_diffusion.md).
 The old square-crop VIGOR preprocessing is not used by the current planner.

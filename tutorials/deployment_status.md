@@ -5,6 +5,19 @@ Steering semantics: [Stanley's measurement contract](../../notes/stanley_steerin
 
 ## Implemented and checked
 
+- **Three-route steering integration:** Stanley's shared pose costs, PyTorch
+  planner / TensorRT tracker, recorded goals and measured-feedback fallback.
+  Three MuJoCo trials are not a successful demo (one reached upright; none
+  finished standing). Hardware XYZ is still unqualified. [Procedure](steering.md),
+  [checks](../../notes/validation/steering_20260915.md).
+
+- **2026-09-15 XYZ update:** DLIO publishes a mutex-protected pose/time snapshot;
+  the live bridge applies a 20 ms causal position filter and retains raw XYZ.
+  Filter delay is included in steering freshness checks. Replay displays finite
+  tilt-rejected estimates in orange, without qualifying them for steering.
+  On recorded inputs, p95 per-tick XYZ changes fell from 3.91 to 2.44 cm;
+  p95 added delay was 15.4 ms. This measures jitter reduction, not accuracy.
+  [Investigation and limits](../../notes/validation/xyz_tracking_20260915.md).
 - **Current operator commands select R8_S25 diffusion40k + R8+6k depth tracker**,
   TensorRT, fresh noise per plan, K20 (2.5 Hz) and a 0.5 s horizon. Preset
   positioning, random seeds, startup target limits, live XYZ and recording/replay

@@ -24,9 +24,11 @@ def arguments(argv=None):
     from motion_diffusion.behavioral.mujoco_terrain import SIM_TERRAINS,DEFAULT_CACHE
     from g1_deploy.deploy_diffusion import sampling_seed
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--model',choices=('p11_diffusion','r8_f50r_flow','r8_s25_diffusion','r2_f50r_flow','p05_diffusion','diffusion','flow','both'),
+    parser.add_argument('--model',choices=('p11_diffusion','r8_f50r_flow','r8_s25_diffusion','r8_s50r_diffusion','r2_f50r_flow','p05_diffusion','diffusion','flow','both'),
         default='p11_diffusion')
     parser.add_argument('--replan-hz',type=float,help='Override saved cadence on whole 50 Hz ticks; e.g. 2.5, 5, 10. Simulation time, not a compute guarantee')
+    parser.add_argument('--guidance-scale',type=float,help='Override goal steering strength; does not change the trajectory or motor PD gains')
+    parser.add_argument('--goal-json',type=Path,help='Shared Stanley steering cost; simulator pelvis feedback, PyTorch planner and selected tracker backend')
     parser.add_argument('--noise-policy',choices=('fresh','fixed_episode'),
         help='fresh: new noise every plan; fixed_episode: sample once per episode and reuse; default follows model bundle')
     parser.add_argument('--bundle',type=Path,help='Defaults to configs/diffusion.yaml bundle')
@@ -77,6 +79,8 @@ def arguments(argv=None):
     parser.add_argument('--output',type=Path)
     args=parser.parse_args(argv)
     import math
+    if args.guidance_scale is not None and (not args.goal_json or not math.isfinite(args.guidance_scale) or args.guidance_scale<=0):
+        parser.error('--guidance-scale requires --goal-json and a finite positive value')
     if not math.isfinite(args.start_pose_jitter_deg) or args.start_pose_jitter_deg<0:
         parser.error('--start-pose-jitter-deg must be finite and nonnegative')
     if (args.start_pose_jitter_deg or args.start_pose_seed is not None) and not args.start_state:
@@ -182,6 +186,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
     device=policy.controller.device
     previous=torch.zeros(1,29,device=device);code=torch.zeros(1,policy.controller.latent_dim,device=device)
     heading=previous_quat=None
+    steering_origin=plant.data.xpos[plant.pelvis].copy();steering_heading=None
     frames=[];replans=[];plans=[];status='duration_reached';limits_announced=False
     report_raw_max=0.;report_issued_max=0.;report_limit_ticks=0;report_ticks=0
     end_tick=None if args.seconds is None else round(args.seconds/.02)
@@ -249,6 +254,33 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 quat=torch.tensor(obs.quat_xyzw,device=device).reshape(1,4)
                 heading=initialize_heading(quat) if heading is None else transport_heading(heading,previous_quat,quat)
                 previous_quat=quat.clone()
+                guidance_context=None
+                if getattr(args,'goal_json',None):
+                    from humanoidverse2.agents.action_vae.heading import SCHEMA,heading_quat
+                    from humanoidverse2.agents.action_vae.motion_contract import quat_mul_xyzw,quat_conj_xyzw,rot6d_from_quat_xyzw
+                    if steering_heading is None:steering_heading=heading.clone()
+                    delta=torch.as_tensor(plant.data.xpos[plant.pelvis]-steering_origin,device=device,dtype=torch.float32)
+                    c,s=steering_heading.cos(),steering_heading.sin()
+                    position=torch.stack((c*delta[0]+s*delta[1],-s*delta[0]+c*delta[1],delta[2].expand_as(c)),-1)
+                    guidance_context=dict(heading_schema=SCHEMA,elapsed_s=torch.tensor([tick*.02],device=device),
+                        current_yaw_rel_rad=heading-steering_heading,current_position_reset=position,
+                        current_height_rel_m=position[:,2])
+                    rot6=rot6d_from_quat_xyzw(quat_mul_xyzw(quat_conj_xyzw(heading_quat(heading)),quat))
+                    guidance_context.update({f'current_rot6d_{i}':rot6[:,i] for i in range(6)})
+                    if viewer and tick==0:
+                        from motion_diffusion.behavioral.hardware.steering import goal_display_segments
+                        segments=goal_display_segments(policy.planner.guidance_contract['goal'])
+                        ch,sh=float(c[0]),float(s[0])
+                        segments=segments@np.array([[ch,sh,0],[-sh,ch,0],[0,0,1]])+steering_origin
+                        # Keep a fixed-world goal visible; no camera following.
+                        with viewer.lock():
+                            scene=viewer.user_scn;scene.ngeom=0
+                            for a,b in segments:
+                                if scene.ngeom>=scene.maxgeom:break
+                                geom=scene.geoms[scene.ngeom]
+                                mujoco.mjv_initGeom(geom,mujoco.mjtGeom.mjGEOM_CAPSULE,np.zeros(3),np.zeros(3),np.eye(3).ravel(),np.array([.9,.1,.8,.8]))
+                                mujoco.mjv_connector(geom,mujoco.mjtGeom.mjGEOM_CAPSULE,.006,a,b)
+                                scene.ngeom+=1
                 sensor_args={};availability=[]
                 if sensor:
                     sensor.capture_tick(tick,obs)
@@ -273,6 +305,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 result=policy.step(obs.q[None],obs.dq[None],obs.gyro_body[None],obs.gravity_body[None],previous,
                     pelvis_quat=quat,previous_executed_code=code,reset_mask=torch.tensor([tick==0],device=device),
                     control_tick=torch.tensor([tick],device=device),episode_seeds=[seed],
+                    guidance_context=guidance_context,
                     **({'initial_tracker_history':initial_tracker_history} if tick==0 and initial_tracker_history is not None else {}),
                     **sensor_args)
                 raw_max=float(policy.controller.last_unclipped_action.abs().max())
@@ -388,6 +421,30 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 max_raw_action=max((f['raw_action_max'] for f in frames),default=None),
                 final_upright_cos=float(-plant.observation().gravity_body[2]),
                 physics_warnings={str(mujoco.mjtWarning(i)):int(w.number) for i,w in enumerate(plant.data.warning) if w.number})
+            if frames and getattr(args,'goal_json',None):
+                from motion_diffusion.planner.pose_waypoints import waypoint_tracking_metrics
+                from motion_diffusion.features.rotation import quat_to_matrix
+                from humanoidverse2.agents.action_vae.heading import heading_matrix
+                goal=policy.planner.guidance_contract['goal']
+                h0=heading_matrix(torch.tensor(frames[0]['causal_heading_rad']))
+                p=torch.tensor(np.asarray([f['root_position'] for f in frames]),dtype=torch.float32)
+                relative=(p-torch.tensor(steering_origin,dtype=p.dtype))@h0
+                if goal['target'].get('pose_waypoints'):
+                    q=torch.tensor(np.asarray([f['pelvis_quat_xyzw'] for f in frames]),dtype=torch.float32)
+                    summary['steering']=waypoint_tracking_metrics(relative,h0.T@quat_to_matrix(q),goal['target']['pose_waypoints'])
+                elif goal['target'].get('axis_waypoints'):
+                    from motion_diffusion.planner.axis_waypoints import interpolate_axis_waypoints
+                    spec=goal['target']['axis_waypoints'];axis=0 if spec['axis']=='x' else 1
+                    times=torch.tensor([f['time'] for f in frames]);end=goal.get('execution',{}).get('release_after_s',float('inf'))
+                    desired=interpolate_axis_waypoints(spec,times)
+                    excess=((relative[:,axis]-desired).abs()-spec['deadband_m']).clamp_min(0)
+                    index=int((times-spec['times_s'][-1]).abs().argmin())
+                    summary['steering']=dict(axis=spec['axis'],target_m=spec['values_m'][-1],deadband_m=spec['deadband_m'],
+                        at_target_time_s=float(times[index]),at_target_time_m=float(relative[index,axis]),
+                        active_excess_rmse_m=float(excess[times<end].square().mean().sqrt()),
+                        final_relative_xyz_m=relative[-1].tolist(),release_after_s=end)
+                if 'steering' in summary:summary['steering']['feedback']='simulator truth; hardware estimator not exercised'
+                (output/'steering_goal.json').write_text(json.dumps(goal,indent=2)+'\n')
             (output/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
             (output/'plans.json').write_text(json.dumps(plans)+'\n')
     return summary
@@ -405,7 +462,7 @@ def main(argv=None):
     from omegaconf import OmegaConf
     from motion_diffusion.behavioral.deploy import NativeRecoveryPolicy
     from motion_diffusion.behavioral.hardware.cli import load_controller
-    from motion_diffusion.behavioral.runtime import load_frozen_planner
+    from motion_diffusion.behavioral.hardware.steering import load_hardware_planner
     from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path,replan_ticks_for_hz
     from motion_diffusion.behavioral.hardware.export_pd import derive_pd
     from motion_diffusion.behavioral.hardware.engines import configure_controller,configure_planner
@@ -427,10 +484,13 @@ def main(argv=None):
         controller=load_controller(dict(controller_checkpoint=str(controller_path),tracker_device=args.device,
             pd_sidecar=str(asset_path(bundle,row['pd_binding']))))
         inference=dict(row['reference_inference'])
+        if args.goal_json:
+            from motion_diffusion.behavioral.hardware.steering import with_guidance_scale
+            inference['motion_goal']=with_guidance_scale(json.loads(args.goal_json.read_text()),args.guidance_scale)
         if args.noise_policy is not None:inference['noise_policy']=args.noise_policy
         ticks=replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])
         if ticks is not None:inference['replan_every_ticks']=ticks
-        planner=load_frozen_planner(planner_path,args.device,seed=args.seed,sampling_rng='paired_episode_v2',**inference)
+        planner=load_hardware_planner(planner_path,args.device,seed=args.seed,sampling_rng='paired_episode_v2',**inference)
         if args.replan_hz is None and name=='diffusion' and (planner.replan_every_ticks!=planner.model.F or planner.blend_ticks):
             raise ValueError('Diffusion recipe must execute its complete horizon without blending')
         if name=='flow' and not 0<planner.replan_every_ticks<planner.model.F:
@@ -444,7 +504,7 @@ def main(argv=None):
                 return dict(directory=str(directory),backend=backend,precision=precision,execution_mode=args.engine_mode,
                             validation_mode='measure' if precision=='tf32' else 'strict')
             configure_controller(controller,engine('controller','fp32'))
-            configure_planner(planner,planner_path,engine(name,args.planner_precision))
+            if not args.goal_json:configure_planner(planner,planner_path,engine(name,args.planner_precision))
         policy=NativeRecoveryPolicy(controller,planner)
         validation={key:engine.validation_report for key,engine in (
             ('denoiser',planner.model.inference_backend),
@@ -466,6 +526,8 @@ def main(argv=None):
         print(f'{name}: horizon={planner.model.F}, replan={planner.replan_every_ticks}, blend={planner.blend_ticks} ticks; '
               f'{inference["sampler"]}{inference["num_inference_steps"]}; {backend}; '
               f'{50/planner.replan_every_ticks:g} Hz planning; noise={planner.noise_policy}; start={args.start}',flush=True)
+        if args.goal_json:
+            print(f'Steering: {args.goal_json.name}; PyTorch planner / {backend} tracker; simulator pelvis truth, not measured odometry.',flush=True)
         if args.terrain=='step':print(f'Stair: height {args.step_height:g} m, edge X={args.step_edge:g} m, '
             f'tread {args.step_length:g} m, width {args.step_width:g} m; pelvis starts at XY=(0,0).',flush=True)
         viewer=None;controls=None

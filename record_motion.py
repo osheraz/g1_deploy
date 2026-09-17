@@ -30,7 +30,7 @@ class RecorderProcesses:
         for name,command in plan:
             log=open(output/(name+'.log'),'w');self.logs.append(log)
             proc=subprocess.Popen(['nice','-n','10','bash','-c',env_script,'motion-env',str(workspace/'install/setup.bash'),*command],
-                stdin=subprocess.PIPE if controlled and name=='capture' else subprocess.DEVNULL,
+                stdin=subprocess.PIPE if controlled and name in ('capture','camera','pelvis') else subprocess.DEVNULL,
                 stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
             self.children.append((name,proc))
 
@@ -51,6 +51,11 @@ class RecorderProcesses:
         finally:signal.signal(signal.SIGINT,previous)
 
     def _close(self):
+        # Stop video/pose now; raw sensor compression below can take seconds.
+        for name,proc in self.children:
+            if name in ('camera','pelvis') and proc.poll() is None:
+                try:os.killpg(proc.pid,signal.SIGINT)
+                except ProcessLookupError:pass
         for name,proc in reversed(self.children):
             if proc.poll() is None:
                 try:os.killpg(proc.pid,signal.SIGINT)
@@ -79,7 +84,7 @@ class PolicyRecording:
         self.output=Path(output);self.started=False;self.processes=RecorderProcesses()
         self.error=None;self.monitor_stop=threading.Event();self.monitor=None
         self.args=SimpleNamespace(interface=interface,seconds=seconds,label=label,
-            existing_driver=existing_driver,record_only=True,mount_calibration=None,
+            existing_driver=existing_driver,record_only=True,mount_calibration=None,controlled=True,
             driver_config=ROOT/'g1_deploy/config/lidar/MID360_bluefin.json',
             camera_device=None if camera is None else camera['device'],
             camera_size=None if camera is None else camera['size'],camera_fps=None if camera is None else camera['fps'])
@@ -113,8 +118,7 @@ class PolicyRecording:
             try:return json.loads(path.read_text())
             except (FileNotFoundError,json.JSONDecodeError):return {}
         began=time.monotonic();ready_since=None;previous=None
-        camera_size=0;camera_progress=-float('inf')
-        print('Startup: waiting for recording streams, then 5 seconds of pre-roll. '
+        print('Startup: waiting for sensor streams, then 5 seconds of warmup (no media saved). '
               'Keep still. '+('Ctrl+C cancels.' if self.automatic_start else
               'A/START are ignored until ready; SELECT or Ctrl+C cancels.'),flush=True)
         while True:
@@ -126,11 +130,9 @@ class PolicyRecording:
             if not raw.get('ready') or now-raw.get('monotonic_s',-float('inf'))>2.:
                 if not missing:missing=['raw sensor stream status']
             if self.camera is not None:
-                path=self.output/'camera/frames.mjpg'
-                size=path.stat().st_size if path.is_file() else 0
-                if size>camera_size:camera_progress=now
-                camera_size=size
-                if now-camera_progress>2.:missing.append('external camera frames')
+                camera=status(self.output/'camera/status.json')
+                if not camera.get('ready') or now-camera.get('arrival_monotonic_s',-float('inf'))>2.:
+                    missing.append('external camera frames')
             if self.live_odometry is not None:
                 pose=status(self.output/'measured_pose.status.json')
                 if not pose.get('geometry_valid') or now-pose.get('arrival_monotonic_s',-float('inf'))>=1.:
@@ -144,7 +146,7 @@ class PolicyRecording:
                 if remaining==0.:
                     (self.output/'startup_warmup.json').write_text(json.dumps(dict(
                         ready_monotonic_s=now,streams_ready_since_s=ready_since,
-                        pre_roll_s=now-ready_since,wait_s=now-began),indent=2)+'\n')
+                        warmup_s=now-ready_since,pre_roll_s=0.,wait_s=now-began),indent=2)+'\n')
                     print('Recording warmup complete. Checking policy readiness...',flush=True)
                     return
                 message=f'Startup sensor warmup: {math.ceil(remaining)} s remaining. Keep still.'
@@ -167,7 +169,8 @@ class PolicyRecording:
             live_odometry=self.live_odometry,camera=camera),indent=2)+'\n')
         print('Starting recorder in background; loading policy without waiting for it.',flush=True)
         self.processes.launch(plan,self.output,self.workspace,controlled=True)
-        os.set_blocking(self.processes.children[-1][1].stdin.fileno(),False)
+        for _,proc in self.processes.children:
+            if proc.stdin is not None:os.set_blocking(proc.stdin.fileno(),False)
         self.monitor=threading.Thread(target=self._monitor,daemon=True);self.monitor.start()
         print(('Recording starts with sensor-only inference.' if self.automatic_start else 'A starts policy + recording.')+
             f' Raw sensors: {self.output}',flush=True)
@@ -178,6 +181,11 @@ class PolicyRecording:
         if 'camera' in exited:
             self.camera_error=self.camera_error or 'capture process exited; inspect camera.log'
             return 'External camera stopped: '+self.camera_error,size
+        if not self.started:
+            path=self.output/'camera/status.json'
+            status=json.loads(path.read_text()) if path.is_file() else {}
+            ready=status.get('ready') and time.monotonic()-status.get('arrival_monotonic_s',0)<2.
+            return ('External camera ready; recording waits for A.' if ready else 'External camera opening.'),size
         if size>previous_size:return f'External camera recording ({size>>20} MB).',size
         return ('External camera opening.' if size==0 else 'External camera waiting for file flush (buffering or stalled input).'),size
 
@@ -221,6 +229,12 @@ class PolicyRecording:
             now=time.monotonic();wall=time.time()
             message=(json.dumps(dict(command='start',monotonic_s=now))+'\n').encode()
             os.write(proc.stdin.fileno(),message)
+            for name,child in self.processes.children:
+                if name in ('camera','pelvis') and child.stdin is not None:
+                    try:os.write(child.stdin.fileno(),message)
+                    except OSError as exc:
+                        if name=='camera':self.camera_error=str(exc)
+                        print(f'{name} recording trigger failed: {exc}',flush=True)
             self.trigger=dict(monotonic_s=now,wall_s=wall)  # written by the monitor thread, not here
             self.started=True
             print('Recording triggered with policy.',flush=True)
@@ -425,9 +439,16 @@ def commands(args, output):
         result[-1][1].extend(['--odometry-port',str(args.odometry_port),'--publish-diagnostics'])
     if getattr(args,'clock_calibration',None) is not None and not args.record_only:
         result[-1][1].extend(['--clock-calibration',str(Path(args.clock_calibration).resolve())])
+    if getattr(args,'controlled',False) and not args.record_only:
+        result[-1][1].append('--controlled-record')
     if args.camera_device:
-        result.append(('camera',camera_command(args.camera_device,args.camera_size,args.camera_fps,
-            str(output/'camera/frames.mjpg'))))
+        if getattr(args,'controlled',False):
+            result.append(('camera',['/usr/bin/python3',str(ROOT/'g1_deploy/record_camera.py'),
+                '--device',args.camera_device,'--size',args.camera_size,'--fps',str(args.camera_fps),
+                '--output',str(output/'camera')]))
+        else:
+            result.append(('camera',camera_command(args.camera_device,args.camera_size,args.camera_fps,
+                str(output/'camera/frames.mjpg'))))
     result.append(('capture',['/usr/bin/python3',str(validation/'record_lidar_live.py'),
         '--interface',args.interface,'--seconds',str(args.seconds),'--pose',args.label,'--output',str(output/'raw')]))
     return result

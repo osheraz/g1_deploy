@@ -67,9 +67,9 @@ class StdoutBuffer:
 
 class Capture:
     """One recorder-identical capture child streaming to this process."""
-    def __init__(self,device,size,fps):
+    def __init__(self,device,size,fps,*,start_new_session=True):
         self.proc=subprocess.Popen(camera_command(device,size,fps,'-'),stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,start_new_session=True)
+            stderr=subprocess.PIPE,start_new_session=start_new_session)
         self.meta=queue.Queue();self.rate_set=None
         threading.Thread(target=self._lines,daemon=True).start()
         self.stdout=StdoutBuffer(self.proc.stdout)

@@ -1,0 +1,103 @@
+diff --git a/include/dlio/odom.h b/include/dlio/odom.h
+index 51641b3..577db71 100755
+--- a/include/dlio/odom.h
++++ b/include/dlio/odom.h
+@@ -288,6 +288,9 @@ private:
+     Velocity v;
+     ImuBias b; // imu biases in body frame
+   }; State state;
++  // Protected with state by geo.mtx: stamp of the last completed propagation.
++  rclcpp::Time state_stamp;
++  bool state_ready = false;
+ 
+   struct Pose {
+     Eigen::Vector3f p; // position in world frame
+diff --git a/src/dlio/odom.cc b/src/dlio/odom.cc
+index 4e9f190..72f7fab 100755
+--- a/src/dlio/odom.cc
++++ b/src/dlio/odom.cc
+@@ -319,42 +319,53 @@ void dlio::OdomNode::start() {
+ 
+ void dlio::OdomNode::publishPose() {
+ 
++  // Publish one completed state and its measurement time. Reading individual
++  // fields while the IMU/scan callbacks update them can produce a torn pose.
++  State snapshot;
++  rclcpp::Time stamp;
++  {
++    std::lock_guard<std::mutex> lock(this->geo.mtx);
++    if (!this->state_ready) { return; }
++    snapshot = this->state;
++    stamp = this->state_stamp;
++  }
++
+   // nav_msgs::msg::Odometry
+-  this->odom_ros.header.stamp = this->imu_stamp;
++  this->odom_ros.header.stamp = stamp;
+   this->odom_ros.header.frame_id = this->odom_frame;
+   this->odom_ros.child_frame_id = this->baselink_frame;
+ 
+-  this->odom_ros.pose.pose.position.x = this->state.p[0];
+-  this->odom_ros.pose.pose.position.y = this->state.p[1];
+-  this->odom_ros.pose.pose.position.z = this->state.p[2];
++  this->odom_ros.pose.pose.position.x = snapshot.p[0];
++  this->odom_ros.pose.pose.position.y = snapshot.p[1];
++  this->odom_ros.pose.pose.position.z = snapshot.p[2];
+ 
+-  this->odom_ros.pose.pose.orientation.w = this->state.q.w();
+-  this->odom_ros.pose.pose.orientation.x = this->state.q.x();
+-  this->odom_ros.pose.pose.orientation.y = this->state.q.y();
+-  this->odom_ros.pose.pose.orientation.z = this->state.q.z();
++  this->odom_ros.pose.pose.orientation.w = snapshot.q.w();
++  this->odom_ros.pose.pose.orientation.x = snapshot.q.x();
++  this->odom_ros.pose.pose.orientation.y = snapshot.q.y();
++  this->odom_ros.pose.pose.orientation.z = snapshot.q.z();
+ 
+-  this->odom_ros.twist.twist.linear.x = this->state.v.lin.w[0];
+-  this->odom_ros.twist.twist.linear.y = this->state.v.lin.w[1];
+-  this->odom_ros.twist.twist.linear.z = this->state.v.lin.w[2];
++  this->odom_ros.twist.twist.linear.x = snapshot.v.lin.w[0];
++  this->odom_ros.twist.twist.linear.y = snapshot.v.lin.w[1];
++  this->odom_ros.twist.twist.linear.z = snapshot.v.lin.w[2];
+ 
+-  this->odom_ros.twist.twist.angular.x = this->state.v.ang.b[0];
+-  this->odom_ros.twist.twist.angular.y = this->state.v.ang.b[1];
+-  this->odom_ros.twist.twist.angular.z = this->state.v.ang.b[2];
++  this->odom_ros.twist.twist.angular.x = snapshot.v.ang.b[0];
++  this->odom_ros.twist.twist.angular.y = snapshot.v.ang.b[1];
++  this->odom_ros.twist.twist.angular.z = snapshot.v.ang.b[2];
+ 
+   this->odom_pub->publish(this->odom_ros);
+ 
+   // geometry_msgs::msg::PoseStamped
+-  this->pose_ros.header.stamp = this->imu_stamp;
++  this->pose_ros.header.stamp = stamp;
+   this->pose_ros.header.frame_id = this->odom_frame;
+ 
+-  this->pose_ros.pose.position.x = this->state.p[0];
+-  this->pose_ros.pose.position.y = this->state.p[1];
+-  this->pose_ros.pose.position.z = this->state.p[2];
++  this->pose_ros.pose.position.x = snapshot.p[0];
++  this->pose_ros.pose.position.y = snapshot.p[1];
++  this->pose_ros.pose.position.z = snapshot.p[2];
+ 
+-  this->pose_ros.pose.orientation.w = this->state.q.w();
+-  this->pose_ros.pose.orientation.x = this->state.q.x();
+-  this->pose_ros.pose.orientation.y = this->state.q.y();
+-  this->pose_ros.pose.orientation.z = this->state.q.z();
++  this->pose_ros.pose.orientation.w = snapshot.q.w();
++  this->pose_ros.pose.orientation.x = snapshot.q.x();
++  this->pose_ros.pose.orientation.y = snapshot.q.y();
++  this->pose_ros.pose.orientation.z = snapshot.q.z();
+ 
+   this->pose_pub->publish(this->pose_ros);
+ 
+@@ -1301,6 +1312,8 @@ void dlio::OdomNode::propagateState() {
+ 
+   this->state.v.ang.b = this->imu_meas.ang_vel;
+   this->state.v.ang.w = this->state.q.toRotationMatrix() * this->state.v.ang.b;
++  this->state_stamp = this->imu_stamp;
++  this->state_ready = true;
+ 
+ }
+ 

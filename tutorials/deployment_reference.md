@@ -129,17 +129,25 @@ independent LiDAR/robot-to-host offset bound for steering.
 
 ## Shared depth processing
 
-The Jetson publishes raw 640×480 depth at 30 Hz, capture metadata and lossless
-PNG. No temporal filtering, hole filling, or color alignment. USB/network frames
-use the same calibrated crop/ray sampling, metric range/mask and causal history
-as the optimized Warp camera in simulation.
+The Jetson publishes 640×480 depth at 30 Hz, capture metadata and lossless PNG.
+`--processing vigor` runs `img_server_osher.py`'s filter chain and restores source
+pixels wherever filtering changes their missing/near/far classification. This
+uses the shared 0.1 m minimum and 2/3 m view boundaries; model range encoding
+still occurs once in the consumer. `--processing vigor_legacy` is the exact old
+hole filling, available for comparison. `--processing raw` retains the previous
+unfiltered stream. The packet names the
+profile and carries its parameters. No color alignment is applied. The filters
+run before transmission; consumers never reapply them. Crop/ray sampling, metric
+range/mask and causal history retain the checkpoint's contract. Simulation's
+rendered depth and camera randomization do not reproduce this RealSense filter
+chain, so filter parity with VIGOR does not establish training sensor parity.
 
 P11 requires **three actual 30 Hz captures for both planner and tracker**.
 Its v2 depth contract saturates finite valid returns beyond 2 m to 2 m with
 mask=1. No-hit, invalid, near and missing returns remain zero with mask=0.
 Legacy v1 checkpoints retain their original far=0 behavior. The encoding is
 selected from each checkpoint's contract, never a deployment-only override.
-The read-only raw viewer is not this processed model input.
+The full-resolution stream viewer is not this processed model input.
 
 ## ONNX and TensorRT
 

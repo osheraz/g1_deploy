@@ -196,6 +196,10 @@ def load_episode(ep_dir, decode: bool = True):
     return state, get_frame
 
 
+class NoControlObservations(ValueError):
+    """A readable telemetry log contains no recorded policy-state samples."""
+
+
 def load_native_recovery(path,*,live_estimates=False):
     """Adapt an existing diffusion telemetry log to the episode player's fields.
 
@@ -212,7 +216,7 @@ def load_native_recovery(path,*,live_estimates=False):
             row=json.loads(line)
             if row.get('event')=='session_contract':contract=row.get('planner_contract')
             elif row.get('event')=='control':controls.append(row)
-    if not controls:raise ValueError('Telemetry has no recorded control observations')
+    if not controls:raise NoControlObservations('Telemetry has no recorded control observations')
     names=[] if contract is None else contract.get('dof_names',[])
     q=np.asarray([row['q'] for row in controls],dtype=np.float32)
     quat=np.asarray([row['pelvis_quat_xyzw'] for row in controls],dtype=np.float64)
@@ -221,8 +225,17 @@ def load_native_recovery(path,*,live_estimates=False):
         raise ValueError('Telemetry must declare the measured joint order')
     if quat.shape!=(len(q),4) or not np.isfinite(q).all() or not np.isfinite(quat).all() or np.any(np.linalg.norm(quat,axis=1)<1e-6):
         raise ValueError('Invalid recorded joints or pelvis quaternion')
-    if not np.isfinite(stamps).all() or np.any(np.diff(stamps)<=0):
-        raise ValueError('Control capture times must increase')
+    if not np.isfinite(stamps).all():raise ValueError('Nonfinite control capture times')
+    repeated_or_regressed=int(np.count_nonzero(np.diff(stamps)<=0))
+    playback=stamps;timeline_source='observation_capture_s'
+    if repeated_or_regressed:
+        # A controller can reuse an observation during a sensor delay. Preserve
+        # every control tick and its original capture stamp; replay on the
+        # recorded host tick clock instead of dropping or retiming observations.
+        playback=np.asarray([row.get('monotonic_s',np.nan) for row in controls],dtype=float)
+        if not np.isfinite(playback).all() or np.any(np.diff(playback)<=0):
+            raise ValueError('Repeated/regressed observations require increasing recorded control times')
+        timeline_source='monotonic_s'
     quat=quat/np.linalg.norm(quat,axis=1,keepdims=True)
     for i in range(1,len(quat)):
         if np.dot(quat[i-1],quat[i])<0:quat[i]*=-1
@@ -232,13 +245,15 @@ def load_native_recovery(path,*,live_estimates=False):
     attitude=Rotation.from_quat(quat)
     displayed=(Rotation.from_euler('z',-heading[0])*attitude).as_quat()
     relative=(attitude[0].inv()*attitude).as_quat()
-    state=dict(t=stamps-stamps[0],qj=q,imu_quat_wxyz=quat[:,[3,0,1,2]].astype(np.float32),
+    state=dict(t=playback-playback[0],qj=q,imu_quat_wxyz=quat[:,[3,0,1,2]].astype(np.float32),
                capture_monotonic_s=stamps,
+               playback_monotonic_s=playback,
                receipt_monotonic_s=np.asarray([row['observation_arrival_s'] for row in controls]),
                depth_capture_monotonic_s=np.asarray([(row.get('depth_timing') or {}).get('capture_s',np.nan) for row in controls]),
                causal_heading_rad=heading,yaw_relative_rad=np.arctan2(np.sin(heading-heading[0]),np.cos(heading-heading[0])),
                orientation_relative_xyzw=relative,display_quat_wxyz=displayed[:,[3,0,1,2]])
-    meta=dict(source=str(path.resolve()),physical_joint_names=names,duration_s=float(stamps[-1]-stamps[0]),
+    meta=dict(source=str(path.resolve()),physical_joint_names=names,duration_s=float(playback[-1]-playback[0]),
+        timeline_source=timeline_source,nonincreasing_capture_steps=repeated_or_regressed,
         sensors=[],world_translation_measured=False,
         explanation='Measured joints and pelvis IMU orientation. Pelvis position is fixed: no XYZ source selected.')
     if live_estimates:
@@ -246,14 +261,34 @@ def load_native_recovery(path,*,live_estimates=False):
         if not any(p.get('position_reset_m') is not None for p in poses):
             raise ValueError('No A-relative live XYZ in this log; the estimate must be available at policy start')
         positions=np.array([p.get('position_reset_m') if p.get('position_reset_m') is not None else [np.nan]*3 for p in poses])
-        valid=np.isfinite(positions).all(axis=1)&np.array([p.get('available',False) for p in poses])
+        geometry_valid=np.isfinite(positions).all(axis=1)&np.array([p.get('available',False) for p in poses])
+        valid=geometry_valid.copy()
+        # A tilt rejection is not a missing measurement. Preserve the finite
+        # contemporaneous estimate for diagnosis, using exactly the logged A
+        # origin. This never changes availability or qualification for steering.
+        origin=np.asarray(poses[0].get('position_m'),dtype=float)
+        first_relative=poses[0].get('position_reset_m')
+        if (origin.shape==(3,) and np.isfinite(origin).all() and geometry_valid[0]
+                and first_relative is not None and np.allclose(first_relative,0.,atol=1e-8)):
+            transform=Rotation.from_euler('z',-heading[0]).as_matrix()
+            for i,p in enumerate(poses):
+                age=p.get('age_s');raw=np.asarray(p.get('position_m'),dtype=float)
+                if (not valid[i] and p.get('invalid_reason') in ('tilt','geometry_invalid')
+                        and isinstance(age,(int,float)) and 0<=age<=.05
+                        and p.get('stream_id')==poses[0].get('stream_id')
+                        and raw.shape==(3,) and np.isfinite(raw).all()):
+                    positions[i]=transform@(raw-origin);valid[i]=True
         positions[~valid]=np.nan
         state.update(pelvis_position_relative_m=positions,position_valid=valid,
-            position_geometry_valid=valid,position_tracking_qualified=np.array([p.get('tracking_valid',False) for p in poses]))
+            position_geometry_valid=geometry_valid,position_tracking_qualified=np.array([p.get('tracking_valid',False) for p in poses]))
         meta.update(world_translation_measured=True,position_origin_delay_s=0.,explanation=
             'Actual live A-relative XYZ, joints and pelvis IMU orientation. No offline interpolation. '
-            'Unavailable estimates hide the robot and break its trace. Fixed world camera. '
+            'Fresh finite estimates rejected for tilt remain visible in orange; these are not valid steering feedback. '
+            'Missing, stale or restarted estimates still break the trace. Fixed world camera. '
             'XYZ and timing remain unqualified unless the recorded status says otherwise; no independent position truth.')
+    if repeated_or_regressed:
+        meta['explanation']+=f' {repeated_or_regressed} reused/regressed observation timestamps; '
+        meta['explanation']+='playback uses recorded control times and retains the original observations.'
     return state,lambda _: (None,None),meta
 
 

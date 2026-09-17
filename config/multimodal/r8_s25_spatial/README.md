@@ -1,5 +1,15 @@
 # Recovery starts with different spatial paths
 
+For the current simulation-to-robot comparison, use
+[the same-start experiment note](../../../../notes/real_world_same_start.md).
+It includes the robot-compatible supine simulation command and the latest
+six-run check. The original supine example below uses slightly different ankles.
+
+**Limiter update, September 15:** current runs limit targets only for the first
+0.5 s. The spatial comparisons below were measured with the earlier, longer
+limiter profile; they are historical results, not verified spreads for today's
+commands. See the linked note for the focused recheck.
+
 Use **supine** for the largest confirmed spatial separation. R8_S25 diffusion
 40k and its frozen depth tracker recover toward opposite sides of the starting
 point with seeds 49 and 707. Their pelvis locations are 1.16 m apart at the end
@@ -123,7 +133,10 @@ original 1.21 m; carrying a seed to a slightly different state does not preserve
 its original trajectory. Four additional seeds (46, 50, 44, 606) also recovered
 quietly; the largest upright-entry separation among these six trials was 0.43 m
 (seeds 50/606). The original 1.21 m contrast is therefore not validated for the
-hardware-adjusted pose. This preset has not run on hardware. Evidence:
+hardware-adjusted pose. Later operator sessions on 2026-09-15 used this exact
+unjittered preset, including `r8_supine_fixed_episode_20260915_010102` and
+`r8_supine_fixed_episode_20260915_010205`; their existence does not validate
+the simulated spatial gap. Earlier simulation evidence:
 `logs/multimodal_recovery/supine_robot_preset_20260914/validation.json`.
 
 ## Small joint perturbations
