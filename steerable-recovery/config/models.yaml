@@ -9,6 +9,9 @@ tracker_device: cuda:0
 planner_device: cuda:0
 
 camera:
+  # Existing bindings below remain legacy checkpoints. A future v3 bundle must
+  # declare hv2.planner_metric_depth_condition.v3 and use native_depth_server
+  # --processing raw, verified stream K/units/provenance and 250 ms expiry.
   source: network
   endpoint: tcp://127.0.0.1:15556
   clock_endpoint: tcp://127.0.0.1:15558
