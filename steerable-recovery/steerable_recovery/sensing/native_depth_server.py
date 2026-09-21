@@ -1,7 +1,8 @@
-"""Timestamped RealSense depth with the verified VIGOR filter path.
+"""Timestamped RealSense depth with original VIGOR hole filling by default.
 
 Run on the computer physically connected to the camera. No robot SDK, motor
-publisher or color alignment is involved. --processing raw bypasses filters.
+publisher or color alignment is involved. --processing raw bypasses filters;
+--processing vigor retains source missing/near/far categories after smoothing.
 The consumer owns the checkpoint's crop, sampling, range mask and history.
 """
 import argparse
@@ -206,9 +207,10 @@ def main():
                         help='png: lossless compression; raw: identical uint16 pixels without camera-side '
                              'compression, requires gigabit (148 Mb/s depth payload at 30 Hz). '
                              'Independent of --processing; raw encoding still uses the selected filters.')
-    parser.add_argument('--processing', choices=tuple(PROCESSING), default='vigor',
-                        help='vigor: smoothing with source missing/near/far categories preserved (default); '
-                             'raw: no filtering; vigor_legacy: exact old hole filling for comparison')
+    parser.add_argument('--processing', choices=tuple(PROCESSING), default='vigor_legacy',
+                        help='vigor_legacy: original VIGOR smoothing and hole filling (default); '
+                             'vigor: smoothing with source missing/near/far categories preserved; '
+                             'raw: no filtering')
     args = parser.parse_args()
     if not math.isfinite(args.max_mbps) or args.max_mbps<0:
         parser.error('--max-mbps must be finite and nonnegative')

@@ -19,12 +19,20 @@ Start the depth server and both SSH forwards; leave this terminal running:
 ssh -t -o AddressFamily=any -o ExitOnForwardFailure=yes \
   -L 127.0.0.1:15556:127.0.0.1:5556 \
   -L 127.0.0.1:15558:127.0.0.1:5558 g1_29 \
-  '/home/unitree/osher/native_recovery/.venv/bin/python /home/unitree/osher/native_recovery/native_depth_server.py --serial 247122073927 --processing vigor --encoding raw --max-mbps 0 --bind tcp://127.0.0.1:5556 --clock-bind tcp://127.0.0.1:5558'
+  '/home/unitree/osher/native_recovery/.venv/bin/python /home/unitree/osher/native_recovery/native_depth_server.py --serial 247122073927 --processing vigor_legacy --encoding raw --max-mbps 0 --bind tcp://127.0.0.1:5556 --clock-bind tcp://127.0.0.1:5558'
 ```
 
 Raw transport requires gigabit Ethernet. On a 100 Mb/s link, replace
 `--encoding raw --max-mbps 0` with `--encoding png --max-mbps 40`.
 Both send the same filtered depth values. [Depth troubleshooting](status.md#depth).
+
+`vigor_legacy` is the operator-selected default: the original VIGOR smoothing and
+hole filling. Filled positive pixels also enter the policy as valid depth. The
+explicit alternative `--processing vigor` preserves original missing/near/far
+categories after smoothing. This hole-filled default differs from Stanley's
+written unified-depth-v3 raw-processing contract; it does not establish v3
+training/deployment compatibility. Existing processing labels and model contracts
+retain their meanings.
 
 ## Terminal 2: recovery
 

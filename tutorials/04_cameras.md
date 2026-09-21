@@ -50,11 +50,17 @@ wire encoding; `--encoding raw` removes camera-side compression on gigabit.
 The viewer accepts both. See [server update and launch](../steerable-recovery/docs/deploy.md#terminal-1-depth).
 Metadata carries capture time,
 clock domain, sequence, serial, intrinsics, depth scale and processing mode.
-The default `--processing vigor` applies the old filter path, then restores any
-pixel whose missing/near/far classification changed. This retains unavailable
-depth rather than inventing valid terrain for the policy. `--processing raw`
-bypasses filtering; `--processing vigor_legacy` reproduces the original hole
-filling for comparison. No mode applies color alignment or the old unused 3 m threshold.
+The default `--processing vigor_legacy` reproduces original VIGOR smoothing and
+hole filling, as requested by the operator on September 20. Filled positive
+pixels become valid depth for the viewer and policy. Explicit `--processing vigor`
+applies the same filters, then restores pixels whose missing/near/far classification
+changed; original holes therefore remain. `--processing raw` bypasses filtering.
+No mode applies color alignment or the old unused 3 m threshold.
+
+The hole-filled default differs from Stanley's written unified-depth-v3 contract,
+which specifies raw hardware processing and unknown pixels remaining invalid.
+Processing provenance remains in every stream/recording; do not label the two
+input contracts interchangeable or infer training compatibility from image shape.
 
 The viewer shows streamed depth in metres. It is **not** the planner's processed
 image. Current inference uses the shared calibrated crop/ray sampler,
