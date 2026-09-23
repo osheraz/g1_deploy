@@ -305,6 +305,8 @@ def parser():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('session',type=Path,help='Run name under logs/real_world, or a session/sensors directory path')
     p.add_argument('--port',type=int,default=8081)
+    p.add_argument('--speed',type=float,default=1.,help='Viser playback multiplier, 0.05–4 (0.25 = quarter speed)')
+    p.add_argument('--loop',action=argparse.BooleanOptionalAction,default=True,help='Repeat the selected recording in Viser (default: enabled)')
     p.add_argument('--unmarked',action='store_true',help='Open only recordings without saved start/end marks')
     p.add_argument('--pose-only',action='store_true',help='Joints, orientation and video; skip XYZ processing')
     p.add_argument('--live-estimates',action='store_true',help='Use XYZ actually logged during deployment; no offline DLIO')
@@ -440,7 +442,9 @@ def rescan(argv,known):
 
 
 def main():
-    p=parser();a=p.parse_args();target=browse_target(a.session)
+    p=parser();a=p.parse_args()
+    if not .05<=a.speed<=4.:p.error('--speed must be between 0.05 and 4')
+    target=browse_target(a.session)
     collection=(target.is_dir() and target.name!='sensors' and not (target/'telemetry.jsonl.gz').is_file()
                 and not (target/'raw/sensors.npz').is_file())
     sessions=browse_sessions(target) if collection else []
@@ -457,7 +461,7 @@ def main():
             spec=cached_viewer_spec(a,session)
             if spec is None:spec=review(p,a,session)
         except ValueError as exc:sys.exit(str(exc))
-        if not a.prepare_only:os.execv(sys.executable,viewer_command(spec,a.port))
+        if not a.prepare_only:os.execv(sys.executable,viewer_command(spec,a.port,speed=a.speed,loop=a.loop))
         return
     print(f'{len(sessions)} sessions under {target}:',
           *[f'  {i+1:3d}. {s.relative_to(target)}' for i,s in enumerate(sessions)],sep='\n',flush=True)
@@ -468,12 +472,14 @@ def main():
     print('Opening viewer; recordings load when selected (no batch replay or video export).',flush=True)
     os.execv(sys.executable,[sys.executable,str(ROOT/'g1_deploy/core/review/viewer.py'),
         '--sessions',str(manifest),'--browse-argv',json.dumps(sys.argv[1:]),*(['--preload'] if a.preload else []),
-        '--urdf',str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'),'--port',str(a.port)])
+        '--urdf',str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'),'--port',str(a.port),
+        '--speed',str(a.speed),'--loop' if a.loop else '--no-loop'])
 
 
-def viewer_command(spec,port):
+def viewer_command(spec,port,*,speed=1.,loop=True):
     command=[sys.executable,str(ROOT/'g1_deploy/core/review/viewer.py'),
-        '--urdf',str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'),'--port',str(port)]
+        '--urdf',str(ROOT/'humanoidverse2/data/robots/g1/g1_29dof_sonic.urdf'),'--port',str(port),
+        '--speed',str(speed),'--loop' if loop else '--no-loop']
     for key in ('telemetry','capture','external_camera','depth_recording','measured_pose'):
         if spec.get(key):command+=['--'+key.replace('_','-'),spec[key]]
     for key in ('live_estimates','allow_late_origin'):

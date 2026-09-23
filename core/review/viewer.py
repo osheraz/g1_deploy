@@ -32,7 +32,7 @@ if str(DEPLOY_ROOT) not in sys.path:
 sys.path.insert(0,str(DEPLOY_ROOT.parent))
 
 from core.recording.episode import load_episode, load_native_recovery, load_raw_motion, attach_measured_translation, NoControlObservations
-from core.recording.annotations import RecoveryInterval, validate_interval
+from core.recording.annotations import RecoveryInterval, validate_interval, session_directory
 from core.common.viser_display import DeployViser  # noqa: E402
 from core.config import DEFAULT_URDF_PATH  # noqa: E402
 
@@ -191,10 +191,13 @@ def main():
     ap.add_argument('--full-validation',action='store_true',help='Decode every saved camera frame during validation')
     ap.add_argument('--allow-late-origin',action='store_true',help='Show a clearly labelled trajectory from the first available estimate if XYZ at policy start is missing')
     ap.add_argument("--fps", type=float, default=50.0)
+    ap.add_argument('--speed',type=float,default=1.,help='Playback multiplier, 0.05–4 (0.25 = quarter speed)')
+    ap.add_argument('--loop',action=argparse.BooleanOptionalAction,default=True,help='Repeat the selected recording (default: enabled)')
     ap.add_argument("--urdf", default=DEFAULT_URDF_PATH)
     ap.add_argument("--deadzone", type=int, default=12,
                     help="tactile: suppress values within this of the resting baseline")
     args = ap.parse_args()
+    if not .05<=args.speed<=4.:ap.error('--speed must be between 0.05 and 4')
     if args.sessions:
         specs=json.loads(args.sessions.expanduser().read_text())
         if not specs:ap.error('--sessions lists no recordings')
@@ -284,19 +287,44 @@ def main():
     with dv.server.gui.add_folder('Recording details',expand_by_default=False):
         details=dv.server.gui.add_markdown(details_text(cur))
     playback_notice=dv.server.gui.add_markdown('',order=-25)
-    trace={}
+    trace={};path_stretches=[]
+    with dv.server.gui.add_folder('Steering',order=-32):
+        fit_route=dv.server.gui.add_checkbox('Fit route to motion',True)
+        route_note=dv.server.gui.add_markdown('')
     def draw_trace(s):
         for node in trace.values():node.remove()
         trace.clear()
         goal=s.get('steering_goal')
         if goal and not s['meta'].get('position_origin_delay_s',0):
-            from motion_diffusion.behavioral.hardware.steering import goal_display_segments
-            segments=goal_display_segments(goal)
-        else:segments=[]
-        if len(segments):
-            trace['goal']=dv.server.scene.add_line_segments('/steering_goal',
-                points=segments,
-                colors=np.array([230,40,210],np.uint8),line_width=4.)
+            from motion_diffusion.behavioral.hardware.steering import goal_display_keypoints,goal_display_segments,fit_route_for_display
+            fitted=None
+            if fit_route.value and s['positions'] is not None:
+                marks=session_directory(s['ep'])/'review/recovery_interval.json'
+                if marks.is_file():
+                    stand=float(json.loads(marks.read_text())['end']['replay_time_s'])
+                    fitted,_=fit_route_for_display(goal,np.asarray(s['state']['t']),s['positions'],s['state']['position_valid'],stand)
+            route=goal_display_keypoints(goal,route=fitted);segments=goal_display_segments(goal) if route is None else []
+            route_note.content=('**Magenta: display fit of the command** (cut where the robot stood, time-warped to the '
+                'measured pelvis, blended toward it). Untick *Fit route to motion* for the recorded command.'
+                if fitted is not None else '**Magenta: commanded route as recorded.** Blue/orange: measured estimate.')
+        else:route=None;segments=[]
+        magenta=(230,40,210)
+        if route is not None and len(route[0])>1:
+            knots,heading=route
+            # markers scale with the route so a short get-up path is not buried under them
+            span=float(np.linalg.norm(np.ptp(knots,axis=0)));radius=float(np.clip(.025*span,.008,.025))
+            trace['goal']=dv.server.scene.add_spline_catmull_rom('/steering_goal',points=knots,curve_type='centripetal',
+                line_width=5.,color=magenta,segments=40*len(knots))
+            for i,knot in enumerate(knots):
+                trace[f'goal_knot_{i}']=dv.server.scene.add_icosphere(f'/steering_goal_knot_{i}',radius=radius,color=magenta,
+                    opacity=.55,position=tuple(float(v) for v in knot),subdivisions=2)
+            # commanded heading at the start and at the end, where the turn is defined
+            arrows=np.stack([knots[[0,-1]],knots[[0,-1]]+max(.2,.4*span)*heading[[0,-1]]],axis=1)
+            trace['goal_heading']=dv.server.scene.add_line_segments('/steering_goal_heading',points=arrows,
+                colors=np.array(magenta,np.uint8),line_width=4.)
+        elif len(segments):
+            trace['goal']=dv.server.scene.add_line_segments('/steering_goal',points=segments,
+                colors=np.array(magenta,np.uint8),line_width=4.)
         positions=s['positions']
         if positions is None:return
         state=s['state'];valid=state['position_valid']
@@ -306,13 +334,22 @@ def main():
             geometry=state['position_geometry_valid']
             colors=np.tile(np.array([30,180,240],np.uint8),(len(segments),2,1))
             colors[~(geometry[:-1]&geometry[1:])[connected]]=(240,145,30)
-            trace['path']=dv.server.scene.add_line_segments('/pelvis_path',points=segments,
-                colors=colors,line_width=3.)
+            # drawn as the robot walks it: one hidden stretch per 10 samples, revealed by render(k)
+            starts=np.flatnonzero(connected)
+            path_stretches.clear()
+            for first in range(0,len(segments),10):
+                node=dv.server.scene.add_line_segments(f'/pelvis_path/{first}',points=segments[first:first+10],
+                    colors=colors[first:first+10],line_width=3.)
+                node.visible=False
+                trace[f'path_{first}']=node;path_stretches.append((int(starts[first]),node))
         trace['origin']=dv.server.scene.add_frame('/episode_origin',axes_length=.2,axes_radius=.006)
+
+    def reveal_path(k):
+        for start,node in path_stretches:
+            shown=start<=k
+            if node.visible!=shown:node.visible=shown
     draw_trace(cur)
-    if cur.get('steering_goal'):
-        dv.server.gui.add_markdown('**Magenta: commanded route or final one-axis target band.** Blue/orange: measured estimate. '
-            'A visible goal does not mean steering was active; check the run steering-status messages.')
+    fit_route.on_update(lambda _:draw_trace(cur))
 
     # commanded pose as a second robot, 0.9 m to the side: divergence between
     # the two IS the tracking error (a dragged leg reads as measured lagging)
@@ -333,14 +370,21 @@ def main():
             run_name=dv.server.gui.add_markdown(name_markdown(cur['label']))
             dropdown=dv.server.gui.add_dropdown('Recording',options=labels,initial_value=cur['label'])
             session_status=dv.server.gui.add_text('Folder','-',disabled=True)
+            previous_button=dv.server.gui.add_button('Previous')
+            next_button=dv.server.gui.add_button('Next',color='blue')
             dropdown.on_update(lambda _:None if switching else move(to=dropdown.value))
+            previous_button.on_click(lambda _:move(-1))
+            next_button.on_click(lambda _:move(1))
     scene_name=dv.server.scene.add_label('/run_name',text=cur['label'],position=(0.,0.,1.25),anchor='bottom-center')
     folder = dv.server.gui.add_folder("Replay",order=-30)
     with folder:
         idx = dv.server.gui.add_slider("Index", min=0, max=max(cur['n'] - 1, 1), step=1,
                                        initial_value=0)
         play = dv.server.gui.add_checkbox("Play", True)
-        fps = dv.server.gui.add_number("FPS", float(args.fps))
+        speed = dv.server.gui.add_number("Speed (×)",args.speed,min=.05,max=4.,step=.05)
+        slow_motion=dv.server.gui.add_button_group('Slow motion',('¼×','½×','1×'))
+        slow_motion.on_click(lambda _:setattr(speed,'value',{'¼×':.25,'½×':.5,'1×':1.}[slow_motion.value]))
+        loop = dv.server.gui.add_checkbox("Loop",args.loop)
         if dv.depth_image_handle is not None:
             show_depth=dv.server.gui.add_checkbox('Show depth',True)
             @show_depth.on_update
@@ -409,6 +453,7 @@ def main():
         else:
             if color is not None:dv.rgb_image_handle.image=color[...,::-1]
             if depth is not None and dv.depth_image_handle is not None:dv._update_depth_image(depth)
+        reveal_path(k)
         if 'yaw_relative_rad' in state:
             heading_label.value=f'{np.degrees(state["yaw_relative_rad"][k]):+.2f}'
             orientation_label.value=', '.join(f'{v:+.4f}' for v in state['orientation_relative_xyzw'][k])
@@ -481,7 +526,7 @@ def main():
             cur=None;play.value=False;session_status.value='No recordings left'
             return
         k=0;last_camera_index=last_depth_index=None
-        idx.max=max(cur['n']-1,1);idx.value=0;last=time.perf_counter();play.value=False
+        idx.max=max(cur['n']-1,1);idx.value=0;last=time.perf_counter();play.value=True
         bind_annotations()
         details.content=details_text(cur)
         draw_trace(cur)
@@ -595,8 +640,22 @@ def main():
 
     last = time.perf_counter()
     bind_annotations()
-    play.value=False
     render(0)
+    last=time.perf_counter()
+    play.value=True
+    @play.on_update
+    def on_play(_):
+        nonlocal k,last
+        with lock:
+            last=time.perf_counter()
+            if cur is not None and play.value and k==cur['n']-1 and k>0:
+                k=0;idx.value=0;render(0)
+
+    @speed.on_update
+    def on_speed(_):
+        nonlocal last
+        with lock:last=time.perf_counter()
+
     if args.sessions:session_status.value=f'1/{len(specs)}'
     print(f"\nviser: http://localhost:{args.port}",flush=True)
 
@@ -607,17 +666,19 @@ def main():
                 n=cur['n'];kk = min(int(idx.value),n-1)
                 if kk != k:
                     k = kk
+                    last=time.perf_counter()
                     render(k)
                 if play.value:
                     now = time.perf_counter()
-                    interval=(float(cur['state']['t'][k+1]-cur['state']['t'][k]) if cur['spec'].get('telemetry') and k<n-1 else 1.0/args.fps)
-                    if (now - last) >= interval*args.fps/max(1e-6,float(fps.value)):
+                    interval=(float(cur['state']['t'][k+1]-cur['state']['t'][k]) if
+                              (cur['spec'].get('telemetry') or cur['spec'].get('capture')) and k<n-1 else 1.0/args.fps)
+                    if (now - last) >= interval/float(speed.value):
                         last = now
                         stop=n-1
-                        k = min(k + 1, stop)
+                        k = 0 if k==stop and loop.value and n>1 else min(k+1,stop)
                         idx.value = k
                         render(k)
-                        if k == stop:
+                        if k == stop and (not loop.value or n==1):
                             play.value = False
         except (OSError,ValueError) as exc:
             if not args.sessions:raise

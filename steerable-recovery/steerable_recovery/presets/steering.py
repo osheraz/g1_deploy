@@ -49,6 +49,7 @@ def command_for(args):
         if not args.sensor_only:
             cmd+=['--actuate','--start-pose',str(pose_root/'supine_151_robot.json')]
         if args.external_camera:cmd+=['--external-camera']
+        if getattr(args,'depth_processing',None) is not None:cmd+=['--depth-processing',args.depth_processing]
         if args.odometry_clock:cmd+=['--odometry-clock',str(args.odometry_clock)]
     else:
         cmd=[sys.executable,str(PACKAGE_ROOT / 'cli/sim.py'),*common,
@@ -57,10 +58,11 @@ def command_for(args):
         if not args.headless:cmd+=['--viewer']
         if args.seconds is not None:cmd+=['--seconds',str(args.seconds)]
         if args.output:cmd+=['--output',str(args.output)]
+    if getattr(args,'standing_hold',False):cmd+=['--standing-hold']
     return cmd
 
 
-def benchmark(args):
+def benchmark(args, *, goal_path=None):
     """Actual spawned planner and TRT tracker, synthetic observations, no sensors."""
     import torch
     from core.config import _load_config
@@ -78,8 +80,8 @@ def benchmark(args):
     hardware['pelvis_odometry_port']=15560
     rate=MODEL_RATES[args.model] if args.replan_hz is None else args.replan_hz
     config,_=bundle.resolve_session(root,manifest,args.model,path,hardware_config=hardware,
-        task='motion-command',goal_path=goal_for(args),
-        guidance_scale=args.guidance_scale,
+        task='motion-command',goal_path=goal_for(args) if goal_path is None else goal_path,
+        guidance_scale=args.guidance_scale,blend_ticks=getattr(args,'blend_ticks',None),
         guided_timing=settings.get('guided_timing'),
         seed=sampling_seed(str(args.seed)),replan_ticks=bundle.replan_ticks_for_hz(rate,horizon=row['inspected_contract']['F']))
     actor=load_controller(config)
@@ -90,8 +92,9 @@ def benchmark(args):
         runtime=AsyncNativeRecovery(actor,worker,max_plan_age_ticks=config['max_plan_age_ticks'])
         cold=runtime.warmup()
         warm=runtime.warmup()
-        report=dict(schema='hv2.guided_inference_check.v1',option=args.option,
-            model=args.model,replan_hz=rate,max_plan_age_ticks=config['max_plan_age_ticks'],
+        report=dict(schema='hv2.guided_inference_check.v1',option=getattr(args,'option',None),
+            goal_path=str(goal_path) if goal_path is not None else str(goal_for(args)),
+            model=args.model,replan_hz=rate,blend_ticks=config['planner_options']['blend_ticks'],max_plan_age_ticks=config['max_plan_age_ticks'],
             guidance_scale=config['planner_options']['motion_goal']['guidance_scale'],
             motors_opened=False,sensors_opened=False,cold=cold,warm=warm,
             planner_backend='pytorch',tracker_backend='tensorrt',
@@ -115,15 +118,18 @@ def main(argv=None):
     p.add_argument('--sensor-only',action='store_true')
     p.add_argument('--benchmark',action='store_true',help='Synthetic guided compute check; opens no sensors or motors')
     p.add_argument('--headless',action='store_true')
+    p.add_argument('--standing-hold',action='store_true',help='Y: encoded standing intent after recovery (robot or simulation)')
     p.add_argument('--seconds',type=float)
     p.add_argument('--seed',default='42',help='Use the same seed across routes to isolate steering; random is supported')
     p.add_argument('--replan-hz',type=float,help='Override planner cadence, e.g. 2.5, 5 or 10 Hz; tracker stays 50 Hz')
     p.add_argument('--guidance-scale',type=float,help='Planner steering strength, e.g. 50 or 100; default uses the source goal (300)')
     p.add_argument('--external-camera',action=argparse.BooleanOptionalAction,default=True)
+    p.add_argument('--depth-processing',choices=('raw','vigor','vigor_legacy'),help='Robot camera processing; must match the server')
     p.add_argument('--odometry-clock',type=Path,help='Independent measured clock calibration; no fabricated default')
     p.add_argument('--output',type=Path)
     p.add_argument('--print-command',action='store_true')
     args=p.parse_args(argv)
+    if args.depth_processing is not None and not args.robot:p.error('--depth-processing is a robot camera option')
     if args.guidance_scale is not None:
         import math
         if not math.isfinite(args.guidance_scale) or args.guidance_scale<=0:p.error('--guidance-scale must be finite and positive')

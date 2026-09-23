@@ -3,6 +3,14 @@
 From `/home/osher/hv2`, run **two terminals**. Setup once: [project README](../README.md).
 These commands include recording and live pelvis XYZ; no separate recorder is needed.
 
+For the new models, add [`--standing-hold`](standing-hold.md) to enable **Y**:
+after recovery settles, bypass planning with encoded standing intent.
+**A / SELECT** retain their existing stop behavior.
+
+The commands below retain the R8 models. For the new `s25r_diffusion` pair,
+use the [S25R guide](s25r.md): explicitly select `--depth-processing vigor_legacy`
+to use the same filtered stream below, or select raw processing in both terminals.
+
 ## Terminal 1: depth
 
 After updating the server, copy both standalone files once:

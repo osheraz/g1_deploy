@@ -23,6 +23,7 @@ It is not stored as a stack of repeated resized images.
 
 ```bash
 .venv/bin/python g1_deploy/steerable-recovery/replay.py RUN_NAME
+.venv/bin/python g1_deploy/steerable-recovery/replay.py RUN_NAME --speed 0.25 --loop
 .venv/bin/python g1_deploy/steerable-recovery/replay.py logs/real_world
 ```
 
@@ -31,6 +32,12 @@ also work. Forward port **8081** in VS Code and open **http://localhost:8081**.
 Playback, external camera and depth controls are at the top. XYZ uses recorded
 live odometry when available. Orange / missing sections retain estimator validity
 information; display smoothing does not establish position accuracy.
+
+**Play** and **Loop** are enabled by default. **Speed (×)** changes playback speed (0.25 = quarter speed,
+0.5 = half speed, 1 = normal); **Loop** repeats the selected recording.
+Robot motion, external camera and depth advance together. These options also
+work when browsing a folder and do not change saved videos or recovery marks.
+Uncheck either control to pause or stop looping; `--no-loop` disables looping at launch.
 
 Mark **start** and **standing / end**, then **Save & next recording**.
 Marks are saved in `RUN/review/recovery_interval.json`.

@@ -1,5 +1,9 @@
 # Pelvis-trajectory steering
 
+For Stanley's September 21 terrain examples and new S50R models, use
+[terrain gallery commands](terrain-steering.md). The `--route` examples below
+retain the earlier flat-ground models and targets.
+
 Three saved pelvis **XYZ + orientation trajectories**, all from the held
 **flat supine151** start. `--route 1|2|3` selects the trajectory.
 Depth remains the policy input; live LiDAR/DLIO supplies hardware pelvis feedback.
@@ -41,8 +45,13 @@ Replay the printed run name with `replay.py`; see [recording](recording.md).
   `--waypoints dense|coarse` overrides resolution without changing the route.
 - XYZ is **pelvis displacement since A**, in fixed initial-heading axes, +Z up.
   Target Z is a rise relative to the start, not height above the floor.
-- After the final waypoint, the final target persists. The policy keeps running;
-  endpoint guidance does not lock the joints or guarantee stationary standing.
+- Robot deployment automatically releases steering after upright IMU orientation
+  and extended hip/knee posture persist for 0.2 s. It stays unguided for the rest
+  of the run, including after a later stumble. Tracking and recording continue;
+  the current plan bridges the wait for the first unguided plan. The console
+  prints `Upright pose confirmed`; no extra flag is needed. See the
+  [terrain guide](terrain-steering.md) for the exact posture thresholds.
+  The source target itself retains its final waypoint; simulation is unchanged.
 - Guided planning uses **PyTorch for gradients** and the **TensorRT tracker**.
 - `--feedback estimated` opts into experimental, unqualified XYZ. Invalid or stale
   feedback can suspend steering while recovery continues unguided. Check the log

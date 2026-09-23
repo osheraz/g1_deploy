@@ -24,7 +24,7 @@ sys.path.insert(0,str(ROOT/'g1_deploy'))
 sys.path.insert(0,str(ROOT/'dependencies/isaac_utils'))
 
 from steerable_recovery.recording.session import DEFAULT_CAMERA, RESULTS_ROOT
-from steerable_recovery.settings import sampling_seed, model_settings, hardware_settings
+from steerable_recovery.settings import sampling_seed, model_settings, hardware_settings, MODEL_NAMES
 
 
 
@@ -71,8 +71,9 @@ def main(argv=None):
     from motion_diffusion.behavioral.hardware import bundle
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',type=Path,default=CONFIG_ROOT / 'models.yaml')
-    parser.add_argument('--model',choices=['p11_diffusion','r8_f50r_flow','r8_s25_diffusion','r8_s50r_diffusion','r2_f50r_flow','p05_diffusion','diffusion','flow'],
+    parser.add_argument('--model',choices=MODEL_NAMES,
         default='p11_diffusion')
+    parser.add_argument('--blend-ticks',type=int,help='Latent-plan overlap in 50 Hz control ticks; default uses the bundle recipe')
     parser.add_argument('--replan-hz',type=float,help='Planner rate, e.g. 2.5, 5 or 10 Hz; tracker stays 50 Hz; existing asynchronous horizon/age checks apply')
     parser.add_argument('--goal-json',type=Path,help='Stanley physical-clock steering goal; PyTorch planner + selected tracker backend; invalid measured XYZ falls back to unguided recovery')
     parser.add_argument('--guidance-scale',type=float,help='Override trajectory steering strength, e.g. 50 versus source 300; does not change motor PD gains')
@@ -87,11 +88,15 @@ def main(argv=None):
     parser.add_argument('--start-pose-seed',type=sampling_seed,help='Pose jitter seed, separate from planner --seed; default random when jitter is enabled')
     parser.add_argument('--check',action='store_true',help='Verify selected weights, PD binding and synthetic inference; no sensors or motors')
     parser.add_argument('--backend',choices=['pytorch','tensorrt','onnx'],help='Defaults to the selected model profile')
+    parser.add_argument('--depth-processing',choices=('raw','vigor','vigor_legacy'),
+        help='Require this server processing profile; explicitly permits filtered S25R deployment without changing its training contract')
     parser.add_argument('--planner-precision',choices=['fp32','tf32'],default='fp32',
         help='TensorRT engine precision only; PyTorch uses the bundle precision (P11: TF32)')
     parser.add_argument('--engine-mode',choices=['standard','buffered','cuda_graph'],default='cuda_graph')
     parser.add_argument('--command-limits',choices=['bounded','training'],default='bounded',
         help='Bound PD target jumps from the measured start (default); training selects the original direct targets')
+    parser.add_argument('--standing-hold',action='store_true',
+        help='Enable remote Y after get-up: 0.5 s transition to encoded standing intent; live tracker balances; latched until stop')
     parser.add_argument('--actuate',action='store_true')
     parser.add_argument('--preflight',action='store_true',help='Repeat live startup checks without motor output or takeover')
     parser.add_argument('--release-controller',action='store_true',
@@ -121,6 +126,7 @@ def main(argv=None):
         help='Explicit diagnostic mount candidate used by live odometry')
     parser.add_argument('--odometry-clock',type=Path,help='Independent clock calibration JSON; never infer qualification from arrival jitter')
     args=parser.parse_args(argv)
+    if args.standing_hold and args.default_pose:parser.error('--standing-hold requires policy deployment')
     if not math.isfinite(args.start_pose_jitter_deg) or args.start_pose_jitter_deg<0:
         parser.error('--start-pose-jitter-deg must be finite and nonnegative')
     if (args.start_pose_jitter_deg or args.start_pose_seed is not None) and not args.start_pose:
@@ -129,6 +135,9 @@ def main(argv=None):
         parser.error('--start-pose requires --actuate and a normal recovery session')
     config_path=args.config.resolve()
     settings=model_settings(_load_config(config_path),args.model)
+    if args.depth_processing is not None:
+        settings['camera']['processing']=args.depth_processing
+        print(f'Deployment depth processing: {args.depth_processing}; server must use the same mode.',flush=True)
     if args.backend is None:args.backend=settings.get('default_backend','tensorrt')
     if args.check and (args.actuate or args.release_controller or args.default_pose or args.preflight or args.live_odometry):
         parser.error('--check does not open sensors or control the robot')
@@ -176,7 +185,7 @@ def main(argv=None):
         hardware.update(pelvis_odometry_port=args.odometry_port,pelvis_odometry_mode=args.odometry_mode)
     replan_ticks=bundle.replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])
     config,receipt=bundle.resolve_session(root,manifest,args.model,config_path,hardware_config=hardware,
-        replan_ticks=replan_ticks,seed=args.seed,noise_policy=args.noise_policy,
+        replan_ticks=replan_ticks,blend_ticks=args.blend_ticks,seed=args.seed,noise_policy=args.noise_policy,
         guidance_scale=args.guidance_scale,
         guided_timing=settings.get('guided_timing') if args.goal_json else None,
         task='motion-command' if args.goal_json else 'recovery',goal_path=args.goal_json)
@@ -190,6 +199,9 @@ def main(argv=None):
         if args.steering_feedback=='estimated':
             print('Experimental XYZ: clock offset and dynamic accuracy are unqualified. This test does not certify either.',flush=True)
     config['startup_zero_torque']=bool(args.actuate)
+    config['standing_hold']=dict(enabled=args.standing_hold,frame='local',blend_s=.5,
+        trigger='remote_Y_rising_edge_after_A',reset='new_session',world_position_lock=False)
+    receipt['standing_hold']=config['standing_hold']
     receipt['startup_zero_torque']=bool(args.actuate)
     if args.start_pose:
         from motion_diffusion.behavioral.hardware.start_pose import load_start_pose,perturb_start_pose
@@ -219,6 +231,13 @@ def main(argv=None):
     if replan_ticks is not None:
         print(f'Requested planner cadence: {50/replan_ticks:g} Hz; actual replies remain subject to compute/transport latency.',flush=True)
     if args.check:
+        if args.standing_hold:
+            from motion_diffusion.behavioral.hardware.cli import load_controller,load_standing_reference
+            hold_controller=load_controller(dict(config,tracker_device='cpu',controller_engine=None))
+            hold_reference=load_standing_reference(config,hold_controller)
+            hold_reference.warmup()
+            print('Verified original standing encoder/normalizer and finite forward; Y enabled by this command.')
+            del hold_reference,hold_controller
         result=bundle.inspect_pair(bundle.asset_path(root,row['planner']),
             bundle.asset_path(root,row['controller']),config['planner_options'],row['objective'],sample=True)
         from motion_diffusion.behavioral.hardware.export_pd import derive_pd
@@ -230,9 +249,10 @@ def main(argv=None):
         print(f"Verified {args.model}: checkpoint hashes, paired contracts and CPU synthetic inference.")
         print(f"H{result['H']} / H_z{result['H_z']} / F{result['F']} / S{result['state_dim']} / Z{result['latent_dim']}; PD gains, default pose and action scales match tracker training.")
         options=config['planner_options']
+        guidance=options['motion_goal']['mode'] if options.get('motion_goal') else options['guidance']
         print(f"Planner: {options['sampler']}{options['num_inference_steps']}, EMA={options['use_ema']}, "
             f"{options['numerical_precision']}, {options['noise_policy']} noise, "
-            f"K{options['replan_every_ticks']}/blend{options['blend_ticks']}, {options['guidance']} guidance; "
+            f"K{options['replan_every_ticks']}/blend{options['blend_ticks']}, {guidance} guidance; "
             f"maximum reply age {config['max_plan_age_ticks']} ticks.")
         return
     live_odometry=None

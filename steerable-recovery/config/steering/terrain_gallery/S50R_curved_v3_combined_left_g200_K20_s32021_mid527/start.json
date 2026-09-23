@@ -1,0 +1,115 @@
+{
+  "schema": "hv2.recorded_sim_start.v1",
+  "joint_positions_rad": {
+    "left_hip_pitch_joint": -1.796759843826294,
+    "left_hip_roll_joint": -0.14947253465652466,
+    "left_hip_yaw_joint": 0.8400036096572876,
+    "left_knee_joint": 2.1542551517486572,
+    "left_ankle_pitch_joint": -0.15612360835075378,
+    "left_ankle_roll_joint": -0.06118779256939888,
+    "right_hip_pitch_joint": -1.0859743356704712,
+    "right_hip_roll_joint": -0.3453206419944763,
+    "right_hip_yaw_joint": -0.039532676339149475,
+    "right_knee_joint": 0.9149205684661865,
+    "right_ankle_pitch_joint": -0.14709503948688507,
+    "right_ankle_roll_joint": 0.1264517903327942,
+    "waist_yaw_joint": 0.9600542783737183,
+    "waist_roll_joint": 0.4122403860092163,
+    "waist_pitch_joint": 0.22268709540367126,
+    "left_shoulder_pitch_joint": -0.3073717951774597,
+    "left_shoulder_roll_joint": 0.5090948343276978,
+    "left_shoulder_yaw_joint": -0.11328542977571487,
+    "left_elbow_joint": -1.0475289821624756,
+    "left_wrist_roll_joint": -0.01769007369875908,
+    "left_wrist_pitch_joint": -0.0724489837884903,
+    "left_wrist_yaw_joint": 0.0166227538138628,
+    "right_shoulder_pitch_joint": -0.9764589071273804,
+    "right_shoulder_roll_joint": -0.37919381260871887,
+    "right_shoulder_yaw_joint": 0.23953506350517273,
+    "right_elbow_joint": 0.07068749517202377,
+    "right_wrist_roll_joint": 0.0017865659901872277,
+    "right_wrist_pitch_joint": -0.05301761254668236,
+    "right_wrist_yaw_joint": -0.031056849285960197
+  },
+  "joint_velocities_rad_s": {
+    "left_hip_pitch_joint": 0.0,
+    "left_hip_roll_joint": 0.0,
+    "left_hip_yaw_joint": 0.0,
+    "left_knee_joint": 0.0,
+    "left_ankle_pitch_joint": 0.0,
+    "left_ankle_roll_joint": 0.0,
+    "right_hip_pitch_joint": 0.0,
+    "right_hip_roll_joint": 0.0,
+    "right_hip_yaw_joint": 0.0,
+    "right_knee_joint": 0.0,
+    "right_ankle_pitch_joint": 0.0,
+    "right_ankle_roll_joint": 0.0,
+    "waist_yaw_joint": 0.0,
+    "waist_roll_joint": 0.0,
+    "waist_pitch_joint": 0.0,
+    "left_shoulder_pitch_joint": 0.0,
+    "left_shoulder_roll_joint": 0.0,
+    "left_shoulder_yaw_joint": 0.0,
+    "left_elbow_joint": 0.0,
+    "left_wrist_roll_joint": 0.0,
+    "left_wrist_pitch_joint": 0.0,
+    "left_wrist_yaw_joint": 0.0,
+    "right_shoulder_pitch_joint": 0.0,
+    "right_shoulder_roll_joint": 0.0,
+    "right_shoulder_yaw_joint": 0.0,
+    "right_elbow_joint": 0.0,
+    "right_wrist_roll_joint": 0.0,
+    "right_wrist_pitch_joint": 0.0,
+    "right_wrist_yaw_joint": 0.0
+  },
+  "root_position_m": [
+    -0.31094932556152344,
+    0.4818534851074219,
+    -0.031669437885284424
+  ],
+  "root_quat_xyzw": [
+    -0.06564633548259735,
+    -0.411775678396225,
+    0.7898796200752258,
+    -0.44969049096107483
+  ],
+  "root_linear_velocity_world_m_s": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "root_angular_velocity_world_rad_s": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "terrain": {
+    "cache": "logs/native_recovery/terrain_turn_gallery_20260921/campaign/data/terrain_sim.npz",
+    "sha256": "4859e4536e51d33b3c8304695472e39020176ba89bee9be29055bed3e60d4d77",
+    "tile": [
+      8,
+      1
+    ],
+    "family": "lab_stairs",
+    "seed": 251,
+    "source_origin_xyz_m": [
+      12.5,
+      -52.5,
+      0.45719999074935913
+    ]
+  },
+  "source": {
+    "run_id": "S50R_curved_v3_combined_left_g200_K20_s32021_mid527",
+    "source_commit": "230d6e8f5c3ba81f2c69f86dedc4136413500359",
+    "source_model": "S50R",
+    "motion_id": 527,
+    "case_index": 41,
+    "source_batch_size": 48,
+    "plan_sha256": "b46aed43ae67983b658ae92f535b1f3974eee4f56cecdb3636a12656a7cca4d5",
+    "options_sha256": "4cc9f7a623921239e15fcf8ee337d4bc38f0c8827027589c364094a033e529d6",
+    "targets_sha256": "1acc911381a027198f68aef73afc7cb113a50bd02dd9f58439c3d6a772db141c",
+    "terrain_sha256": "4859e4536e51d33b3c8304695472e39020176ba89bee9be29055bed3e60d4d77",
+    "schedule_changes": "None. Exact lane, costs, physical timing and terminal behavior.",
+    "scope": "Single-robot MuJoCo/hardware adaptation; original Isaac batch/DR is not reproduced."
+  }
+}

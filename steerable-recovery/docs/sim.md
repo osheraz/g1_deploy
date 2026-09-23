@@ -3,6 +3,11 @@
 Run from `/home/osher/hv2` with a graphical display. No robot connection is needed.
 These live commands do not record video or impose a ten-second cutoff.
 
+New September 21 pair: [S25R40k + P42/22k commands and depth contract](s25r.md).
+
+Optional [Y: encoded standing hold](standing-hold.md), tested in simulation with
+the new S25R and S50R causal models; also available as an opt-in robot mode.
+
 ## Flat, fixed starting joints
 
 Choose one; replace `prone` with `supine` for face-up recovery:

@@ -18,8 +18,8 @@ def highlight_directory(session):
 
 
 def highlight_picks(highlight):
-    """Your picked frames NN_*.png (or NN_*.jpg), in order."""
-    return sorted(p for p in highlight.glob('[0-9][0-9]_*') if p.suffix.lower() in ('.png','.jpg','.jpeg'))
+    """Your picked frames frames/NN_*.png (or NN_*.jpg), in order."""
+    return sorted(p for p in (highlight/'frames').glob('[0-9][0-9]_*') if p.suffix.lower() in ('.png','.jpg','.jpeg'))
 
 
 def people_mask(image,moving=None):
@@ -125,14 +125,14 @@ def robot_windows(frames,masks,pad=60):
 
 
 def export_overlay(session,recording,review,*,opacity=(.4,.7)):
-    """Motion overlays from the highlight frames you picked (real_world_hightlight/<run>/NN_*.png).
+    """Motion overlays from the highlight frames you picked (real_world_hightlight/<run>/frames/NN_*.png).
 
     The scene is the per-pixel median of the picks. Each pick's robot is cut out as
     where that pick differs from the scene (people excluded) and pasted onto the
     scene with a feathered edge: earlier picks at rising opacity, the last pick fully
     opaque. overlay_12345 uses all picks; every subset keeping the first and last
     pick is written too (overlay_15, overlay_135, overlay_1245, ...). overlay =
-    overlay_12345. PNGs go to the highlight folder, JPEGs to review/.
+    overlay_12345. PNGs go to the highlight run's overlays/, JPEGs to review/.
     """
     import cv2,itertools,numpy as np,shutil
     highlight=highlight_directory(session)
@@ -143,7 +143,8 @@ def export_overlay(session,recording,review,*,opacity=(.4,.7)):
     signature=[[p.name,p.stat().st_size] for p in picks];method=f'cutout_evidence_{opacity[0]:g}_{opacity[1]:g}'
     previous=read_json(marker)
     if previous.get('picks')==signature and previous.get('method')==method and (review/'overlay.jpg').is_file():return str(review/'overlay.jpg')
-    for folder in (review,highlight):
+    overlays=highlight/'overlays';overlays.mkdir(exist_ok=True)
+    for folder in (review,overlays):
         for stale in list(folder.glob('overlay*.jpg'))+list(folder.glob('overlay*.png'))+list(folder.glob('keyframes*.jpg')):stale.unlink()
     frames=[cv2.imread(str(p)) for p in picks]
     scene,masks=robot_cutouts(frames);floats=[f.astype(np.float32) for f in frames];x0,y0,x1,y1=robot_box(frames,masks)
@@ -157,8 +158,8 @@ def export_overlay(session,recording,review,*,opacity=(.4,.7)):
             alpha=masks[keys[-1]];canvas=(1-alpha)*canvas+alpha*floats[keys[-1]]
             image=canvas.astype(np.uint8)[y0:y1,x0:x1]
             cv2.imwrite(str(review/f'{name}.jpg'),image,[cv2.IMWRITE_JPEG_QUALITY,92])
-            cv2.imwrite(str(highlight/f'{name}.png'),image,[cv2.IMWRITE_PNG_COMPRESSION,3]);written.append(name)
-    for folder,ext in ((review,'jpg'),(highlight,'png')):shutil.copy(folder/f'{written[-1]}.{ext}',folder/f'overlay.{ext}')
+            cv2.imwrite(str(overlays/f'{name}.png'),image,[cv2.IMWRITE_PNG_COMPRESSION,3]);written.append(name)
+    for folder,ext in ((review,'jpg'),(overlays,'png')):shutil.copy(folder/f'{written[-1]}.{ext}',folder/f'overlay.{ext}')
     marker.write_text(json.dumps(dict(picks=signature,method=method,overlays=written,
         note='Robot cut-outs from the highlight picks pasted onto the median scene; earlier picks at '
              f'{opacity[0]:g}-{opacity[1]:g} opacity (oldest lowest), the last pick opaque; people excluded. '
@@ -170,7 +171,7 @@ def export_strip(session,recording,review,*,width=384,gap=8):
     """strip_12345: the highlight picks side by side, left to right, each `width` px
     wide, white gaps; every subset keeping the first and last pick is written too.
     strip = all picks. Each thumbnail is the same-size window centred on that pick's
-    robot. PNGs go to the highlight folder, JPEGs to review/."""
+    robot. PNGs go to the highlight run's strips/, JPEGs to review/."""
     import cv2,itertools,numpy as np,shutil
     highlight=highlight_directory(session)
     if highlight is None:return None
@@ -179,7 +180,8 @@ def export_strip(session,recording,review,*,width=384,gap=8):
     signature=[[p.name,p.stat().st_size] for p in picks];marker=review/'strip.json';method=f'strip_evidence_{width}_{gap}'
     previous=read_json(marker)
     if previous.get('picks')==signature and previous.get('method')==method and (review/'strip.jpg').is_file():return str(review/'strip.jpg')
-    for folder in (review,highlight):
+    strips=highlight/'strips';strips.mkdir(exist_ok=True)
+    for folder in (review,strips):
         for stale in list(folder.glob('strip*.jpg'))+list(folder.glob('strip*.png')):stale.unlink()
     frames=[cv2.imread(str(p)) for p in picks]
     _,masks=robot_cutouts(frames);windows=robot_windows(frames,masks)
@@ -195,8 +197,8 @@ def export_strip(session,recording,review,*,width=384,gap=8):
             for k in keys:parts+=[thumbs[k],spacer]
             image=np.hstack(parts[:-1])
             cv2.imwrite(str(review/f'{name}.jpg'),image,[cv2.IMWRITE_JPEG_QUALITY,92])
-            cv2.imwrite(str(highlight/f'{name}.png'),image,[cv2.IMWRITE_PNG_COMPRESSION,3]);written.append(name)
-    for folder,ext in ((review,'jpg'),(highlight,'png')):shutil.copy(folder/f'{written[-1]}.{ext}',folder/f'strip.{ext}')
+            cv2.imwrite(str(strips/f'{name}.png'),image,[cv2.IMWRITE_PNG_COMPRESSION,3]);written.append(name)
+    for folder,ext in ((review,'jpg'),(strips,'png')):shutil.copy(folder/f'{written[-1]}.{ext}',folder/f'strip.{ext}')
     marker.write_text(json.dumps(dict(picks=signature,method=method,strips=written,
         windows=[[int(v) for v in w] for w in windows],
         note='Highlight picks side by side, left to right, each in a same-size window centred on the robot. '

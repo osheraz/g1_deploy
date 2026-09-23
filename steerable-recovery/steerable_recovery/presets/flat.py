@@ -42,6 +42,8 @@ def command_for(args, catalog):
             cmd += ['--live-odometry']
         if args.external_camera:
             cmd += ['--external-camera', '--camera-size', '1920x1080', '--camera-fps', '30']
+        if getattr(args,'depth_processing',None) is not None:
+            cmd += ['--depth-processing',args.depth_processing]
     else:
         cmd = [sys.executable, str(PACKAGE_ROOT / 'cli/sim.py'), *common,
                '--terrain', 'flat', '--start', args.start,
@@ -64,6 +66,7 @@ def command_for(args, catalog):
         cmd += ['--start-pose-jitter-deg', str(args.start_pose_jitter_deg)]
         if args.start_pose_seed is not None:
             cmd += ['--start-pose-seed', str(args.start_pose_seed)]
+    if getattr(args,'standing_hold',False):cmd+=['--standing-hold']
     return cmd
 
 
@@ -77,14 +80,18 @@ def main(argv=None):
     p.add_argument('--catalog', type=Path, default=DEFAULT_CATALOG)
     p.add_argument('--seed', help='Override selected example: integer or random')
     p.add_argument('--replan-hz', type=float, help='Override the evaluated rate; changes the result')
+    p.add_argument('--standing-hold',action='store_true',help='Y: encoded standing intent after recovery (robot or simulation)')
     p.add_argument('--start-pose-jitter-deg', type=float, default=0., help='Optional nearby-start experiment, up to +/-5 degrees')
     p.add_argument('--start-pose-seed', help='Independent joint-perturbation seed')
     p.add_argument('--seconds', type=float, help='Default: unlimited viewer; 60 seconds on robot')
     p.add_argument('--output', type=Path)
     p.add_argument('--external-camera', action=argparse.BooleanOptionalAction, default=True)
     p.add_argument('--live-odometry', action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument('--depth-processing',choices=('raw','vigor','vigor_legacy'),help='Robot camera processing; must match the server')
     p.add_argument('--print-command', action='store_true', help='Print only; no models, sensors or motor commands')
     args = p.parse_args(argv)
+    if args.depth_processing is not None and not args.robot:
+        p.error('--depth-processing is a robot camera option')
     if not 0 <= args.start_pose_jitter_deg <= 5:
         p.error('--start-pose-jitter-deg must be between 0 and 5')
     if args.start_pose_seed is not None and not args.start_pose_jitter_deg:

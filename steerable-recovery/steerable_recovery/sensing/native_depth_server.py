@@ -108,7 +108,7 @@ class ClockServer:
 
 
 def packet(depth, *, serial, scale, intrinsics, stamp, domain, sequence,
-           processing='raw', processing_config=None, processing_ms=0., encoding='png'):
+           processing='raw', processing_config=None, processing_ms=0., encoding='png',sensor_provenance=None):
     """Lossless wire packet; hardware/global timestamps are never receipt time."""
     if depth.dtype != np.uint16 or depth.ndim != 2:
         raise ValueError('Expected uint16 optical-axis depth')
@@ -117,6 +117,9 @@ def packet(depth, *, serial, scale, intrinsics, stamp, domain, sequence,
         clock_domain=domain, sequence=sequence, depth_scale_m=scale,
         intrinsics=[intrinsics.fx, intrinsics.fy, intrinsics.ppx, intrinsics.ppy],
         distortion_coefficients=list(intrinsics.coeffs))
+    if sensor_provenance is not None:
+        header.update(sensor_provenance=sensor_provenance)
+        if processing=='raw':header['depth_protocol']='hv2.planner_metric_depth_condition.v3'
     if processing != 'raw':
         header.update(processing_config=processing_config or (POLICY_PROFILE if processing=='vigor' else VIGOR_PROFILE),
                       processing_ms=float(processing_ms))
@@ -238,6 +241,17 @@ def main():
         processing_config=dict(POLICY_PROFILE if args.processing=='vigor' else VIGOR_PROFILE,
                                sdk_version=version('pyrealsense2'))
         scale=float(sensor.get_depth_scale())
+        device=profile.get_device()
+        def option(name):
+            key=getattr(rs.option,name)
+            return float(sensor.get_option(key)) if sensor.supports(key) else None
+        sensor_provenance=dict(serial=args.serial,
+            firmware=device.get_info(rs.camera_info.firmware_version),
+            visual_preset=option('visual_preset'),emitter_enabled=option('emitter_enabled'),
+            exposure=option('exposure'),enable_auto_exposure=option('enable_auto_exposure'),
+            depth_scale_m=scale,intrinsics=[intrinsics.fx,intrinsics.fy,intrinsics.ppx,intrinsics.ppy],
+            processing=PROCESSING[args.processing],resolution=[640,480],format='z16',rate_hz=30,
+            sdk_version=version('pyrealsense2'))
         print(f'Depth on {args.bind}: serial={args.serial}, 640x480 @ 30 Hz, '
               f'processing={args.processing}, async {args.encoding} publisher, '
               f'payload cap={args.max_mbps:g} Mb/s (0: unlimited). No motors.', flush=True)
@@ -260,13 +274,16 @@ def main():
             if args.processing=='vigor':
                 pixels=preserve_source_categories(np.asanyarray(frame.get_data()),pixels,scale)
             processing_ms=(time.perf_counter()-began)*1000
+            exposure=(float(frame.get_frame_metadata(rs.frame_metadata_value.actual_exposure))
+                if frame.supports_frame_metadata(rs.frame_metadata_value.actual_exposure) else option('exposure'))
             # Exposure time and sequence belong to the original camera frame,
             # never the completion time of filtering or PNG encoding.
             publisher.offer(pixels,
                 serial=args.serial, scale=scale, intrinsics=intrinsics,
                 stamp=float(frame.get_timestamp()) * .001, domain=domain,
                 sequence=int(frame.get_frame_number()),processing=args.processing,
-                processing_config=processing_config,processing_ms=processing_ms)
+                processing_config=processing_config,processing_ms=processing_ms,
+                sensor_provenance=dict(sensor_provenance,exposure=exposure))
     except KeyboardInterrupt:
         pass
     finally:

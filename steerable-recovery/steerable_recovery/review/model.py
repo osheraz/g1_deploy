@@ -88,12 +88,21 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
 
     if component in ('all', 'tracker'):
         controller = load_controller(config)
+        from motion_diffusion.behavioral.hardware.cli import load_standing_reference
+        standing=load_standing_reference(config,controller)
         verify_engines('control', controller)
         limiter = None
         if config.get('command_limits', {}).get('mode') == 'bounded':
             limiter = PDTargetLimiter(**config['command_limits']['parameters'])
         generation = None
         for row in read_trace(directory/'control'):
+            if row['kind']=='standing_hold_start':
+                if standing is None or row['controller_sha256']!=controller.checkpoint_sha256:
+                    raise ValueError('Standing encoder activation lacks the bound checkpoint/config')
+                inputs={k:torch.from_numpy(v).to(controller.device) if isinstance(v,np.ndarray) else v
+                        for k,v in row['reference'].items()}
+                standing.reset();standing.activate(**inputs)
+                continue
             if row['kind'] != 'tracker' or row['preview']: continue
             if max_calls and len(report['tracker']) >= max_calls: continue
             checks = {}
@@ -104,6 +113,13 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
                 item.update(passed=False, error='Recorded tracker call did not complete')
                 continue
             try:
+                execution=row.get('execution') or {}
+                if execution.get('mode')=='standing_hold':
+                    if standing is None or not standing.active:
+                        raise ValueError('Missing recorded standing-reference activation')
+                    encoded=standing(row['monotonic_s'],torch.zeros(1,3,device=controller.device),
+                        torch.tensor([execution['heading_rad']],device=controller.device))
+                    checks['standing_native_code']=compare(encoded,row['native_code'],atol=atol,rtol=rtol)
                 depth = _ipc_tensors(restore_depth(row['depth'],controller.depth_config))
                 kwargs = {} if depth is None else dict(depth_frames=depth['frames'],
                     depth_metadata=depth['metadata'], depth_available=depth['available'])

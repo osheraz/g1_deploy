@@ -1,0 +1,103 @@
+{
+  "schema": "hv2.hardware_motion_goal.v1",
+  "clock": "physical_elapsed_s",
+  "frame": "initial_pelvis_origin_causal_heading",
+  "mode": "waypoint_pose",
+  "guidance_scale": 5000.0,
+  "guidance_max_grad_norm": 1.0,
+  "position_error_scale_m": 0.12,
+  "yaw_error_scale_deg": 12.0,
+  "target": {
+    "pose_waypoints": {
+      "schema": "hv2.pose_waypoints.v1",
+      "clock": "physical_elapsed_s",
+      "frame": "initial_pelvis_origin_causal_heading",
+      "rotation_convention": "xyzw_body_to_initial_heading",
+      "times_s": [
+        0.0,
+        0.36,
+        2.34,
+        3.0
+      ],
+      "positions_m": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.014089869644636767,
+          -0.0042652162608511,
+          -0.13667580112814903
+        ],
+        [
+          0.006594132500616253,
+          -0.0036926409364652834,
+          -0.13855015113949776
+        ],
+        [
+          -0.03476407055131938,
+          -0.01012964397231533,
+          -0.09577938169240952
+        ]
+      ],
+      "quaternion_xyzw": [
+        [
+          0.6650757874045424,
+          -0.0009953091741245132,
+          0.7465761864910269,
+          0.017239609403673747
+        ],
+        [
+          0.7295348161426833,
+          0.06527617648973244,
+          0.6797111857297268,
+          0.03886742611019467
+        ],
+        [
+          0.7257277755816602,
+          0.04619144992977979,
+          0.685795098568467,
+          0.02950641425430659
+        ],
+        [
+          0.5424352692488614,
+          -0.01479414863320229,
+          0.8320772319350406,
+          0.11485900894773012
+        ]
+      ],
+      "position_deadband_m": 0.035,
+      "rotation_deadband_deg": 5.0,
+      "rotation_error_scale_deg": 30.0,
+      "rotation_weight": 2.0,
+      "active_until_s": 3.0
+    }
+  },
+  "execution": {
+    "release_after_s": 3.0,
+    "ramp_s": 0.0,
+    "release_on_upright": false
+  },
+  "provenance": {
+    "run_id": "l_flat_minimal_g5000_s60001_mid1390",
+    "source_commit": "b9f2f7eb6c64ba30d58e1c25be8f56579e4a0d50",
+    "source_model": "S50R",
+    "planner_sha256": "02c2ef96ac30a60c5d8dfea5d20b3cc08654fb10ebd6b9f198e515dc18342fcd",
+    "tracker_sha256": "860784ab07a1a521e2532e326151260f5cf44451482ff91e293af526bd144703",
+    "motion_id": 1390,
+    "case_index": 25,
+    "source_batch_size": 48,
+    "plan_sha256": "8efb64d72d2a60449d61df96ab3e6deecc7b0ea32edbcc19c68f6a568b4a2c13",
+    "options_sha256": "5181103920f866b6fcf5518134f4b928f651eec5d769b7f37f4d6c1d0bb94189",
+    "targets_sha256": "f267156ad74dd1d6d3a5d9964bf581eec88967cf682c2907dab58c5686218787",
+    "starts_sha256": "c31009549007d8e0e90cd196a11b9164cc6e3200ae6c29fac04bcd7ddc3c0496",
+    "terrain_sha256": "7206d5a2145de39e5559cb3e8ce5e852a24d392b37e51dc5d2ce80ea3b15ed86",
+    "behavior_axis": "initial_spine",
+    "start_id": "flat25",
+    "edge": "flat_ground",
+    "scope": "Single-robot adaptation with measured feedback and asynchronous plans; not exact Isaac batch/DR replay.",
+    "source_set": "robust_set_02"
+  },
+  "hardware_qualified": false
+}

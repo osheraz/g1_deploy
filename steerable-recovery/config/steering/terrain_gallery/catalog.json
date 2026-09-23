@@ -1,0 +1,737 @@
+{
+  "schema": "hv2.terrain_gallery.v1",
+  "source_commit": "230d6e8f5c3ba81f2c69f86dedc4136413500359",
+  "cache": "/home/osher/hv2/logs/native_recovery/terrain_turn_gallery_20260921",
+  "aliases": {
+    "turn_01": [
+      "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid505",
+      "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid505"
+    ],
+    "turn_01_left": [
+      "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid505"
+    ],
+    "turn_01_right": [
+      "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid505"
+    ],
+    "turn_02": [
+      "S50R_curved_v3_combined_left_g200_K20_s32021_mid527",
+      "S50R_curved_v3_combined_right_g200_K20_s32021_mid527"
+    ],
+    "turn_02_left": [
+      "S50R_curved_v3_combined_left_g200_K20_s32021_mid527"
+    ],
+    "turn_02_right": [
+      "S50R_curved_v3_combined_right_g200_K20_s32021_mid527"
+    ],
+    "turn_03": [
+      "S50R_CAUSAL_curved_v3_combined_left_g200_K20_s32021_mid114",
+      "S50R_CAUSAL_curved_v3_combined_right_g200_K20_s32021_mid114"
+    ],
+    "turn_03_left": [
+      "S50R_CAUSAL_curved_v3_combined_left_g200_K20_s32021_mid114"
+    ],
+    "turn_03_right": [
+      "S50R_CAUSAL_curved_v3_combined_right_g200_K20_s32021_mid114"
+    ],
+    "turn_04": [
+      "S50R_H3_expand48_combined_left_g300_K20_s32021_mid605",
+      "S50R_H3_expand48_combined_right_g300_K20_s32021_mid605"
+    ],
+    "turn_04_left": [
+      "S50R_H3_expand48_combined_left_g300_K20_s32021_mid605"
+    ],
+    "turn_04_right": [
+      "S50R_H3_expand48_combined_right_g300_K20_s32021_mid605"
+    ],
+    "turn_05": [
+      "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid1671",
+      "S50R_RECOVERY_curved_v3_combined_right_g200_K20_s32021_mid1671"
+    ],
+    "turn_05_left": [
+      "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid1671"
+    ],
+    "turn_05_right": [
+      "S50R_RECOVERY_curved_v3_combined_right_g200_K20_s32021_mid1671"
+    ],
+    "turn_06": [
+      "S50R_CAUSAL_expand48_combined_left_g100_K20_s32021_mid1034",
+      "S50R_CAUSAL_curved_v3_waypoint_pose_right_g100_K20_s32021_mid1034"
+    ],
+    "turn_06_left": [
+      "S50R_CAUSAL_expand48_combined_left_g100_K20_s32021_mid1034"
+    ],
+    "turn_06_right": [
+      "S50R_CAUSAL_curved_v3_waypoint_pose_right_g100_K20_s32021_mid1034"
+    ],
+    "turn_07": [
+      "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid505",
+      "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid505"
+    ],
+    "turn_07_left": [
+      "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid505"
+    ],
+    "turn_07_right": [
+      "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid505"
+    ],
+    "turn_08": [
+      "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid505",
+      "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid505"
+    ],
+    "turn_08_left": [
+      "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid505"
+    ],
+    "turn_08_right": [
+      "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid505"
+    ],
+    "turn_09": [
+      "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid114",
+      "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid114"
+    ],
+    "turn_09_left": [
+      "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid114"
+    ],
+    "turn_09_right": [
+      "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid114"
+    ],
+    "turn_10": [
+      "S50R_curved_v3_combined_left_g200_K20_s32021_mid114",
+      "S50R_curved_v3_combined_right_g200_K20_s32021_mid114"
+    ],
+    "turn_10_left": [
+      "S50R_curved_v3_combined_left_g200_K20_s32021_mid114"
+    ],
+    "turn_10_right": [
+      "S50R_curved_v3_combined_right_g200_K20_s32021_mid114"
+    ],
+    "turn_11": [
+      "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid114",
+      "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid114"
+    ],
+    "turn_11_left": [
+      "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid114"
+    ],
+    "turn_11_right": [
+      "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid114"
+    ],
+    "turn_12": [
+      "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid114",
+      "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid114"
+    ],
+    "turn_12_left": [
+      "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid114"
+    ],
+    "turn_12_right": [
+      "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid114"
+    ],
+    "turn_10_minimal": [
+      "S50R_neutral_v4_combined_g200_K20_s32021_mid114"
+    ],
+    "turn_10_trio": [
+      "S50R_curved_v3_combined_left_g200_K20_s32021_mid114",
+      "S50R_curved_v3_combined_right_g200_K20_s32021_mid114",
+      "S50R_neutral_v4_combined_g200_K20_s32021_mid114"
+    ],
+    "supine_01_left": [
+      "S50R_INV10_supine_early_pose_left_g200_K20_s43021_mid520"
+    ],
+    "supine_01_right": [
+      "S50R_INV10_supine_curve_right_g600_K20_s43021_mid520"
+    ],
+    "supine_03_left": [
+      "S50R_GEOMETRY_supine_fast_pose_left_g600_K20_s43021_mid248"
+    ],
+    "supine_03_right": [
+      "S50R_GEOMETRY_supine_curve_right_g600_K20_s43021_mid248"
+    ],
+    "supine_01": [
+      "S50R_INV10_supine_early_pose_left_g200_K20_s43021_mid520",
+      "S50R_INV10_supine_curve_right_g600_K20_s43021_mid520"
+    ],
+    "supine_03": [
+      "S50R_GEOMETRY_supine_fast_pose_left_g600_K20_s43021_mid248",
+      "S50R_GEOMETRY_supine_curve_right_g600_K20_s43021_mid248"
+    ]
+  },
+  "runs": {
+    "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid505": {
+      "model": "s50r_geometry_diffusion",
+      "source_model": "S50R_GEOMETRY",
+      "direction": "left",
+      "motion_id": 505,
+      "terrain": "lab_landing",
+      "tile": [
+        10,
+        2
+      ],
+      "posture": "prone",
+      "goal": "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid505/goal.json",
+      "start": "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid505/start.json",
+      "robot_pose": "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid505/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid505": {
+      "model": "s50r_geometry_diffusion",
+      "source_model": "S50R_GEOMETRY",
+      "direction": "right",
+      "motion_id": 505,
+      "terrain": "lab_landing",
+      "tile": [
+        10,
+        2
+      ],
+      "posture": "prone",
+      "goal": "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid505/goal.json",
+      "start": "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid505/start.json",
+      "robot_pose": "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid505/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_curved_v3_combined_left_g200_K20_s32021_mid527": {
+      "model": "s50r_diffusion",
+      "source_model": "S50R",
+      "direction": "left",
+      "motion_id": 527,
+      "terrain": "lab_stairs",
+      "tile": [
+        8,
+        1
+      ],
+      "posture": "prone",
+      "goal": "S50R_curved_v3_combined_left_g200_K20_s32021_mid527/goal.json",
+      "start": "S50R_curved_v3_combined_left_g200_K20_s32021_mid527/start.json",
+      "robot_pose": "S50R_curved_v3_combined_left_g200_K20_s32021_mid527/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_curved_v3_combined_right_g200_K20_s32021_mid527": {
+      "model": "s50r_diffusion",
+      "source_model": "S50R",
+      "direction": "right",
+      "motion_id": 527,
+      "terrain": "lab_stairs",
+      "tile": [
+        8,
+        1
+      ],
+      "posture": "prone",
+      "goal": "S50R_curved_v3_combined_right_g200_K20_s32021_mid527/goal.json",
+      "start": "S50R_curved_v3_combined_right_g200_K20_s32021_mid527/start.json",
+      "robot_pose": "S50R_curved_v3_combined_right_g200_K20_s32021_mid527/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_CAUSAL_curved_v3_combined_left_g200_K20_s32021_mid114": {
+      "model": "s50r_causal_diffusion",
+      "source_model": "S50R_CAUSAL",
+      "direction": "left",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_CAUSAL_curved_v3_combined_left_g200_K20_s32021_mid114/goal.json",
+      "start": "S50R_CAUSAL_curved_v3_combined_left_g200_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_CAUSAL_curved_v3_combined_left_g200_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_CAUSAL_curved_v3_combined_right_g200_K20_s32021_mid114": {
+      "model": "s50r_causal_diffusion",
+      "source_model": "S50R_CAUSAL",
+      "direction": "right",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_CAUSAL_curved_v3_combined_right_g200_K20_s32021_mid114/goal.json",
+      "start": "S50R_CAUSAL_curved_v3_combined_right_g200_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_CAUSAL_curved_v3_combined_right_g200_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_H3_expand48_combined_left_g300_K20_s32021_mid605": {
+      "model": "s50r_h3_diffusion",
+      "source_model": "S50R_H3",
+      "direction": "left",
+      "motion_id": 605,
+      "terrain": "lab_stagger_left",
+      "tile": [
+        6,
+        12
+      ],
+      "posture": "prone",
+      "goal": "S50R_H3_expand48_combined_left_g300_K20_s32021_mid605/goal.json",
+      "start": "S50R_H3_expand48_combined_left_g300_K20_s32021_mid605/start.json",
+      "robot_pose": "S50R_H3_expand48_combined_left_g300_K20_s32021_mid605/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 300.0,
+      "max_ticks": 500
+    },
+    "S50R_H3_expand48_combined_right_g300_K20_s32021_mid605": {
+      "model": "s50r_h3_diffusion",
+      "source_model": "S50R_H3",
+      "direction": "right",
+      "motion_id": 605,
+      "terrain": "lab_stagger_left",
+      "tile": [
+        6,
+        12
+      ],
+      "posture": "prone",
+      "goal": "S50R_H3_expand48_combined_right_g300_K20_s32021_mid605/goal.json",
+      "start": "S50R_H3_expand48_combined_right_g300_K20_s32021_mid605/start.json",
+      "robot_pose": "S50R_H3_expand48_combined_right_g300_K20_s32021_mid605/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 300.0,
+      "max_ticks": 500
+    },
+    "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid1671": {
+      "model": "s50r_recovery_diffusion",
+      "source_model": "S50R_RECOVERY",
+      "direction": "left",
+      "motion_id": 1671,
+      "terrain": "lab_long",
+      "tile": [
+        9,
+        8
+      ],
+      "posture": "prone",
+      "goal": "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid1671/goal.json",
+      "start": "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid1671/start.json",
+      "robot_pose": "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid1671/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 100.0,
+      "max_ticks": 500
+    },
+    "S50R_RECOVERY_curved_v3_combined_right_g200_K20_s32021_mid1671": {
+      "model": "s50r_recovery_diffusion",
+      "source_model": "S50R_RECOVERY",
+      "direction": "right",
+      "motion_id": 1671,
+      "terrain": "lab_long",
+      "tile": [
+        9,
+        8
+      ],
+      "posture": "prone",
+      "goal": "S50R_RECOVERY_curved_v3_combined_right_g200_K20_s32021_mid1671/goal.json",
+      "start": "S50R_RECOVERY_curved_v3_combined_right_g200_K20_s32021_mid1671/start.json",
+      "robot_pose": "S50R_RECOVERY_curved_v3_combined_right_g200_K20_s32021_mid1671/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_CAUSAL_expand48_combined_left_g100_K20_s32021_mid1034": {
+      "model": "s50r_causal_diffusion",
+      "source_model": "S50R_CAUSAL",
+      "direction": "left",
+      "motion_id": 1034,
+      "terrain": "lab_stagger_right",
+      "tile": [
+        0,
+        2
+      ],
+      "posture": "prone",
+      "goal": "S50R_CAUSAL_expand48_combined_left_g100_K20_s32021_mid1034/goal.json",
+      "start": "S50R_CAUSAL_expand48_combined_left_g100_K20_s32021_mid1034/start.json",
+      "robot_pose": "S50R_CAUSAL_expand48_combined_left_g100_K20_s32021_mid1034/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 100.0,
+      "max_ticks": 500
+    },
+    "S50R_CAUSAL_curved_v3_waypoint_pose_right_g100_K20_s32021_mid1034": {
+      "model": "s50r_causal_diffusion",
+      "source_model": "S50R_CAUSAL",
+      "direction": "right",
+      "motion_id": 1034,
+      "terrain": "lab_stagger_right",
+      "tile": [
+        0,
+        2
+      ],
+      "posture": "prone",
+      "goal": "S50R_CAUSAL_curved_v3_waypoint_pose_right_g100_K20_s32021_mid1034/goal.json",
+      "start": "S50R_CAUSAL_curved_v3_waypoint_pose_right_g100_K20_s32021_mid1034/start.json",
+      "robot_pose": "S50R_CAUSAL_curved_v3_waypoint_pose_right_g100_K20_s32021_mid1034/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "waypoint_pose",
+      "gain": 100.0,
+      "max_ticks": 500
+    },
+    "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid505": {
+      "model": "s50r_inv10_diffusion",
+      "source_model": "S50R_INV10",
+      "direction": "left",
+      "motion_id": 505,
+      "terrain": "lab_landing",
+      "tile": [
+        10,
+        2
+      ],
+      "posture": "prone",
+      "goal": "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid505/goal.json",
+      "start": "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid505/start.json",
+      "robot_pose": "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid505/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid505": {
+      "model": "s50r_inv10_diffusion",
+      "source_model": "S50R_INV10",
+      "direction": "right",
+      "motion_id": 505,
+      "terrain": "lab_landing",
+      "tile": [
+        10,
+        2
+      ],
+      "posture": "prone",
+      "goal": "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid505/goal.json",
+      "start": "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid505/start.json",
+      "robot_pose": "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid505/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid505": {
+      "model": "s50r_recovery_diffusion",
+      "source_model": "S50R_RECOVERY",
+      "direction": "left",
+      "motion_id": 505,
+      "terrain": "lab_landing",
+      "tile": [
+        10,
+        2
+      ],
+      "posture": "prone",
+      "goal": "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid505/goal.json",
+      "start": "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid505/start.json",
+      "robot_pose": "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid505/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 100.0,
+      "max_ticks": 500
+    },
+    "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid505": {
+      "model": "s50r_recovery_diffusion",
+      "source_model": "S50R_RECOVERY",
+      "direction": "right",
+      "motion_id": 505,
+      "terrain": "lab_landing",
+      "tile": [
+        10,
+        2
+      ],
+      "posture": "prone",
+      "goal": "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid505/goal.json",
+      "start": "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid505/start.json",
+      "robot_pose": "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid505/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 100.0,
+      "max_ticks": 500
+    },
+    "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid114": {
+      "model": "s50r_inv10_diffusion",
+      "source_model": "S50R_INV10",
+      "direction": "left",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid114/goal.json",
+      "start": "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_INV10_curved_v3_combined_left_g200_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid114": {
+      "model": "s50r_inv10_diffusion",
+      "source_model": "S50R_INV10",
+      "direction": "right",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid114/goal.json",
+      "start": "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_INV10_curved_v3_combined_right_g200_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_curved_v3_combined_left_g200_K20_s32021_mid114": {
+      "model": "s50r_diffusion",
+      "source_model": "S50R",
+      "direction": "left",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_curved_v3_combined_left_g200_K20_s32021_mid114/goal.json",
+      "start": "S50R_curved_v3_combined_left_g200_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_curved_v3_combined_left_g200_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_curved_v3_combined_right_g200_K20_s32021_mid114": {
+      "model": "s50r_diffusion",
+      "source_model": "S50R",
+      "direction": "right",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_curved_v3_combined_right_g200_K20_s32021_mid114/goal.json",
+      "start": "S50R_curved_v3_combined_right_g200_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_curved_v3_combined_right_g200_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid114": {
+      "model": "s50r_geometry_diffusion",
+      "source_model": "S50R_GEOMETRY",
+      "direction": "left",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid114/goal.json",
+      "start": "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_GEOMETRY_curved_v3_combined_left_g200_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid114": {
+      "model": "s50r_geometry_diffusion",
+      "source_model": "S50R_GEOMETRY",
+      "direction": "right",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid114/goal.json",
+      "start": "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_GEOMETRY_curved_v3_combined_right_g200_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid114": {
+      "model": "s50r_recovery_diffusion",
+      "source_model": "S50R_RECOVERY",
+      "direction": "left",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid114/goal.json",
+      "start": "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_RECOVERY_expand48_combined_left_g100_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 100.0,
+      "max_ticks": 500
+    },
+    "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid114": {
+      "model": "s50r_recovery_diffusion",
+      "source_model": "S50R_RECOVERY",
+      "direction": "right",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid114/goal.json",
+      "start": "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_RECOVERY_expand48_combined_right_g100_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 100.0,
+      "max_ticks": 500
+    },
+    "S50R_neutral_v4_combined_g200_K20_s32021_mid114": {
+      "model": "s50r_diffusion",
+      "source_model": "S50R",
+      "direction": "minimal",
+      "motion_id": 114,
+      "terrain": "lab_single",
+      "tile": [
+        6,
+        11
+      ],
+      "posture": "prone",
+      "goal": "S50R_neutral_v4_combined_g200_K20_s32021_mid114/goal.json",
+      "start": "S50R_neutral_v4_combined_g200_K20_s32021_mid114/start.json",
+      "robot_pose": "S50R_neutral_v4_combined_g200_K20_s32021_mid114/robot_pose.json",
+      "seed": 32021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_INV10_supine_early_pose_left_g200_K20_s43021_mid520": {
+      "model": "s50r_inv10_diffusion",
+      "source_model": "S50R_INV10",
+      "direction": "left",
+      "motion_id": 520,
+      "terrain": "lab_long",
+      "tile": [
+        5,
+        23
+      ],
+      "posture": "supine",
+      "goal": "S50R_INV10_supine_early_pose_left_g200_K20_s43021_mid520/goal.json",
+      "start": "S50R_INV10_supine_early_pose_left_g200_K20_s43021_mid520/start.json",
+      "robot_pose": "S50R_INV10_supine_early_pose_left_g200_K20_s43021_mid520/robot_pose.json",
+      "seed": 43021,
+      "replan_hz": 2.5,
+      "mode": "waypoint_pose",
+      "gain": 200.0,
+      "max_ticks": 500
+    },
+    "S50R_INV10_supine_curve_right_g600_K20_s43021_mid520": {
+      "model": "s50r_inv10_diffusion",
+      "source_model": "S50R_INV10",
+      "direction": "right",
+      "motion_id": 520,
+      "terrain": "lab_long",
+      "tile": [
+        5,
+        23
+      ],
+      "posture": "supine",
+      "goal": "S50R_INV10_supine_curve_right_g600_K20_s43021_mid520/goal.json",
+      "start": "S50R_INV10_supine_curve_right_g600_K20_s43021_mid520/start.json",
+      "robot_pose": "S50R_INV10_supine_curve_right_g600_K20_s43021_mid520/robot_pose.json",
+      "seed": 43021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 600.0,
+      "max_ticks": 500
+    },
+    "S50R_GEOMETRY_supine_fast_pose_left_g600_K20_s43021_mid248": {
+      "model": "s50r_geometry_diffusion",
+      "source_model": "S50R_GEOMETRY",
+      "direction": "left",
+      "motion_id": 248,
+      "terrain": "lab_single",
+      "tile": [
+        4,
+        22
+      ],
+      "posture": "supine",
+      "goal": "S50R_GEOMETRY_supine_fast_pose_left_g600_K20_s43021_mid248/goal.json",
+      "start": "S50R_GEOMETRY_supine_fast_pose_left_g600_K20_s43021_mid248/start.json",
+      "robot_pose": "S50R_GEOMETRY_supine_fast_pose_left_g600_K20_s43021_mid248/robot_pose.json",
+      "seed": 43021,
+      "replan_hz": 2.5,
+      "mode": "waypoint_pose",
+      "gain": 600.0,
+      "max_ticks": 500
+    },
+    "S50R_GEOMETRY_supine_curve_right_g600_K20_s43021_mid248": {
+      "model": "s50r_geometry_diffusion",
+      "source_model": "S50R_GEOMETRY",
+      "direction": "right",
+      "motion_id": 248,
+      "terrain": "lab_single",
+      "tile": [
+        4,
+        22
+      ],
+      "posture": "supine",
+      "goal": "S50R_GEOMETRY_supine_curve_right_g600_K20_s43021_mid248/goal.json",
+      "start": "S50R_GEOMETRY_supine_curve_right_g600_K20_s43021_mid248/start.json",
+      "robot_pose": "S50R_GEOMETRY_supine_curve_right_g600_K20_s43021_mid248/robot_pose.json",
+      "seed": 43021,
+      "replan_hz": 2.5,
+      "mode": "combined",
+      "gain": 600.0,
+      "max_ticks": 500
+    }
+  }
+}

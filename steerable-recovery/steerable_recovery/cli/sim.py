@@ -22,10 +22,11 @@ sys.path.insert(0,str(ROOT))
 
 def arguments(argv=None):
     from motion_diffusion.behavioral.mujoco_terrain import SIM_TERRAINS,DEFAULT_CACHE
-    from steerable_recovery.settings import sampling_seed
+    from steerable_recovery.settings import sampling_seed, MODEL_NAMES
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--model',choices=('p11_diffusion','r8_f50r_flow','r8_s25_diffusion','r8_s50r_diffusion','r2_f50r_flow','p05_diffusion','diffusion','flow','both'),
+    parser.add_argument('--model',choices=(*MODEL_NAMES,'both'),
         default='p11_diffusion')
+    parser.add_argument('--blend-ticks',type=int,help='Latent-plan overlap in 50 Hz control ticks; default uses the bundle recipe')
     parser.add_argument('--replan-hz',type=float,help='Override saved cadence on whole 50 Hz ticks; e.g. 2.5, 5, 10. Simulation time, not a compute guarantee')
     parser.add_argument('--guidance-scale',type=float,help='Override goal steering strength; does not change the trajectory or motor PD gains')
     parser.add_argument('--goal-json',type=Path,help='Shared Stanley steering cost; simulator pelvis feedback, PyTorch planner and selected tracker backend')
@@ -35,6 +36,7 @@ def arguments(argv=None):
     parser.add_argument('--robot',type=Path,help='Robot URDF or MJCF; defaults to the training G1-29 URDF')
     parser.add_argument('--terrain',choices=('flat','step',*SIM_TERRAINS),default='flat')
     parser.add_argument('--terrain-seed',type=int,default=42)
+    parser.add_argument('--terrain-geometry',type=Path,help='Measured static-box geometry.json in metres/Z up; replaces flat terrain')
     parser.add_argument('--terrain-cache',type=Path,default=DEFAULT_CACHE)
     parser.add_argument('--depth-view',action=argparse.BooleanOptionalAction,default=True,
                         help='Show the actual planner depth input in the live window')
@@ -58,7 +60,13 @@ def arguments(argv=None):
     parser.add_argument('--seed',type=sampling_seed,default=42,
                         help='Planner seed: integer or random for fresh noise each launch; N advances the seed')
     parser.add_argument('--seed-list',type=int,nargs='+',help='Cycle these planner seeds with N, or run them headless')
+    parser.add_argument('--standing-hold',action='store_true',help='Experimental Y key: bypass planner with encoded standing intent; reset to resume recovery')
+    parser.add_argument('--standing-hold-at',type=float,help='Simulation experiment: request standing intent at this time (seconds)')
+    parser.add_argument('--standing-hold-on-upright',action='store_true',help='Simulation experiment: request standing intent after .3 s continuously upright')
+    parser.add_argument('--standing-hold-frame',choices=('local','world'),default='local',help='local needs no XYZ feedback; world uses simulator pelvis position to restore the captured location')
+    parser.add_argument('--standing-hold-blend-s',type=float,default=.5,help='Smooth desired pose transition duration, seconds')
     parser.add_argument('--start-state',type=Path,help='Exact resting MuJoCo snapshot; flat terrain, N changes only noise')
+    parser.add_argument('--gallery-start',type=Path,help='Imported recorded reset with its exact terrain tile; N changes only noise')
     parser.add_argument('--start-pose-jitter-deg',type=float,default=0.,help='Perturb saved joint targets, position and settle before control; N samples another pose, R repeats')
     parser.add_argument('--start-pose-seed',type=sampling_seed,help='Pose jitter RNG seed, independent of planner noise; default random when jitter is enabled')
     parser.add_argument('--noise-only',action='store_true',help='N changes only planner noise; preserve pose and sensor seed')
@@ -79,6 +87,11 @@ def arguments(argv=None):
     parser.add_argument('--output',type=Path)
     args=parser.parse_args(argv)
     import math
+    if not math.isfinite(args.standing_hold_blend_s) or not 0<args.standing_hold_blend_s<=5:
+        parser.error('--standing-hold-blend-s must be positive and at most 5 s')
+    if args.standing_hold_at is not None and (not math.isfinite(args.standing_hold_at) or args.standing_hold_at<.02):
+        parser.error('--standing-hold-at must be finite and at least .02 s')
+    if args.standing_hold_at is not None or args.standing_hold_on_upright:args.standing_hold=True
     if args.guidance_scale is not None and (not args.goal_json or not math.isfinite(args.guidance_scale) or args.guidance_scale<=0):
         parser.error('--guidance-scale requires --goal-json and a finite positive value')
     if not math.isfinite(args.start_pose_jitter_deg) or args.start_pose_jitter_deg<0:
@@ -95,6 +108,28 @@ def arguments(argv=None):
             parser.error('--start-state fixes a flat resting state; no posture sweep, jitter or extra physics preroll')
         args.noise_only=True
         args.start_snapshot=json.loads(args.start_state.expanduser().resolve().read_text())
+    if args.gallery_start:
+        if args.start_state or args.postures or args.joint_jitter or args.tracker_preroll_s or args.tracker_startup!='repeat':
+            parser.error('--gallery-start preserves the recorded reset; no other reset or pre-physics options')
+        from motion_diffusion.behavioral.hardware.bundle import sha256
+        args.gallery_snapshot=json.loads(args.gallery_start.resolve().read_text())
+        if args.gallery_snapshot.get('schema')!='hv2.recorded_sim_start.v1':parser.error('Invalid gallery reset schema')
+        terrain=args.gallery_snapshot['terrain']
+        if 'geometry' in terrain:
+            path=Path(terrain['geometry'])
+            args.terrain_geometry=path if path.is_absolute() else ROOT/path
+            if sha256(args.terrain_geometry)!=terrain['sha256']:parser.error('Measured terrain hash mismatch')
+            args.terrain='flat'
+        else:
+            path=Path(terrain['cache'])
+            args.terrain_cache=path if path.is_absolute() else ROOT/path
+            if sha256(args.terrain_cache)!=terrain['sha256']:parser.error('Gallery terrain hash mismatch')
+            args.terrain='fork3';args.terrain_seed=terrain['seed']
+        args.noise_only=True
+    if args.terrain_geometry:
+        if args.terrain!='flat':parser.error('--terrain-geometry replaces flat terrain; do not combine with another terrain')
+        from motion_diffusion.behavioral.measured_scene import load_geometry
+        args.measured_geometry=load_geometry(args.terrain_geometry)
     import math
     if args.seconds is None:args.seconds=None if args.viewer else 10.
     elif not math.isfinite(args.seconds) or args.seconds<0:parser.error('--seconds must be finite and nonnegative')
@@ -125,7 +160,7 @@ class ViewerControls:
     """The GUI thread only queues events; the control thread owns resets."""
     def __init__(self):self.events=queue.SimpleQueue()
     def key(self,keycode):
-        if keycode in (ord('R'),ord('N'),ord('M'),ord('P'),32,259,*range(ord('1'),ord('8'))):
+        if keycode in (ord('R'),ord('N'),ord('M'),ord('P'),ord('Y'),32,259,*range(ord('1'),ord('8'))):
             self.events.put(keycode)
     def poll(self):
         try:return self.events.get_nowait()
@@ -151,7 +186,10 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
     pose_seed=seed if pose_seed is None else pose_seed
     sensor_seed=seed if sensor_seed is None else sensor_seed
     with viewer.lock() if viewer else nullcontext():
-        if getattr(args,'start_snapshot',None) is not None:
+        if getattr(args,'gallery_snapshot',None) is not None:
+            from motion_diffusion.behavioral.start_state import restore_recorded_start
+            restore_recorded_start(plant,args.gallery_snapshot)
+        elif getattr(args,'start_snapshot',None) is not None:
             from motion_diffusion.behavioral.start_state import restore_start,prepare_jittered_start
             if getattr(args,'start_pose_jitter_deg',0.):
                 prepared=prepare_jittered_start(plant,args.start_snapshot,args.start_pose_jitter_deg,args.start_pose_seed)
@@ -186,6 +224,13 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
     device=policy.controller.device
     previous=torch.zeros(1,29,device=device);code=torch.zeros(1,policy.controller.latent_dim,device=device)
     heading=previous_quat=None
+    stand=getattr(policy,'standing_reference',None)
+    if stand is not None:stand.reset()
+    hold_requested=False;standing_ticks=0
+    from motion_diffusion.behavioral.progress_steering import ProgressSteering
+    progress_goal=policy.planner.guidance_contract.get('goal',{})
+    progress_steering=(ProgressSteering(progress_goal)
+        if progress_goal.get('target',{}).get('path_progress') else None)
     steering_origin=plant.data.xpos[plant.pelvis].copy();steering_heading=None
     frames=[];replans=[];plans=[];status='duration_reached';limits_announced=False
     report_raw_max=0.;report_issued_max=0.;report_limit_ticks=0;report_ticks=0
@@ -201,6 +246,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
         if viewer:
             viewer.set_texts((None,None,f'{getattr(args,"terrain_label",getattr(args,"terrain","flat"))} | {args.start} | policy seed {seed}\n'+
                 reset_help+' | SPACE pause\n'+
+                ('Y encoded standing hold (experimental); R resets\n' if stand is not None else '')+
                 ('' if getattr(args,'noise_only',False) else
                  '1 stand  2 front  3 back  4 left  5 right  6 seated  7 random\n')+
                 'Depth: dark=near | light=far | purple=invalid/missing (including <10 cm)',None))
@@ -224,8 +270,11 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                     status='reset_requested';break
                 event=controls.poll() if controls else None
                 if event==32:paused=not paused
+                elif event==ord('Y'):
+                    if stand is not None:hold_requested=True
+                    else:print('Restart with --standing-hold to enable experimental Y.',flush=True)
                 elif event is not None:
-                    if getattr(args,'start_snapshot',None) is not None and (event==ord('M') or ord('1')<=event<=ord('7')):
+                    if (getattr(args,'start_snapshot',None) is not None or getattr(args,'gallery_snapshot',None) is not None) and (event==ord('M') or ord('1')<=event<=ord('7')):
                         print('Saved start: use the launcher to select another posture. '+reset_help,flush=True)
                         continue
                     status=('next_model' if event==ord('P') else 'next_terrain' if event==ord('M') else 'reset_requested')
@@ -267,6 +316,12 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                         current_height_rel_m=position[:,2])
                     rot6=rot6d_from_quat_xyzw(quat_mul_xyzw(quat_conj_xyzw(heading_quat(heading)),quat))
                     guidance_context.update({f'current_rot6d_{i}':rot6[:,i] for i in range(6)})
+                    if progress_steering is not None:
+                        was_released=progress_steering.released
+                        guidance_context.update(progress_steering.update(quat,position,
+                            orientation_stamp=tick*.02,position_stamp=tick*.02))
+                        if progress_steering.released and not was_released:
+                            print('Requested side roll confirmed; next replan is unguided.',flush=True)
                     if viewer and tick==0:
                         from motion_diffusion.behavioral.hardware.steering import goal_display_segments
                         segments=goal_display_segments(policy.planner.guidance_contract['goal'])
@@ -287,10 +342,13 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                     if tick==0:
                         camera_info=sensor.startup_info
                         plant.reset_info['camera']=camera_info
+                        from motion_diffusion.terrain.depth_protocol import is_v3
+                        semantics=('Near pixels are masked; healthy empty rays saturate at 2 m.'
+                                   if is_v3(capture) else 'These pixels stay masked.')
                         print(f'  Camera: {100*camera_info["camera_clearance_above_terrain_m"]:.1f} cm above terrain; '
                               f'{100*camera_info["too_near_fraction"]:.0f}% too close '
                               f'(<{100*camera_info["min_valid_depth_m"]:g} cm), '
-                              f'{100*camera_info["no_hit_fraction"]:.0f}% no return. These pixels stay masked.',flush=True)
+                              f'{100*camera_info["no_hit_fraction"]:.0f}% no return. {semantics}',flush=True)
                     for prefix,config in (('',policy.planner.model.behavioral_config.get('depth_condition',{})),
                                           ('tracker_',policy.controller.depth_config)):
                         if not config.get('enabled'):continue
@@ -302,10 +360,29 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                                 from motion_diffusion.behavioral.mujoco_terrain import depth_panel
                                 panel=depth_panel(depth['frames'][0].detach().cpu().numpy(),availability,config['max_depth_m'])
                                 viewer.set_images((mujoco.MjrRect(12,12,panel.shape[1],panel.shape[0]),panel))
+                override=None
+                if stand is not None:
+                    position=torch.as_tensor(plant.data.xpos[plant.pelvis],device=device,dtype=torch.float32)[None]
+                    joints=torch.as_tensor(obs.q,device=device,dtype=torch.float32)[None]
+                    knees=[plant.names.index(side+'_knee_joint') for side in ('left','right')]
+                    hips=[plant.names.index(side+'_hip_pitch_joint') for side in ('left','right')]
+                    upright=(-obs.gravity_body[2]>=.92 and abs(obs.q[knees]).max()<=1.
+                             and abs(obs.q[hips]).max()<=.7
+                             and position[0,2].item()-plant.terrain_height(position[0,:2].cpu().numpy())>=.55)
+                    standing_ticks=standing_ticks+1 if upright else 0
+                    if args.standing_hold_at is not None and tick*.02>=args.standing_hold_at:hold_requested=True
+                    if args.standing_hold_on_upright and standing_ticks>=15:hold_requested=True
+                    if hold_requested and not stand.active:
+                        stand.activate(tick*.02,joints,quat,position,heading,code)
+                        print(f'  Standing intent enabled at {tick*.02:.2f}s ({stand.frame}); planner bypassed, tracker history retained.',flush=True)
+                        if viewer:viewer.set_texts((None,None,
+                            f'ENCODED STANDING HOLD ({stand.frame}) | tracker remains active\nR reset | N next seed | SPACE pause',None))
+                    if stand.active:override=stand(tick*.02,position,heading)
                 result=policy.step(obs.q[None],obs.dq[None],obs.gyro_body[None],obs.gravity_body[None],previous,
                     pelvis_quat=quat,previous_executed_code=code,reset_mask=torch.tensor([tick==0],device=device),
                     control_tick=torch.tensor([tick],device=device),episode_seeds=[seed],
                     guidance_context=guidance_context,
+                    native_code_override=override,
                     **({'initial_tracker_history':initial_tracker_history} if tick==0 and initial_tracker_history is not None else {}),
                     **sensor_args)
                 raw_max=float(policy.controller.last_unclipped_action.abs().max())
@@ -317,7 +394,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                     if hasattr(policy,'planner'):
                         plan['native_code']=policy.planner.last_predicted_codes[0].cpu().numpy().tolist()
                     plans.append(plan)
-                if tick==0 and hasattr(policy,'planner'):
+                if tick==0 and hasattr(policy,'planner') and override is None:
                     # Freeze the actual condition/noise used by the first plan,
                     # so comparisons can prove that only sampling noise changed.
                     audit={f'history_{key}':value.detach().cpu().numpy().copy()
@@ -351,6 +428,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 previous=torch.tensor(issued,device=device).reshape(1,29)
                 code=result['native_code'].detach()
                 frames.append(dict(time=tick*.02,q=obs.q,dq=obs.dq,gravity=obs.gravity_body,
+                    standing_hold=stand is not None and stand.active,
                     pelvis_quat_xyzw=obs.quat_xyzw.copy(),causal_heading_rad=float(heading[0]),
                     qpos=qpos,root_position=root,terrain_height_m=terrain_z,
                     action=issued,target=target,native_code=code[0].cpu().numpy(),
@@ -404,6 +482,9 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 held=held+1 if good else 0
                 if held>=50 and first_hold is None:first_hold=(i+1)*.02
             summary=dict(status=status,reset=plant.reset_info,planner_seed=seed,sensor_seed=sensor_seed,
+                standing_hold_frame=None if stand is None else stand.frame,
+                standing_hold_start_s=None if stand is None else stand.start_time,
+                steering_progress=None if progress_steering is None else progress_steering.diagnostics(),
                 tracker_startup=getattr(args,'tracker_startup','repeat'),tracker_preroll_s=getattr(args,'tracker_preroll_s',0.),
                 depth_startup=getattr(args,'depth_startup','cold'),
                 frames=len(frames),simulated_seconds=len(frames)*.02,
@@ -429,7 +510,10 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 h0=heading_matrix(torch.tensor(frames[0]['causal_heading_rad']))
                 p=torch.tensor(np.asarray([f['root_position'] for f in frames]),dtype=torch.float32)
                 relative=(p-torch.tensor(steering_origin,dtype=p.dtype))@h0
-                if goal['target'].get('pose_waypoints'):
+                if progress_steering is not None:
+                    summary['steering']=dict(method='progress_xyz',**progress_steering.diagnostics(),
+                        note='Reference timestamps are geometric labels; no timed-path error metric.')
+                elif goal['target'].get('pose_waypoints'):
                     q=torch.tensor(np.asarray([f['pelvis_quat_xyzw'] for f in frames]),dtype=torch.float32)
                     summary['steering']=waypoint_tracking_metrics(relative,h0.T@quat_to_matrix(q),goal['target']['pose_waypoints'])
                 elif goal['target'].get('axis_waypoints'):
@@ -481,6 +565,7 @@ def main(argv=None):
         row=manifest['models'][name]
         controller_path=asset_path(bundle,row['controller']);planner_path=asset_path(bundle,row['planner'])
         training=OmegaConf.load(asset_path(bundle,row['controller_training_config']))
+        print(f'Loading {name} planner and tracker...',flush=True)
         controller=load_controller(dict(controller_checkpoint=str(controller_path),tracker_device=args.device,
             pd_sidecar=str(asset_path(bundle,row['pd_binding']))))
         inference=dict(row['reference_inference'])
@@ -490,6 +575,10 @@ def main(argv=None):
         if args.noise_policy is not None:inference['noise_policy']=args.noise_policy
         ticks=replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])
         if ticks is not None:inference['replan_every_ticks']=ticks
+        if args.blend_ticks is not None:
+            if not 0 <= args.blend_ticks <= inference['replan_every_ticks']:
+                raise ValueError('Blend must be between zero and the replan period')
+            inference['blend_ticks']=args.blend_ticks
         planner=load_hardware_planner(planner_path,args.device,seed=args.seed,sampling_rng='paired_episode_v2',**inference)
         if args.replan_hz is None and name=='diffusion' and (planner.replan_every_ticks!=planner.model.F or planner.blend_ticks):
             raise ValueError('Diffusion recipe must execute its complete horizon without blending')
@@ -506,6 +595,10 @@ def main(argv=None):
             configure_controller(controller,engine('controller','fp32'))
             if not args.goal_json:configure_planner(planner,planner_path,engine(name,args.planner_precision))
         policy=NativeRecoveryPolicy(controller,planner)
+        if args.standing_hold:
+            from motion_diffusion.behavioral.standing import StandingReference
+            policy.standing_reference=StandingReference(torch.load(controller_path,map_location='cpu',weights_only=True),
+                controller,blend_s=args.standing_hold_blend_s,frame=args.standing_hold_frame)
         validation={key:engine.validation_report for key,engine in (
             ('denoiser',planner.model.inference_backend),
             ('depth',None if planner.model.depth_encoder is None else planner.model.depth_encoder.inference_backend))
@@ -517,6 +610,8 @@ def main(argv=None):
         scene=dict(terrain=args.terrain,step_height=args.step_height,step_edge=args.step_edge,
                    step_length=args.step_length,step_width=args.step_width,
                    terrain_seed=args.terrain_seed,terrain_cache=str(args.terrain_cache.resolve()))
+        if args.terrain_geometry:scene['terrain_geometry']=str(args.terrain_geometry.resolve())
+        print('Preparing MuJoCo scene...',flush=True)
         model=scene_model(args.robot or DEFAULT_ROBOT,**scene)
         plant=MujocoNativePlant(model,controller.contract,pd,robot,command_limits=args.command_limits)
         print(f'Command limits: {args.command_limits}; raw_action_max reports the maximum since the previous line (50 control ticks/s).',flush=True)
@@ -552,6 +647,7 @@ def main(argv=None):
             from motion_diffusion.behavioral.mujoco_terrain import SIM_TERRAINS,sample_terrain_mesh
             tile_info=sample_terrain_mesh(args.terrain,scene['terrain_seed'],args.terrain_cache)[2] if args.terrain in SIM_TERRAINS else None
             args.terrain_label=(f'{tile_info["family"]} tile {tile_info["tile"]} terrain seed {scene["terrain_seed"]}' if tile_info else args.terrain)
+            if args.terrain_geometry:args.terrain_label=args.measured_geometry.get('name','measured lab')
             if tile_info:print(f'Terrain: {args.terrain_label}',flush=True)
             (directory/'config.json').write_text(json.dumps(dict(model=name,seed=seed,start=args.start,joint_jitter=args.joint_jitter,
                 pose_seed=args.pose_seed,sensor_seed=args.sensor_seed,start_offset=args.start_offset,start_jitter=args.start_jitter,
@@ -559,11 +655,17 @@ def main(argv=None):
                 backend=backend,planner_precision=(args.planner_precision if backend=='tensorrt' else inference['numerical_precision']),engine_mode=args.engine_mode,
                 camera_randomization=False,
                 fixed_start_snapshot=getattr(args,'start_snapshot',None),noise_only=args.noise_only and not args.start_pose_jitter_deg,
+                recorded_gallery_start=getattr(args,'gallery_snapshot',None),
                 start_pose_jitter_deg=args.start_pose_jitter_deg,start_pose_seed=args.start_pose_seed,
                 seed_list=args.seed_list,requested_seconds=args.seconds,fixed_camera=args.fixed_camera,
+                standing_hold=dict(enabled=args.standing_hold,at_s=args.standing_hold_at,
+                    on_upright=args.standing_hold_on_upright,frame=args.standing_hold_frame,
+                    blend_s=args.standing_hold_blend_s,latent_handoff='quintic_from_last_executed_code',
+                    controller_encoder='original_posterior_and_frozen_corpus_normalizer',
+                    target='default_joints_zero_velocity_upright_captured_heading'),
                 scene=scene,
                 terrain_tile=tile_info,depth_backend='shared_training_warp',
-                reference_inference=row['reference_inference'],requested_replan_hz=args.replan_hz,
+                reference_inference=row['reference_inference'],requested_replan_hz=args.replan_hz,requested_blend_ticks=args.blend_ticks,
                 actual_replan_hz=50/planner.replan_every_ticks,
                 neural_validation=validation,
                 robot=str((args.robot or DEFAULT_ROBOT).resolve()),bundle=str(bundle),
@@ -582,6 +684,9 @@ def main(argv=None):
             episode+=1
             seed=vars(args).pop('next_seed',seed if viewer else seed+1)
             if result['status']=='next_terrain':
+                if args.gallery_start or args.terrain_geometry:
+                    print('Gallery start is tied to this terrain. Select another --gallery example to change it.',flush=True)
+                    continue
                 if viewer:viewer.close()
                 if args.terrain not in SIM_TERRAINS:args.terrain='fork3'
                 args.terrain_seed+=1
