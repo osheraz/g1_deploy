@@ -43,7 +43,7 @@ measured-feedback setup; it does not certify its clock or position accuracy.
 
 ## New: single 32 right — pair 15 pose at pair 05 placement
 
-Match the [run 32 start image](../../../logs/native_recovery/custom_lab_robust_20260922/starts/robust_32_right.jpg):
+Use the recorded run 32 starting pose:
 **face up at the upper-front interface**, using pair 15's joint pose at pair 05's
 pelvis XY. The root orientation is rotated **−90° about world Z** from pair 15.
 Nominal scene root XYZ is `[0.42, 1.0279, 0.6841994503]` m; these coordinates
@@ -74,14 +74,13 @@ not its stricter 60° criterion; neither is a hardware qualification.
 
 Single 31 (`robust_31_right`) is also retained from the same manifest: a different
 upper-right placement, gain 3500 / seed 54004, fade 20° / release 60°.
-Its [start image](../../../logs/native_recovery/custom_lab_robust_20260922/starts/robust_31_right.jpg)
-and settings must not be substituted for run 32.
+Its recorded starting pose and settings must not be substituted for run 32.
 
 ## New: recipe 04, pair 15 — lower-right edge
 
 **Face up at `lab19`, on the lower platform's right edge** (motion 304, pose
 template 641). This is a different initial body/joint configuration from pairs
-11–12. Match the [new start image](../../../logs/native_recovery/custom_lab_robust_20260922/starts/robust_29_left.jpg),
+11–12. Use the recorded starting pose for `robust_29_left`,
 and restore that same placement between left and right trials.
 
 ```bash
@@ -115,10 +114,10 @@ latent blend. Place the robot face up, match the linked image, and reposition
 between trials. A starts from measured joints; `--position-start` optionally offers
 START joint positioning. It cannot establish the required body support.
 
-| Setup | Progress pair | Seven-second timed pair | Start image |
+| Setup | Progress pair | Seven-second timed pair | Placement |
 |---|---|---|---|
-| Lower platform / floor | 11: `robust_21_left` / `robust_22_right` | 13: `robust_25_left` / `robust_26_right` | [Lower](../../../logs/native_recovery/custom_lab_robust_20260922/starts/robust_21_left.jpg) |
-| Upper block / lower platform | 12: `robust_23_left` / `robust_24_right` | 14: `robust_27_left` / `robust_28_right` | [Upper](../../../logs/native_recovery/custom_lab_robust_20260922/starts/robust_23_left.jpg) |
+| Lower platform / floor | 11: `robust_21_left` / `robust_22_right` | 13: `robust_25_left` / `robust_26_right` | Lower |
+| Upper block / lower platform | 12: `robust_23_left` / `robust_24_right` | 14: `robust_27_left` / `robust_28_right` | Upper |
 
 Keep [Terminal 1: depth](deploy.md#terminal-1-depth) running; close the standalone
 external-camera preview. Run **one command at a time**:

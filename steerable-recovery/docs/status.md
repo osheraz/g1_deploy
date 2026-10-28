@@ -16,8 +16,7 @@ This page records limitations; [deploy.md](deploy.md) contains the run commands.
   capture-to-arrival median 68.9 ms / p95 70.3 ms,
   zero sequence gaps or stale frames over 45 seconds; recorded depth replay matched.
   One restart had early exposure gaps before settling. Actual policy-consumed age,
-  pose pairing and DLIO/inference load remain unqualified. See the
-  [live receipt](../../../logs/deployment_validation/depth_gigabit_20260920_160232/REPORT.md).
+  pose pairing and DLIO/inference load remain unqualified.
 - Intermittent Jetson SSH failure on the direct link was caused by failed automatic
   network activation. Its profile now explicitly enables IPv6 link-local; see
   [network setup](../../tutorials/01_network.md#jetson-disappears-periodically-on-the-direct-link-fixed-2026-09-20).

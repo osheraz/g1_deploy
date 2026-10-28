@@ -37,6 +37,5 @@ The standalone camera deployment consists of **two loose files**:
 ROS worker scripts bootstrap the package from their source checkout because
 system Python does not use the policy virtualenv.
 
-Steering measurement contract:
-[Stanley integration note](../../../notes/stanley_steering_measurement_contract.md).
+[Sensing contracts](../../../docs/recovery/sensing.md) cover depth and measured-pose inputs.
 Historical guides remain available in Git history.

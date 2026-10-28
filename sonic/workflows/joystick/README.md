@@ -22,9 +22,7 @@ model on `g1_23dof` and additionally accepts `--slow-gait`,
 `--sagittal-scale`, and `--hip-pitch-scale`. Native
 29-DoF rejects those 23-DoF adaptations. `robust-small-gait-23` and
 `stable-slow-23` are withdrawn legacy attempts: blocked on the physical
-robot, and blocked in MuJoCo unless `--legacy-reproduction` is passed. The
-collaborator MuJoCo flag page is
-[`../../../docs/runbooks/mujoco.md`](../../../docs/runbooks/mujoco.md).
+robot, and blocked in MuJoCo unless `--legacy-reproduction` is passed.
 
 ## Unified MuJoCo launcher
 
@@ -85,8 +83,7 @@ Never run Python and C++ low-level controllers concurrently.
 | `robust-small-gait-23` | **Withdrawn legacy attempt.** Blocked on the robot; MuJoCo needs `--legacy-reproduction` |
 | `stable-slow-23` | **Withdrawn legacy attempt.** Blocked on the robot; MuJoCo needs `--legacy-reproduction` |
 
-The complete method is documented in
-[`../../../docs/learning/sonic_deployment.md`](../../../docs/learning/sonic_deployment.md).
+See the [model guide](../../model/README.md) for policy components.
 Compatibility commands under `g1_deploy/sonic/scripts/run_planner_joystick_*.sh`,
 `run_forward_stable_23_*.sh`, `run_robot_23_cpp.sh`, and
 `run_robust_small_gait_23_*.sh` delegate here without changing their operator

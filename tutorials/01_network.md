@@ -17,8 +17,7 @@ need a matching splitter at the far end. You need a real switch.
 | Ethernet direct to robot, internet over WiFi | WiFi | **1000Mb/s** full duplex (measured 2026-09-20) | `--encoding raw --max-mbps 0` (148 Mb/s) |
 | Ethernet to a switch shared with internet (case B) | wired | capped at **100Mb/s** in practice | `--encoding png --max-mbps 40` (31 Mb/s) |
 
-Raw depth does not fit on 100Mb/s. See [depth latency](../../notes/validation/depth_latency_20260917.md)
-and [deploy.md](../steerable-recovery/docs/deploy.md#terminal-1-depth).
+Raw depth does not fit on 100Mb/s. See the [depth deployment settings](../steerable-recovery/docs/deploy.md#terminal-1-depth).
 
 ### Switching between them
 
@@ -227,7 +226,6 @@ the profile stayed `100 (connected)` instead of disconnecting.
 Original profile backup on the Jetson:
 `/home/unitree/osher/native_recovery/Wired_connection_1.before_linklocal_20260920.nmconnection`.
 The exact reversible setting change is `ipv6.method auto` → `link-local`.
-See the [verification receipt](../../logs/deployment_validation/depth_gigabit_20260920_160232/REPORT.md).
 
 ## Troubleshooting
 

@@ -59,5 +59,4 @@ Replay the printed run name with `replay.py`; see [recording](recording.md).
 
 S50R's selected route checks ended upright but were not uniformly stable throughout.
 S25 did not stand in the previous route-3 rate checks. These are available test
-configurations, not validated hardware success claims. Historical comparisons:
-[trajectory checks](../../../notes/validation/pelvis_trajectories_20260915.md).
+configurations, not validated hardware success claims.
