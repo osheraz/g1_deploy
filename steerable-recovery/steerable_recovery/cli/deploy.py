@@ -122,7 +122,7 @@ def main(argv=None):
     parser.add_argument('--odometry-port',type=int,default=15560)
     parser.add_argument('--odometry-mode',choices=['monitor','required'],default='monitor',
         help='Monitor labels unqualified estimates; required enforces the existing steering receiver contract')
-    parser.add_argument('--odometry-mount',type=Path,default=CONFIG_ROOT / 'lidar/mount_candidate_20260912.json',
+    parser.add_argument('--odometry-mount',type=Path,default=CONFIG_ROOT / 'lidar/mount_candidate.json',
         help='Explicit diagnostic mount candidate used by live odometry')
     parser.add_argument('--odometry-clock',type=Path,help='Independent clock calibration JSON; never infer qualification from arrival jitter')
     args=parser.parse_args(argv)

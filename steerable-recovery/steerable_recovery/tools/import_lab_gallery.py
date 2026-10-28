@@ -88,7 +88,7 @@ def verify_local_assets(catalog=CATALOG):
         identity=read(check(engine.with_suffix('.json')))
         if identity['onnx_sha256']!=graph['sha256']:
             raise ValueError('Cached TensorRT engine references a different ONNX graph')
-    check(CONFIG_ROOT/'lidar/mount_candidate_20260912.json')
+    check(CONFIG_ROOT/'lidar/mount_candidate.json')
     result=dict(schema='hv2.lab_gallery_local_assets.v1',run_count=len(data['runs']),
         launcher_commit=data['launcher_commit'],manifest_sha256=data['manifest_sha256'],
         all_files_local=True,files=checked,

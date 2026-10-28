@@ -76,7 +76,7 @@
   "g1_deploy/config/multimodal/stanley_flat/reference_routes/flat_pose_2.json": "g1_deploy/steerable-recovery/config/multimodal/stanley_flat/reference_routes/flat_pose_2.json",
   "g1_deploy/config/multimodal/stanley_flat/reference_routes/flat_pose_1.json": "g1_deploy/steerable-recovery/config/multimodal/stanley_flat/reference_routes/flat_pose_1.json",
   "g1_deploy/config/lidar/MID360_bluefin.json": "g1_deploy/steerable-recovery/config/lidar/MID360_bluefin.json",
-  "g1_deploy/config/lidar/mount_candidate_20260912.json": "g1_deploy/steerable-recovery/config/lidar/mount_candidate_20260912.json",
+  "g1_deploy/config/lidar/mount_candidate_20260912.json": "g1_deploy/steerable-recovery/config/lidar/mount_candidate.json",
   "g1_deploy/config/lidar/dlio_pose_snapshot.patch": "g1_deploy/steerable-recovery/config/lidar/dlio_pose_snapshot.patch",
   "g1_deploy/config/lidar/README.md": "g1_deploy/steerable-recovery/config/lidar/README.md",
   "g1_deploy/config/lidar/dlio_initialized_pose.patch": "g1_deploy/steerable-recovery/config/lidar/dlio_initialized_pose.patch",
@@ -92,5 +92,6 @@
   "scripts/fall_recovery/validation/record_lidar_live.py": "g1_deploy/steerable-recovery/steerable_recovery/sensing/record_lidar_live.py",
   "scripts/fall_recovery/validation/publish_lidar_preview.py": "g1_deploy/steerable-recovery/steerable_recovery/sensing/publish_lidar_preview.py",
   "scripts/fall_recovery/validation/replay_dlio.py": "g1_deploy/steerable-recovery/steerable_recovery/sensing/replay_dlio.py",
-  "scripts/fall_recovery/validation/evaluate_measured_motion.py": "g1_deploy/steerable-recovery/steerable_recovery/sensing/evaluate_measured_motion.py"
+  "scripts/fall_recovery/validation/evaluate_measured_motion.py": "g1_deploy/steerable-recovery/steerable_recovery/sensing/evaluate_measured_motion.py",
+  "g1_deploy/steerable-recovery/config/lidar/mount_candidate_20260912.json": "g1_deploy/steerable-recovery/config/lidar/mount_candidate.json"
 }

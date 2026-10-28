@@ -39,4 +39,4 @@ system Python does not use the policy virtualenv.
 
 Steering measurement contract:
 [Stanley integration note](../../../notes/stanley_steering_measurement_contract.md).
-Historical guides are under `docs/archive/`; they are not current launch instructions.
+Historical guides remain available in Git history.

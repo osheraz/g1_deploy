@@ -9,7 +9,7 @@ Run commands from the **hv2 root**, with its pinned `g1_deploy` submodule.
 | MuJoCo, terrain and starting poses | [Simulation](docs/sim.md) | `sim.py` |
 | Pelvis-trajectory steering | [Steering](docs/steering.md) | `deploy.py --route` / `sim.py --route` |
 | Selected measured-lab S50R pairs + Y | [Lab steering](docs/lab-steering.md) | `deploy.py --gallery` |
-| September 21 terrain steering (legacy catalog) | [Gallery commands](docs/terrain-steering.md) | `deploy.py --gallery` / `sim.py --gallery` |
+| Legacy terrain steering catalog | [Gallery commands](docs/terrain-steering.md) | `deploy.py --gallery` / `sim.py --gallery` |
 | Replay, video, depth and model checks | [Recording](docs/recording.md) | `replay.py` |
 | Compare saved starting poses | [Examples](docs/examples.md) | `--preset prone` / `--preset supine` |
 | Depth faults and remaining validation | [Status](docs/status.md) | — |
