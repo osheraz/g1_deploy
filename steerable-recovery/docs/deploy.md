@@ -1,15 +1,20 @@
 # Robot recovery
 
-From `/home/osher/hv2`, run **two terminals**. Setup once: [project README](../README.md).
-These commands include recording and live pelvis XYZ; no separate recorder is needed.
+Use the [verified release bundle](../../../docs/recovery/deployment.md) and the
+robot/site configuration in `config/models.yaml`. The current pair is not
+hardware-qualified. Check sensor geometry, depth processing and clock alignment
+against its saved contract before commissioning it.
 
-For the new models, add [`--standing-hold`](standing-hold.md) to enable **Y**:
-after recovery settles, bypass planning with encoded standing intent.
-**A / SELECT** retain their existing stop behavior.
+```bash
+python g1_deploy/steerable-recovery/deploy.py --model ours --check --max-plan-age-ticks 10
+```
 
-The commands below retain the R8 models. For the new `s25r_diffusion` pair,
-use the [S25R guide](s25r.md): explicitly select `--depth-processing vigor_legacy`
-to use the same filtered stream below, or select raw processing in both terminals.
+The 10-tick reply budget in these examples fits the 50-tick horizon and is
+an explicit commissioning setting, not measured hardware qualification. The
+bundle retains its provisional 50-tick value; it cannot satisfy the asynchronous
+horizon check unchanged. Choose a valid budget from measured latency before
+actuation. This check opens no sensors or motor channels. `--bundle PATH` selects a verified
+bundle for another published pair; the planner and tracker must stay paired.
 
 ## Terminal 1: depth
 
@@ -27,82 +32,28 @@ Start the depth server and both SSH forwards; leave this terminal running:
 ssh -t -o AddressFamily=any -o ExitOnForwardFailure=yes \
   -L 127.0.0.1:15556:127.0.0.1:5556 \
   -L 127.0.0.1:15558:127.0.0.1:5558 g1_29 \
-  '/home/unitree/osher/native_recovery/.venv/bin/python /home/unitree/osher/native_recovery/native_depth_server.py --serial 247122073927 --processing vigor_legacy --encoding raw --max-mbps 0 --bind tcp://127.0.0.1:5556 --clock-bind tcp://127.0.0.1:5558'
+  '/home/unitree/osher/native_recovery/.venv/bin/python /home/unitree/osher/native_recovery/native_depth_server.py --serial 247122073927 --processing raw --encoding raw --max-mbps 0 --bind tcp://127.0.0.1:5556 --clock-bind tcp://127.0.0.1:5558'
 ```
 
 Raw transport requires gigabit Ethernet. On a 100 Mb/s link, replace
 `--encoding raw --max-mbps 0` with `--encoding png --max-mbps 40`.
-Both send the same filtered depth values. [Depth troubleshooting](status.md#depth).
+Both preserve the same source depth values. [Depth troubleshooting](status.md#depth).
 
-`vigor_legacy` is the operator-selected default: the original VIGOR smoothing and
-hole filling. Filled positive pixels also enter the policy as valid depth. The
-explicit alternative `--processing vigor` preserves original missing/near/far
-categories after smoothing. This hole-filled default differs from Stanley's
-written unified-depth-v3 raw-processing contract; it does not establish v3
-training/deployment compatibility. Existing processing labels and model contracts
-retain their meanings.
+## Sensor session and operator controls
 
-## Terminal 2: recovery
-
-Place the robot on the floor in the intended orientation, or support it.
-**An actuated launch enters zero torque before START/A.** Stop any other motor
-publisher, including `zero_torque.py`, before launching.
-
-Choose **one** command. Prone = face down; supine = face up:
+After configuring the robot interface and camera, a sensor-only session is:
 
 ```bash
-cd /home/osher/hv2
-.venv/bin/python g1_deploy/steerable-recovery/deploy.py --preset prone --model r8_s25_diffusion --seed random --replan-hz 2.5
-.venv/bin/python g1_deploy/steerable-recovery/deploy.py --preset supine --model r8_s25_diffusion --seed random --replan-hz 2.5
-.venv/bin/python g1_deploy/steerable-recovery/deploy.py --preset prone --model r8_s50r_diffusion --seed random --replan-hz 5
-.venv/bin/python g1_deploy/steerable-recovery/deploy.py --preset supine --model r8_s50r_diffusion --seed random --replan-hz 5
+python g1_deploy/steerable-recovery/deploy.py --model ours --backend pytorch --max-plan-age-ticks 10 \
+  --duration-s 30 --record-sensors --record-depth --record-model --output "$NEW_SESSION"
 ```
 
-All four use TensorRT, fresh noise each plan, no joint jitter, live XYZ,
-raw sensors, full-resolution depth, model traces and the external camera.
-They stop after 60 seconds; change `--seconds` to set another duration.
-Each launch prints its new `logs/real_world/MODEL_POSTURE_TIMESTAMP` folder.
+Motor output requires the explicit `--actuate` flag. Stop other motor publishers
+before an actuated session. After readiness, A starts from the measured pose;
+START optionally moves to the default joints or an explicit `--start-pose` JSON.
+A again, SELECT or Ctrl+C stops the session. Wait for recording completion before
+reusing its files. `--standing-hold` enables the [manual Y mode](standing-hold.md).
 
-1. Wait for streams, the five-second warmup and **Live inference ready**.
-2. **A** starts recovery from the measured pose and starts recording.
-   **START is optional**: move to the selected joints, wait for readiness, then A.
-   Use START when comparing the same joint targets across trials.
-3. **A again / SELECT / Ctrl+C** stops and damps. Wait for
-   **Saved and verified raw sensors** and the model-trace save status.
-
-The preset controls joints, not floor position or body orientation.
-The extra command limiter runs only during the first **0.5 s** of policy execution.
-Normal depth/timing delays warn or use existing fallback behavior; this reorganization
-adds no new stop conditions.
-
-## Current pose, without a joint preset
-
-A starts from the measured pose. Optional START in this command selects the
-standard default joint targets instead of a lying preset.
-
-```bash
-.venv/bin/python g1_deploy/steerable-recovery/deploy.py \
-  --model r8_s25_diffusion --backend tensorrt --seed random \
-  --noise-policy fresh --replan-hz 2.5 --actuate --duration-s 60 \
-  --live-odometry --record-sensors --record-depth --record-model \
-  --external-camera --camera-size 1920x1080 --camera-fps 30
-```
-
-## Replay and zero torque
-
-After the run, pass the printed folder name:
-
-```bash
-.venv/bin/python g1_deploy/steerable-recovery/replay.py RUN_NAME
-```
-
-Viser: **http://localhost:8081**. [Videos, depth and replay options](recording.md).
-For steering use the [separate commands](steering.md).
-
-Stop deployment before running zero torque:
-
-```bash
-.venv/bin/python g1_deploy/zero_torque.py
-```
-
-This makes the robot limp. Ctrl+C stops the publisher; it does not restore standing.
+Use [steering](steering.md) for explicit goals and [recording](recording.md) for
+review. Sensor settings and historical hardware evidence do not confer
+qualification on a different checkpoint.

@@ -3,11 +3,10 @@
 | Owner | Responsibility |
 | --- | --- |
 | `steerable_recovery/cli` | Hardware and MuJoCo argument handling |
-| `steerable_recovery/presets` | Saved starts/routes; calls the same runtimes |
 | `steerable_recovery/paths.py`, `settings.py` | Workspace roots and model settings |
 | `steerable_recovery/sensing`, `recording` | Sensor processes, triggered capture and cleanup |
 | `steerable_recovery/review` | Offline preparation and model replay |
-| `steerable_recovery/tools` | Diagnostics, experiments, benchmarks and figure exports |
+| `steerable_recovery/tools` | Diagnostics, benchmarks and figure exports |
 | `g1_deploy/core` | Shared robot I/O, episode formats and Viser |
 | `motion_diffusion/behavioral/hardware` | Asynchronous inference, histories, action limits, measured feedback |
 | `motion_diffusion/behavioral/runtime.py` | Learned planner/tracker contract shared with simulation |
@@ -29,8 +28,8 @@ history and applies only for 0.5 s. These semantics were not changed by the move
 
 `config/models.yaml` selects immutable bundle pairs and export paths. Verified
 training PD, action scale and ordering come from the bundle. Do not exchange a
-planner's paired tracker. Existing bundles/engines remain under
-`logs/native_recovery/`; this cleanup does not regenerate them.
+planner's paired tracker. The primary durable bundle is identified by the
+[release guide](../../../docs/recovery/deployment.md).
 
 The standalone camera deployment consists of **two loose files**:
 `sensing/native_depth_server.py` and `core/common/depth_wire.py`.

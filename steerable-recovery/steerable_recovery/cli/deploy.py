@@ -71,10 +71,13 @@ def main(argv=None):
     from motion_diffusion.behavioral.hardware import bundle
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',type=Path,default=CONFIG_ROOT / 'models.yaml')
+    parser.add_argument('--bundle',type=Path,help='Verified bundle containing the explicitly selected published pair')
     parser.add_argument('--model',choices=MODEL_NAMES,
-        default='p11_diffusion')
+        default='ours')
     parser.add_argument('--blend-ticks',type=int,help='Latent-plan overlap in 50 Hz control ticks; default uses the bundle recipe')
     parser.add_argument('--replan-hz',type=float,help='Planner rate, e.g. 2.5, 5 or 10 Hz; tracker stays 50 Hz; existing asynchronous horizon/age checks apply')
+    parser.add_argument('--max-plan-age-ticks',type=int,
+        help='Explicit asynchronous reply-age budget at 50 Hz; must fit the horizon and measured hardware latency')
     parser.add_argument('--goal-json',type=Path,help='Stanley physical-clock steering goal; PyTorch planner + selected tracker backend; invalid measured XYZ falls back to unguided recovery')
     parser.add_argument('--guidance-scale',type=float,help='Override trajectory steering strength, e.g. 50 versus source 300; does not change motor PD gains')
     parser.add_argument('--steering-feedback',choices=('qualified','estimated'),default='qualified',
@@ -89,9 +92,9 @@ def main(argv=None):
     parser.add_argument('--check',action='store_true',help='Verify selected weights, PD binding and synthetic inference; no sensors or motors')
     parser.add_argument('--backend',choices=['pytorch','tensorrt','onnx'],help='Defaults to the selected model profile')
     parser.add_argument('--depth-processing',choices=('raw','vigor','vigor_legacy'),
-        help='Require this server processing profile; explicitly permits filtered S25R deployment without changing its training contract')
+        help='Require this server processing profile; explicitly permits filtered depth deployment without changing its training contract')
     parser.add_argument('--planner-precision',choices=['fp32','tf32'],default='fp32',
-        help='TensorRT engine precision only; PyTorch uses the bundle precision (P11: TF32)')
+        help='TensorRT engine precision only; PyTorch uses the bundle precision')
     parser.add_argument('--engine-mode',choices=['standard','buffered','cuda_graph'],default='cuda_graph')
     parser.add_argument('--command-limits',choices=['bounded','training'],default='bounded',
         help='Bound PD target jumps from the measured start (default); training selects the original direct targets')
@@ -135,10 +138,11 @@ def main(argv=None):
         parser.error('--start-pose requires --actuate and a normal recovery session')
     config_path=args.config.resolve()
     settings=model_settings(_load_config(config_path),args.model)
+    if args.bundle is not None:settings['bundle']=str(args.bundle.resolve())
     if args.depth_processing is not None:
         settings['camera']['processing']=args.depth_processing
         print(f'Deployment depth processing: {args.depth_processing}; server must use the same mode.',flush=True)
-    if args.backend is None:args.backend=settings.get('default_backend','tensorrt')
+    if args.backend is None:args.backend=settings.get('default_backend','pytorch')
     if args.check and (args.actuate or args.release_controller or args.default_pose or args.preflight or args.live_odometry):
         parser.error('--check does not open sensors or control the robot')
     if args.record_sensors is None:args.record_sensors=args.actuate or args.live_odometry
@@ -176,7 +180,10 @@ def main(argv=None):
     print(f'{mode_name} — '+('model check, no sensors or motor output.' if args.check else
           'motor control enabled; startup enters zero torque before waiting for your buttons.' if args.actuate else
           f'sensor-only test ({args.duration_s:g} seconds), no motor output.'),flush=True)
-    root,manifest=bundle.load_bundle(settings['bundle']);row=manifest['models'][args.model]
+    root,manifest=bundle.load_bundle(settings['bundle'])
+    if args.model not in manifest['models']:
+        parser.error(f'Bundle does not contain {args.model}; supply its verified bundle with --bundle')
+    row=manifest['models'][args.model]
     import torch
     torch.set_num_threads(1)
     checkpoint=torch.load(bundle.asset_path(root,row['controller']),map_location='cpu',weights_only=True,mmap=True)
@@ -185,6 +192,7 @@ def main(argv=None):
         hardware.update(pelvis_odometry_port=args.odometry_port,pelvis_odometry_mode=args.odometry_mode)
     replan_ticks=bundle.replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])
     config,receipt=bundle.resolve_session(root,manifest,args.model,config_path,hardware_config=hardware,
+        max_age=args.max_plan_age_ticks,
         replan_ticks=replan_ticks,blend_ticks=args.blend_ticks,seed=args.seed,noise_policy=args.noise_policy,
         guidance_scale=args.guidance_scale,
         guided_timing=settings.get('guided_timing') if args.goal_json else None,

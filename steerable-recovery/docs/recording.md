@@ -1,6 +1,6 @@
 # Recording and replay
 
-The [deployment presets](deploy.md) include recording. Sensors warm up before A;
+The [deployment commands](deploy.md) support recording. Sensors warm up before A;
 **accepted policy A starts the episode**. Only bounded context is buffered first
 (0.5 s depth, 5 s raw motion), plus small setup/status receipts.
 A again / SELECT / Ctrl+C stops the policy; wait for sensor and model-trace saves.

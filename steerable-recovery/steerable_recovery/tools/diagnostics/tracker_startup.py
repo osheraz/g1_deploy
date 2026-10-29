@@ -2,8 +2,8 @@
 """Isolate tracker pre-start history with matched physics and identical latent actions.
 
 Accepts sim_diffusion.py arguments; headless only. Example:
-  .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/diagnostics/tracker_startup.py --model r8_s25_diffusion \
-    --backend tensorrt --terrain fork3 --start prone --seconds 2
+  .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/diagnostics/tracker_startup.py --model ours \
+    --backend pytorch --terrain fork3 --start prone --seconds 2
 
 Three arms: normal planning with repeated tracker history; an identical-code
 replay with repeated history (control); identical-code replay with measured
