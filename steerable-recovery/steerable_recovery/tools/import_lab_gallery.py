@@ -7,8 +7,9 @@ from pathlib import Path
 from steerable_recovery.paths import ROOT, CONFIG_ROOT
 from motion_diffusion.behavioral.hardware import bundle
 from motion_diffusion.behavioral.hardware.steering import motion_goal
+from hv2_contracts.artifacts import artifact_path
 
-SOURCE = Path('/nfs/turbo/coe-stellayu/clhsieh/software/hv2_diffusion/custom_lab_steering_20260922/robust_set_01')
+SOURCE = Path('/nfs/turbo/coe-stellayu/clhsieh/software/hv2_diffusion/gallery/lab/robust_set_01')
 CATALOG = CONFIG_ROOT/'steering/lab_gallery/catalog.json'
 CACHE = ROOT/'logs/native_recovery/custom_lab_robust_20260922'
 BUNDLE = ROOT/'logs/native_recovery/bundles/stage3_40k_20260921'
@@ -105,8 +106,8 @@ def import_cases(source=SOURCE, catalog=CATALOG, cache=CACHE):
     if bundle.sha256(manifest_path)!=MANIFEST_SHA:
         raise ValueError('Gallery manifest changed; review the new recipe before importing it')
     manifest=read(manifest_path)
-    sources={name:Path(path).resolve() for name,path in manifest['handoffs'].items()}
-    extra_parent=Path('/nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/custom_lab_steering_20260922')
+    sources={name:artifact_path(path) for name,path in manifest['handoffs'].items()}
+    extra_parent=Path('/nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/gallery/lab')
     if sources.get(source.name)!=source or any(
             p.parent not in (source.parent,extra_parent) or p.name!=name for name,p in sources.items()):
         raise ValueError('Expected named handoff directories on the declared Turbo volumes')
@@ -125,7 +126,7 @@ def import_cases(source=SOURCE, catalog=CATALOG, cache=CACHE):
     copied={}
 
     def source_file(path):
-        path=Path(path).resolve()
+        path=artifact_path(path)
         for name,root in sources.items():
             if path.is_relative_to(root):
                 relative=path.relative_to(root)
@@ -134,7 +135,7 @@ def import_cases(source=SOURCE, catalog=CATALOG, cache=CACHE):
         raise ValueError(f'Artifact is outside the declared handoffs: {path}')
 
     def copy_verified(path, expected=None):
-        path=Path(path).resolve()
+        path=artifact_path(path)
         try:rel,listed_hash=source_file(path)
         except ValueError:
             # The new plan references a shared seven-second start table outside
@@ -189,7 +190,7 @@ def import_cases(source=SOURCE, catalog=CATALOG, cache=CACHE):
         plan=read(copy_verified(source/'replay_package'/task['plan'],task['plan_sha256']))
         options=read(copy_verified(source/'replay_package'/task['options'],task['options_sha256']))
         binding=options['steering_targets']
-        if not Path(binding['path']).resolve().is_relative_to(task_source):
+        if not artifact_path(binding['path']).is_relative_to(task_source):
             raise ValueError(f'Targets are outside the declared task handoff: {rid}')
         targets=read(copy_verified(binding['path'],binding['sha256']))
         starts=read(copy_verified(plan['custom_lab']['starts'],plan['custom_lab']['starts_sha256']))['starts']
@@ -244,7 +245,7 @@ def import_cases(source=SOURCE, catalog=CATALOG, cache=CACHE):
             if options[key]!=model['reference_inference'][key]:
                 raise ValueError(f'Inference recipe differs: {key}')
         # Verify the exported simulator joint order rather than guessing URDF order.
-        clip=Path(row['source_clip'])
+        clip=artifact_path(row['source_clip'])
         if bundle.sha256(clip)!=source_file(clip)[1]:
             raise ValueError(f'Clip hash mismatch: {rid}')
         recorded=torch.load(clip,map_location='cpu',weights_only=False)

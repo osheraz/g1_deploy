@@ -21,9 +21,9 @@ import time
 
 from steerable_recovery.paths import ROOT, CONFIG_ROOT, PACKAGE_ROOT
 sys.path.insert(0, str(ROOT))
-BASE = Path('/nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/experiments/fallrec_latent_planner_20260902/deployments')
-SOURCE = BASE / 'five_candidates_20260915a'
-EVIDENCE = BASE / 'five_candidates_evidence_20260915a'
+BASE = Path('/nfs/turbo/coe-stellayu/clhsieh/software/hv2_diffusion/dependencies')
+SOURCE = BASE / 'deployment_candidates'
+EVIDENCE = BASE / 'deployment_evidence'
 CATALOG = CONFIG_ROOT / 'multimodal/stanley_flat/catalog.json'
 RESULTS = ROOT / 'logs/multimodal_recovery/stanley_flat_20260915'
 BUNDLE = ROOT / 'logs/native_recovery/bundles/r8_s50r_20260915a'
