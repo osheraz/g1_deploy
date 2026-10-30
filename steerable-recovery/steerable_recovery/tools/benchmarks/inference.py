@@ -117,9 +117,11 @@ def concurrent(checkpoint,options,engine,controller,features,requests,seconds):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--model',choices=('p11_diffusion','p05_diffusion','diffusion','flow','both'),default='p11_diffusion')
+    from steerable_recovery.settings import MODEL_NAMES
+    p.add_argument('--model',choices=MODEL_NAMES,default='ours')
+    p.add_argument('--bundle',type=Path,help='Verified bundle containing the selected pair')
     p.add_argument('--replan-hz',type=float,help='Benchmark a changed planner cadence alongside the 50 Hz tracker')
-    p.add_argument('--profiles',nargs='+',choices=PROFILES,default=list(PROFILES))
+    p.add_argument('--profiles',nargs='+',choices=PROFILES,default=['pytorch'])
     p.add_argument('--iterations',type=int,default=100)
     p.add_argument('--warmup',type=int,default=10)
     p.add_argument('--concurrent-seconds',type=float,default=20.)
@@ -130,7 +132,9 @@ def main():
     import numpy as np
     import torch
     import yaml
-    import tensorrt
+    if any(name.startswith('trt_') for name in args.profiles):
+        import tensorrt
+    else:tensorrt=None
     from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path,replan_ticks_for_hz
     from motion_diffusion.behavioral.hardware.cli import load_controller
     from motion_diffusion.behavioral.hardware.engines import configure_controller,configure_planner
@@ -144,14 +148,14 @@ def main():
     output=args.output or ROOT/'logs/native_recovery'/f'latency_{time.time_ns()}'
     output.mkdir(parents=True,exist_ok=False)
     report=dict(gpu=torch.cuda.get_device_name(args.device),torch=torch.__version__,cuda=torch.version.cuda,
-                tensorrt=tensorrt.__version__,arguments=vars(args)|{'output':str(output)},results={},
+                tensorrt=None if tensorrt is None else tensorrt.__version__,arguments=vars(args)|{'output':str(output)},results={},
                 live_robot_latency_measured=False)
     def save():(output/'report.json').write_text(json.dumps(report,indent=2,default=str)+'\n')
     save()
-    for name in (('diffusion','flow') if args.model=='both' else (args.model,)):
+    for name in (args.model,):
         from steerable_recovery.settings import model_settings
         selected=model_settings(settings,name)
-        root,manifest=load_bundle(selected['bundle'])
+        root,manifest=load_bundle(args.bundle or selected['bundle'])
         row=manifest['models'][name];checkpoint=asset_path(root,row['planner'])
         options=dict(row['reference_inference'],seed=42,sampling_rng='legacy_v1')
         ticks=replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])

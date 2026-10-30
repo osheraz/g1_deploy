@@ -2,8 +2,8 @@
 """Headless, matched comparisons of startup command shaping.
 
 Uses sim_diffusion.py model/terrain/seed options. Example:
-  .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/diagnostics/startup_commands.py --model r8_s25_diffusion \
-    --backend tensorrt --terrain fork3 --start prone --seconds 10
+  .venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/diagnostics/startup_commands.py --model ours \
+    --backend pytorch --terrain fork3 --start prone --seconds 10
 
 All arms run the planner normally, observe actual motion and feed back the
 issued action. This is an experiment, not a change to hardware deployment.

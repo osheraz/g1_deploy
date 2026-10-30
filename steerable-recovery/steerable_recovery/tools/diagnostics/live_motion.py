@@ -60,7 +60,7 @@ def replay(session,output,workspace):
         str(raw/'bag'),'--config',str(CONFIG_ROOT / 'lidar/dlio.yaml'),
         '--output',str(output/'dlio'),'--imu-unit','g','--scan-packets','3','--timeout-s','360',
         '--hardware-capture',str(raw),'--mount-calibration',
-        str(CONFIG_ROOT / 'lidar/mount_candidate_20260912.json'),'--odometry-port',str(port)]
+        str(CONFIG_ROOT / 'lidar/mount_candidate.json'),'--odometry-port',str(port)]
     setup='set -e; source /opt/ros/humble/setup.bash; source "$1"; shift; export ROS_LOCALHOST_ONLY=1 ROS_DOMAIN_ID=91 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1; exec "$@"'
     rows=[];proc=None;cpu_start=time.process_time();wall_start=time.monotonic()
     try:

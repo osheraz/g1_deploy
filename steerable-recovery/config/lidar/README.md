@@ -60,7 +60,7 @@ for deskew. No planner FOV crop is added to odometry. Existing DLIO preprocessin
 crop/voxel settings remain enabled; dynamic robot self-return rejection is not
 qualified by these tests.
 
-`mount_candidate_20260912.json` is an explicit **diagnostic candidate**, copied
+`mount_candidate.json` is an explicit **diagnostic candidate**, copied
 unchanged from `logs/lidar_live/mount_candidate.json` on bluefin. The opt-in
 `deploy.py --live-odometry` path explicitly selects this candidate and
 records its path; the standalone bridge still uses its nominal mount unless

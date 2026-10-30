@@ -11,24 +11,9 @@ This page records limitations; [deploy.md](deploy.md) contains the run commands.
 - Check the workstation link: `cat /sys/class/net/enp132s0/speed`. Raw 640×480×30
   uint16 depth needs about 148 Mb/s per subscriber before overhead. Use gigabit,
   or the documented PNG cap on 100 Mb/s; close extra depth subscribers for a trial.
-- The server was updated and tested on the robot on September 20. With LiDAR traffic,
-  raw transport with `--processing vigor` delivered 30.03 Hz:
-  capture-to-arrival median 68.9 ms / p95 70.3 ms,
-  zero sequence gaps or stale frames over 45 seconds; recorded depth replay matched.
-  One restart had early exposure gaps before settling. Actual policy-consumed age,
-  pose pairing and DLIO/inference load remain unqualified. See the
-  [live receipt](../../../logs/deployment_validation/depth_gigabit_20260920_160232/REPORT.md).
-- Intermittent Jetson SSH failure on the direct link was caused by failed automatic
-  network activation. Its profile now explicitly enables IPv6 link-local; see
-  [network setup](../../tutorials/01_network.md#jetson-disappears-periodically-on-the-direct-link-fixed-2026-09-20).
-- The operator-selected default is now `--processing vigor_legacy`: original
-  VIGOR smoothing and hole filling. Filled positive pixels become valid policy
-  depth. Explicit `--processing vigor` still preserves source missing/near/far
-  categories. R8 observations use metres: remaining below-0.1 m / missing values
-  are masked; finite returns above 2 m saturate at 2 m.
-- Hole filling differs from Stanley's written unified-depth-v3 raw-processing and
-  missing-pixel contract. This default change does not qualify v3 compatibility or
-  improved recovery; the timing numbers above describe the earlier `vigor` run.
+- Match processing, intrinsics, crop and mount to the selected checkpoint.
+  Raw and filtered streams are distinct contracts; hole-filled pixels must not
+  silently change a model's missing-depth semantics.
 - Before A, missing paired depth keeps preview waiting. During recovery the
   existing missing-depth/timing fallback continues; inspect warnings and masks.
 
@@ -48,8 +33,3 @@ Depth is still the planner input. The permanent ROS workspace is
 
 MuJoCo uses the training URDF and Warp depth, but differs from Isaac contacts and
 hardware timing. Do not transfer selected seeded success rates across these setups.
-The requested search for 9×24×36-inch lab platforms is separate work; no new safe
-starting configuration is claimed by this reorganization.
-
-Dated investigations remain in `notes/validation/`; they are historical evidence,
-not an additional sequence of steps required before each run.

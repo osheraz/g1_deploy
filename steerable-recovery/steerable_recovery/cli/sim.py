@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Run selected P11 recovery or legacy diffusion/flow in MuJoCo.
-
-python g1_deploy/steerable-recovery/steerable_recovery/cli/sim.py --video
-python g1_deploy/steerable-recovery/steerable_recovery/cli/sim.py --model p11_diffusion --viewer
-python g1_deploy/steerable-recovery/steerable_recovery/cli/sim.py --model flow --viewer --start supine
-"""
+"""Run a published recovery pair in MuJoCo; use Isaac for paper evaluation."""
 from __future__ import annotations
 
 import argparse
@@ -24,15 +19,15 @@ def arguments(argv=None):
     from motion_diffusion.behavioral.mujoco_terrain import SIM_TERRAINS,DEFAULT_CACHE
     from steerable_recovery.settings import sampling_seed, MODEL_NAMES
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--model',choices=(*MODEL_NAMES,'both'),
-        default='p11_diffusion')
+    parser.add_argument('--model',choices=MODEL_NAMES,
+        default='ours')
     parser.add_argument('--blend-ticks',type=int,help='Latent-plan overlap in 50 Hz control ticks; default uses the bundle recipe')
     parser.add_argument('--replan-hz',type=float,help='Override saved cadence on whole 50 Hz ticks; e.g. 2.5, 5, 10. Simulation time, not a compute guarantee')
     parser.add_argument('--guidance-scale',type=float,help='Override goal steering strength; does not change the trajectory or motor PD gains')
     parser.add_argument('--goal-json',type=Path,help='Shared Stanley steering cost; simulator pelvis feedback, PyTorch planner and selected tracker backend')
     parser.add_argument('--noise-policy',choices=('fresh','fixed_episode'),
         help='fresh: new noise every plan; fixed_episode: sample once per episode and reuse; default follows model bundle')
-    parser.add_argument('--bundle',type=Path,help='Defaults to configs/diffusion.yaml bundle')
+    parser.add_argument('--bundle',type=Path,help='Verified deployment bundle; defaults to the published primary pair')
     parser.add_argument('--robot',type=Path,help='Robot URDF or MJCF; defaults to the training G1-29 URDF')
     parser.add_argument('--terrain',choices=('flat','step',*SIM_TERRAINS),default='flat')
     parser.add_argument('--terrain-seed',type=int,default=42)
@@ -66,7 +61,7 @@ def arguments(argv=None):
     parser.add_argument('--standing-hold-frame',choices=('local','world'),default='local',help='local needs no XYZ feedback; world uses simulator pelvis position to restore the captured location')
     parser.add_argument('--standing-hold-blend-s',type=float,default=.5,help='Smooth desired pose transition duration, seconds')
     parser.add_argument('--start-state',type=Path,help='Exact resting MuJoCo snapshot; flat terrain, N changes only noise')
-    parser.add_argument('--gallery-start',type=Path,help='Imported recorded reset with its exact terrain tile; N changes only noise')
+    parser.add_argument('--recorded-start',type=Path,help='Imported recorded reset with its exact terrain tile; N changes only noise')
     parser.add_argument('--start-pose-jitter-deg',type=float,default=0.,help='Perturb saved joint targets, position and settle before control; N samples another pose, R repeats')
     parser.add_argument('--start-pose-seed',type=sampling_seed,help='Pose jitter RNG seed, independent of planner noise; default random when jitter is enabled')
     parser.add_argument('--noise-only',action='store_true',help='N changes only planner noise; preserve pose and sensor seed')
@@ -108,13 +103,13 @@ def arguments(argv=None):
             parser.error('--start-state fixes a flat resting state; no posture sweep, jitter or extra physics preroll')
         args.noise_only=True
         args.start_snapshot=json.loads(args.start_state.expanduser().resolve().read_text())
-    if args.gallery_start:
+    if args.recorded_start:
         if args.start_state or args.postures or args.joint_jitter or args.tracker_preroll_s or args.tracker_startup!='repeat':
-            parser.error('--gallery-start preserves the recorded reset; no other reset or pre-physics options')
+            parser.error('--recorded-start preserves the recorded reset; no other reset or pre-physics options')
         from motion_diffusion.behavioral.hardware.bundle import sha256
-        args.gallery_snapshot=json.loads(args.gallery_start.resolve().read_text())
-        if args.gallery_snapshot.get('schema')!='hv2.recorded_sim_start.v1':parser.error('Invalid gallery reset schema')
-        terrain=args.gallery_snapshot['terrain']
+        args.recorded_snapshot=json.loads(args.recorded_start.resolve().read_text())
+        if args.recorded_snapshot.get('schema')!='hv2.recorded_sim_start.v1':parser.error('Invalid recorded reset schema')
+        terrain=args.recorded_snapshot['terrain']
         if 'geometry' in terrain:
             path=Path(terrain['geometry'])
             args.terrain_geometry=path if path.is_absolute() else ROOT/path
@@ -123,7 +118,7 @@ def arguments(argv=None):
         else:
             path=Path(terrain['cache'])
             args.terrain_cache=path if path.is_absolute() else ROOT/path
-            if sha256(args.terrain_cache)!=terrain['sha256']:parser.error('Gallery terrain hash mismatch')
+            if sha256(args.terrain_cache)!=terrain['sha256']:parser.error('Recorded terrain hash mismatch')
             args.terrain='fork3';args.terrain_seed=terrain['seed']
         args.noise_only=True
     if args.terrain_geometry:
@@ -186,9 +181,9 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
     pose_seed=seed if pose_seed is None else pose_seed
     sensor_seed=seed if sensor_seed is None else sensor_seed
     with viewer.lock() if viewer else nullcontext():
-        if getattr(args,'gallery_snapshot',None) is not None:
+        if getattr(args,'recorded_snapshot',None) is not None:
             from motion_diffusion.behavioral.start_state import restore_recorded_start
-            restore_recorded_start(plant,args.gallery_snapshot)
+            restore_recorded_start(plant,args.recorded_snapshot)
         elif getattr(args,'start_snapshot',None) is not None:
             from motion_diffusion.behavioral.start_state import restore_start,prepare_jittered_start
             if getattr(args,'start_pose_jitter_deg',0.):
@@ -274,7 +269,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                     if stand is not None:hold_requested=True
                     else:print('Restart with --standing-hold to enable experimental Y.',flush=True)
                 elif event is not None:
-                    if (getattr(args,'start_snapshot',None) is not None or getattr(args,'gallery_snapshot',None) is not None) and (event==ord('M') or ord('1')<=event<=ord('7')):
+                    if (getattr(args,'start_snapshot',None) is not None or getattr(args,'recorded_snapshot',None) is not None) and (event==ord('M') or ord('1')<=event<=ord('7')):
                         print('Saved start: use the launcher to select another posture. '+reset_help,flush=True)
                         continue
                     status=('next_model' if event==ord('P') else 'next_terrain' if event==ord('M') else 'reset_requested')
@@ -558,10 +553,12 @@ def main(argv=None):
     output.mkdir(parents=True,exist_ok=False)
     print(f'Output: {output}',flush=True)
     runs={}
-    for name in (('diffusion','flow') if args.model=='both' else (args.model,)):
+    for name in (args.model,):
         selected=model_settings(config,name)
-        backend=args.backend or selected.get('default_backend','tensorrt')
+        backend=args.backend or selected.get('default_backend','pytorch')
         bundle,manifest=load_bundle(args.bundle or selected['bundle'])
+        if name not in manifest['models']:
+            raise ValueError(f'Bundle does not contain {name}; supply its verified bundle with --bundle')
         row=manifest['models'][name]
         controller_path=asset_path(bundle,row['controller']);planner_path=asset_path(bundle,row['planner'])
         training=OmegaConf.load(asset_path(bundle,row['controller_training_config']))
@@ -580,10 +577,6 @@ def main(argv=None):
                 raise ValueError('Blend must be between zero and the replan period')
             inference['blend_ticks']=args.blend_ticks
         planner=load_hardware_planner(planner_path,args.device,seed=args.seed,sampling_rng='paired_episode_v2',**inference)
-        if args.replan_hz is None and name=='diffusion' and (planner.replan_every_ticks!=planner.model.F or planner.blend_ticks):
-            raise ValueError('Diffusion recipe must execute its complete horizon without blending')
-        if name=='flow' and not 0<planner.replan_every_ticks<planner.model.F:
-            raise ValueError('Flow recipe must replan before its horizon ends')
         if backend!='pytorch':
             def engine(key,precision):
                 if key not in selected['exports']:
@@ -655,7 +648,7 @@ def main(argv=None):
                 backend=backend,planner_precision=(args.planner_precision if backend=='tensorrt' else inference['numerical_precision']),engine_mode=args.engine_mode,
                 camera_randomization=False,
                 fixed_start_snapshot=getattr(args,'start_snapshot',None),noise_only=args.noise_only and not args.start_pose_jitter_deg,
-                recorded_gallery_start=getattr(args,'gallery_snapshot',None),
+                recorded_recorded_start=getattr(args,'recorded_snapshot',None),
                 start_pose_jitter_deg=args.start_pose_jitter_deg,start_pose_seed=args.start_pose_seed,
                 seed_list=args.seed_list,requested_seconds=args.seconds,fixed_camera=args.fixed_camera,
                 standing_hold=dict(enabled=args.standing_hold,at_s=args.standing_hold_at,
@@ -684,8 +677,8 @@ def main(argv=None):
             episode+=1
             seed=vars(args).pop('next_seed',seed if viewer else seed+1)
             if result['status']=='next_terrain':
-                if args.gallery_start or args.terrain_geometry:
-                    print('Gallery start is tied to this terrain. Select another --gallery example to change it.',flush=True)
+                if args.recorded_start or args.terrain_geometry:
+                    print('Recorded starts and measured geometry fix the terrain; provide another input to change it.',flush=True)
                     continue
                 if viewer:viewer.close()
                 if args.terrain not in SIM_TERRAINS:args.terrain='fork3'

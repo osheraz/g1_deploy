@@ -7,7 +7,7 @@ embodiment. This keeps the three independent choices explicit.
   MuJoCo and physical workflows.
 - `pico`: the stable three-terminal operator interface remains under
   `sonic_cpp/teleop/` because its flat `t1`/`t2`/`t3` names are operationally
-  useful; see [`../../sonic_cpp/teleop/README.md`](../../sonic_cpp/teleop/README.md).
+  useful; see `sonic_cpp/teleop/README.md` in the companion C++ checkout.
 
 Within an operation, generic launchers accept a full model/embodiment
 selection. Reviewed fixed combinations live in a `presets/` subdirectory.

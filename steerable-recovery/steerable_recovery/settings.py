@@ -3,12 +3,7 @@ import argparse
 from pathlib import Path
 from .paths import ROOT
 
-STAGE3_MODELS = {name: name.lower()+'_diffusion' for name in
-                ('S50R','S50R_CAUSAL','S50R_GEOMETRY','S50R_H3','S50R_INV10','S50R_RECOVERY')}
-DIFFUSION_RATES = {'r8_s25_diffusion': 2.5, 'r8_s50r_diffusion': 5., 's25r_diffusion': 2.5,
-                   **{name: 2.5 for name in STAGE3_MODELS.values()}}
-MODEL_NAMES = ('p11_diffusion','r8_f50r_flow','r8_s25_diffusion','r8_s50r_diffusion',
-               's25r_diffusion',*STAGE3_MODELS.values(),'r2_f50r_flow','p05_diffusion','diffusion','flow')
+MODEL_NAMES = ('ours', 'joint', 'depth_blind', 'blind_blind')
 
 def sampling_seed(value):
     if value == 'random':
@@ -24,8 +19,10 @@ def sampling_seed(value):
 
 
 def model_settings(settings, model):
-    """Resolve an explicit pair without changing the legacy diffusion/flow aliases."""
+    """Resolve one published pair; never substitute a retired model alias."""
     from copy import deepcopy
+    if model not in MODEL_NAMES:
+        raise ValueError(f'Unsupported recovery model: {model}')
     selected=deepcopy(settings)
     selected.update(selected.get('models',{}).get(model,{}))
     path=Path(selected['bundle'])

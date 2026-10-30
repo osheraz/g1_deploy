@@ -1,6 +1,6 @@
 """Read-only LiDAR/robot/depth viewer and stream monitor, with offline replay.
 
-  python g1_deploy/steerable-recovery/steerable_recovery/sensing/check_lidar.py --replay logs/lidar_live/upright_torso_20260912_01 --viser
+  python g1_deploy/steerable-recovery/steerable_recovery/sensing/check_lidar.py --replay logs/lidar_live/upright_torso --viser
   python g1_deploy/steerable-recovery/steerable_recovery/sensing/check_lidar.py --viser  # connect to running preview publisher
 """
 

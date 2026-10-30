@@ -2,7 +2,7 @@
 # from the selected decoder checkpoint and its verified training config.
 extends: ../../configs/g1_29dof_sonic.yaml
 
-bundle: /nfs/turbo/coe-stellayu-extra/clhsieh/software/hv2_diffusion/experiments/fallrec_latent_planner_20260902/deployments/native_recovery_20260910b
+bundle: /nfs/turbo/coe-stellayu/clhsieh/software/hv2_diffusion/releases/recovery/deployment
 network_interface: enp132s0
 mode_machine: 5
 tracker_device: cuda:0
@@ -15,9 +15,8 @@ camera:
   serial: '247122073927'
   base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
   mount_confirmed: true
-  # Explicit preliminary test of the older bundle with the replacement lens.
-  # Difference is logged; checkpoint metadata is never rewritten.
-  allow_intrinsics_mismatch: true
+  # Sensor geometry must be checked against the selected checkpoint.
+  allow_intrinsics_mismatch: false
 
 # Recovery can be prone: do not inherit SONIC's standing-only tilt restriction.
 # SONIC-style direct PD targets and measured-speed stop; joint positions are logged.
@@ -26,155 +25,5 @@ max_joint_velocity: 35.0
 # This selects recoverable hold, never timing-triggered damping/session shutdown.
 max_command_age_s: 0.06
 
-exports:
-  controller: logs/native_recovery/exports_20260911/controller_checked
-  diffusion: logs/native_recovery/exports_20260911/diffusion
-  flow: logs/native_recovery/exports_20260911/flow
-
-# The launcher defaults to this exact selected pair. The diffusion/flow keys
-# above retain the September 10 models for explicit legacy comparisons.
-models:
-  # September 21 S25R40k + its P42/22k tracker. Explicit depth v3/latest pair.
-  # Raw is the reference recipe; --depth-processing explicitly selects a deployment filter.
-  s25r_diffusion:
-    default_backend: tensorrt
-    bundle: logs/native_recovery/bundles/s25r_40k_20260921
-    exports:
-      controller: logs/native_recovery/exports_s25r_20260921/controller
-      s25r_diffusion: logs/native_recovery/exports_s25r_20260921/planner
-    camera:
-      source: network
-      endpoint: tcp://127.0.0.1:15556
-      clock_endpoint: tcp://127.0.0.1:15558
-      serial: '247122073927'
-      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
-      mount_confirmed: true
-      allow_intrinsics_mismatch: false
-
-  # September 21 gallery planners: exact P42 tracker; guided planner uses PyTorch.
-  s50r_diffusion: &stage3_p42
-    default_backend: pytorch
-    bundle: logs/native_recovery/bundles/stage3_40k_20260921
-    exports:
-      controller: logs/native_recovery/exports_s25r_20260921/controller
-    camera:
-      source: network
-      endpoint: tcp://127.0.0.1:15556
-      clock_endpoint: tcp://127.0.0.1:15558
-      serial: '247122073927'
-      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
-      mount_confirmed: true
-      allow_intrinsics_mismatch: false
-  s50r_causal_diffusion:
-    <<: *stage3_p42
-  s50r_geometry_diffusion:
-    <<: *stage3_p42
-  s50r_h3_diffusion:
-    <<: *stage3_p42
-  s50r_inv10_diffusion:
-    <<: *stage3_p42
-  s50r_recovery_diffusion:
-    <<: *stage3_p42
-
-  # September 15 R8 S50R40k: explicit simulation/robot option. Same R8+6k
-  # tracker/PD as S25, one-second diffusion horizon, fresh noise at 5 Hz.
-  # Materialized by compare_flat_recovery.py prepare; earlier aliases stay pinned.
-  r8_s50r_diffusion:
-    default_backend: tensorrt
-    bundle: logs/native_recovery/bundles/r8_s50r_20260915a
-    exports:
-      controller: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_controller
-      r8_s50r_diffusion: logs/native_recovery/exports_five_20260915/r8_s50r_diffusion_planner
-    camera:
-      source: network
-      endpoint: tcp://127.0.0.1:15556
-      clock_endpoint: tcp://127.0.0.1:15558
-      serial: '247122073927'
-      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
-      mount_confirmed: true
-      allow_intrinsics_mismatch: false
-
-  p11_diffusion:
-    default_backend: pytorch
-    bundle: logs/native_recovery/bundles/p11_20260913
-    exports:
-      controller: logs/native_recovery/exports_p11_20260913/controller
-      p11_diffusion: logs/native_recovery/exports_p11_20260913/planner
-    camera:
-      source: network
-      endpoint: tcp://127.0.0.1:15556
-      clock_endpoint: tcp://127.0.0.1:15558
-      serial: '247122073927'
-      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
-      mount_confirmed: true
-      allow_intrinsics_mismatch: false
-
-  # Stanley's September 14 unguided candidates (40k weights, bundle 20260914b; the
-  # 20260914a bundle is the immutable 20k fallback with the same model names).
-  # State-first flow planners (S67 then Z64, Heun 4 per stage, EMA, F50/K20) with
-  # their exact frozen trackers: R8 depth history3, R2 blind. Never swap trackers.
-  r8_f50r_flow:
-    default_backend: pytorch
-    bundle: logs/native_recovery/bundles/r2_r8_40k_20260914b
-    exports:
-      controller: logs/native_recovery/exports_r2r8_20260914/r8_f50r_flow_controller
-      r8_f50r_flow: logs/native_recovery/exports_r2r8_20260914/r8_f50r_flow_planner
-    camera:
-      source: network
-      endpoint: tcp://127.0.0.1:15556
-      clock_endpoint: tcp://127.0.0.1:15558
-      serial: '247122073927'
-      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
-      mount_confirmed: true
-      allow_intrinsics_mismatch: false
-
-  # R8_S25 diffusion40k (state-first, DDIM 8 per stage, F25/K20) with the same frozen
-  # R8+6k depth tracker as r8_f50r_flow; bundle native_recovery_r8_s25_20260914a.
-  r8_s25_diffusion:
-    default_backend: pytorch
-    bundle: logs/native_recovery/bundles/r8_s25_20260914a
-    # Experimental trajectory steering; preserve the original unguided bundle.
-    # F25 / K20 leaves 5 ticks for an asynchronous reply at 2.5 Hz.
-    guided_timing:
-      max_plan_age_ticks: 5
-      scope: 'Experimental S25 pelvis-trajectory steering; 100 ms reply budget, not hardware qualification.'
-    exports:
-      controller: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_controller
-      r8_s25_diffusion: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_planner
-    camera:
-      source: network
-      endpoint: tcp://127.0.0.1:15556
-      clock_endpoint: tcp://127.0.0.1:15558
-      serial: '247122073927'
-      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
-      mount_confirmed: true
-      allow_intrinsics_mismatch: false
-
-  r2_f50r_flow:
-    default_backend: pytorch
-    bundle: logs/native_recovery/bundles/r2_r8_40k_20260914b
-    exports:
-      controller: logs/native_recovery/exports_r2r8_20260914/r2_f50r_flow_controller
-      r2_f50r_flow: logs/native_recovery/exports_r2r8_20260914/r2_f50r_flow_planner
-    camera:
-      source: network
-      endpoint: tcp://127.0.0.1:15556
-      clock_endpoint: tcp://127.0.0.1:15558
-      serial: '247122073927'
-      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
-      mount_confirmed: true
-      allow_intrinsics_mismatch: false
-
-  p05_diffusion:
-    default_backend: pytorch
-    bundle: logs/native_recovery/bundles/p05_20260913
-    # No P05/A exports yet: never substitute the legacy C10k engine.
-    exports: {}
-    camera:
-      source: network
-      endpoint: tcp://127.0.0.1:15556
-      clock_endpoint: tcp://127.0.0.1:15558
-      serial: '247122073927'
-      base_intrinsics: [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]
-      mount_confirmed: true
-      allow_intrinsics_mismatch: false
+default_backend: pytorch
+exports: {}

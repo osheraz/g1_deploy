@@ -32,5 +32,4 @@ attempt** to suppress sagittal swing after touchdown. Neither is the
 current slow walk. Keep official Slow Walk 0.4 and use `--slow-gait` /
 `--sagittal-scale`.
 
-See the canonical explanation in
-[`../../../docs/learning/sonic_deployment.md`](../../../docs/learning/sonic_deployment.md).
+For launch commands, see the [joystick workflows](../workflows/joystick/README.md).
