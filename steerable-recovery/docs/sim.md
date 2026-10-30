@@ -1,10 +1,12 @@
 # MuJoCo
 
+Prepare a bundle and set `HV2_RECOVERY_BUNDLE` using the
+[deployment guide](../../../docs/guides/deployment.md).
 MuJoCo supports interactive inspection of a published pair. Paper evaluation uses
-[the native Isaac workflow](../../../docs/recovery/evaluation.md).
+[the native Isaac workflow](../../../docs/guides/evaluation.md).
 
 ```bash
-python g1_deploy/steerable-recovery/sim.py --model ours --backend pytorch \
+python g1_deploy/steerable-recovery/sim.py --bundle "$HV2_RECOVERY_BUNDLE" --model ours --backend pytorch \
   --terrain flat --start supine --seed 42 --seconds 10 --no-depth-view
 ```
 

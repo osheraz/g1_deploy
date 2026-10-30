@@ -18,5 +18,5 @@ experimental clock bounds while retaining freshness and geometry checks.
 Invalid feedback suspends steering according to the saved execution policy.
 
 For the paper's starts, shared targets and replanning comparisons, use
-[the evaluation workflow](../../../docs/recovery/evaluation.md). These generic
+[the evaluation workflow](../../../docs/guides/evaluation.md). These generic
 MuJoCo/robot commands do not substitute for native evaluation.

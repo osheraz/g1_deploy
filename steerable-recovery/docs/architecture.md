@@ -30,12 +30,12 @@ history and applies only for 0.5 s. These semantics were not changed by the move
 `config/models.yaml` selects immutable bundle pairs and export paths. Verified
 training PD, action scale and ordering come from the bundle. Do not exchange a
 planner's paired tracker. The primary durable bundle is identified by the
-[release guide](../../../docs/recovery/deployment.md).
+[release guide](../../../docs/guides/deployment.md).
 
 The standalone camera deployment consists of **two loose files**:
 `sensing/native_depth_server.py` and `core/common/depth_wire.py`.
 ROS worker scripts bootstrap the package from their source checkout because
 system Python does not use the policy virtualenv.
 
-[Sensing contracts](../../../docs/recovery/sensing.md) cover depth and measured-pose inputs.
+[Sensing contracts](../../../docs/guides/sensing.md) cover depth and measured-pose inputs.
 Historical guides remain available in Git history.

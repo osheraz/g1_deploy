@@ -6,7 +6,7 @@ session orchestration. The parent `motion_diffusion.inference` package owns
 checkpoint-bound model loading, causal measured histories, asynchronous S→Z
 sampling, PD/action conversion and portable sensor contracts.
 
-Use the [canonical handoff](../../../docs/recovery/deployment.md) for selected
+Use the [canonical handoff](../../../docs/guides/deployment.md) for selected
 pairs and training/evaluation commands. `scripts/run_native_recovery.sh check`
 verifies a portable bundle without connecting sensors or motors. Always specify
 the model; old launcher aliases are historical models, not the selected pair.

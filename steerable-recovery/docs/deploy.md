@@ -1,20 +1,23 @@
 # Robot recovery
 
-Use the [verified release bundle](../../../docs/recovery/deployment.md) and the
-robot/site configuration in `config/models.yaml`. The current pair is not
-hardware-qualified. Check sensor geometry, depth processing and clock alignment
-against its saved contract before commissioning it.
+Prepare a fresh bundle with the [deployment guide](../../../docs/guides/deployment.md)
+and keep its `HV2_RECOVERY_BUNDLE` setting. Use the robot/site configuration in
+`config/models.yaml`. The selected pair is not hardware-qualified. Check sensor
+geometry, depth processing and clock alignment against its saved contract before
+commissioning it.
 
 ```bash
-python g1_deploy/steerable-recovery/deploy.py --model ours --check --max-plan-age-ticks 10
+python g1_deploy/steerable-recovery/deploy.py \
+  --bundle "$HV2_RECOVERY_BUNDLE" --model ours --check
 ```
 
-The 10-tick reply budget in these examples fits the 50-tick horizon and is
-an explicit commissioning setting, not measured hardware qualification. The
-bundle retains its provisional 50-tick value; it cannot satisfy the asynchronous
-horizon check unchanged. Choose a valid budget from measured latency before
-actuation. This check opens no sensors or motor channels. `--bundle PATH` selects a verified
-bundle for another published pair; the planner and tracker must stay paired.
+The generated bundle records its two-tick reply-age budget. This is an executable
+timing contract, not measured hardware qualification. The historical bundle records
+an invalid 50-tick budget; do not use it unchanged or edit its receipt. Unbound
+models require `--bundle` or `HV2_RECOVERY_BUNDLE`. An explicit flag takes precedence;
+named retained pairs keep their configured bundles ahead of the environment fallback. This check opens no sensors
+or motor channels. Other published pairs need their own matching prepared bundle;
+the planner and tracker must stay paired.
 
 ## Terminal 1: depth
 
@@ -44,7 +47,8 @@ Both preserve the same source depth values. [Depth troubleshooting](status.md#de
 After configuring the robot interface and camera, a sensor-only session is:
 
 ```bash
-python g1_deploy/steerable-recovery/deploy.py --model ours --backend pytorch --max-plan-age-ticks 10 \
+python g1_deploy/steerable-recovery/deploy.py \
+  --bundle "$HV2_RECOVERY_BUNDLE" --model ours --backend pytorch \
   --duration-s 30 --record-sensors --record-depth --record-model --output "$NEW_SESSION"
 ```
 
