@@ -55,7 +55,6 @@
   "motion_diffusion/behavioral/depth_sidecar.py": "motion_diffusion/data/depth_sidecar.py",
   "motion_diffusion/behavioral/quality_selection.py": "motion_diffusion/data/quality_selection.py",
   "motion_diffusion/behavioral/verified_index.py": "motion_diffusion/data/verified_index.py",
-  "motion_diffusion/behavioral/stabilization_proof.py": "motion_diffusion/data/stabilization_proof.py",
   "motion_diffusion/behavioral/standing_sampling.py": "motion_diffusion/data/standing_sampling.py",
   "motion_diffusion/behavioral/train.py": "motion_diffusion/training/train.py",
   "motion_diffusion/behavioral/diagnostics.py": "motion_diffusion/training/diagnostics.py",
