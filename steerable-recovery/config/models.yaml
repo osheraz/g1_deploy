@@ -2,7 +2,7 @@
 # from the selected decoder checkpoint and its verified training config.
 extends: ../../configs/g1_29dof_sonic.yaml
 
-bundle: /nfs/turbo/coe-stellayu/clhsieh/software/hv2_diffusion/releases/recovery/deployment
+# Unbound models require an explicit prepared bundle; named pairs below retain theirs.
 network_interface: enp132s0
 mode_machine: 5
 tracker_device: cuda:0

@@ -43,8 +43,9 @@ def test_all_retained_lab_recipes_have_paired_inputs_and_preserve_operator_y():
         assert '--actuate' in motors and '--start-pose' not in motors
 
 
-def test_model_selection_preserves_named_pairs_and_rejects_retired_aliases():
+def test_model_selection_preserves_named_pairs_and_rejects_retired_aliases(monkeypatch, tmp_path):
     profile = yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())
+    monkeypatch.setenv('HV2_RECOVERY_BUNDLE', str(tmp_path / 'published'))
     for name in settings.RETAINED_MODELS:
         selected = settings.model_settings(profile, name)
         assert Path(selected['bundle']).name == Path(profile['models'][name]['bundle']).name
@@ -53,6 +54,47 @@ def test_model_selection_preserves_named_pairs_and_rejects_retired_aliases():
     for retired in ('diffusion', 'flow', 'p11_diffusion', 'p05_diffusion'):
         with pytest.raises(ValueError, match='Unsupported'):
             settings.model_settings(profile, retired)
+
+
+def test_explicit_bundle_overrides_environment_and_configured_pair(monkeypatch, tmp_path):
+    profile = yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())
+    environment = tmp_path / 'environment'
+    explicit = tmp_path / 'explicit'
+    monkeypatch.setenv('HV2_RECOVERY_BUNDLE', str(environment))
+    assert settings.model_settings(profile, 'ours')['bundle'] == str(environment)
+    for name in ('ours', settings.RETAINED_MODELS[0]):
+        assert settings.model_settings(profile, name, bundle=explicit)['bundle'] == str(explicit)
+
+
+@pytest.mark.parametrize('name', settings.PUBLISHED_MODELS)
+def test_unbound_model_requires_a_prepared_bundle(monkeypatch, name):
+    monkeypatch.delenv('HV2_RECOVERY_BUNDLE', raising=False)
+    profile = yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())
+    with pytest.raises(ValueError, match='deployment-catalog.*--bundle PATH.*HV2_RECOVERY_BUNDLE'):
+        settings.model_settings(profile, name)
+
+
+def test_missing_deployment_bundle_fails_before_loading_or_opening_devices(monkeypatch, capsys):
+    from steerable_recovery.cli import deploy
+    from motion_diffusion.inference import bundle
+    monkeypatch.delenv('HV2_RECOVERY_BUNDLE', raising=False)
+    def unexpected(*args, **kwargs):
+        pytest.fail('Unbound deployment must fail before reading weights or opening devices')
+    monkeypatch.setattr(bundle, 'load_bundle', unexpected)
+    monkeypatch.setattr(deploy, 'hardware_settings', unexpected)
+    with pytest.raises(SystemExit) as error:
+        deploy.main(['--model', 'ours', '--check'])
+    assert error.value.code == 2
+    assert 'No bundle configured for ours' in capsys.readouterr().err
+
+
+def test_missing_simulation_bundle_creates_no_output(monkeypatch, tmp_path):
+    from steerable_recovery.cli import sim
+    monkeypatch.delenv('HV2_RECOVERY_BUNDLE', raising=False)
+    output = tmp_path / 'not_created'
+    with pytest.raises(ValueError, match='No bundle configured'):
+        sim.main(['--model', 'ours', '--output', str(output)])
+    assert not output.exists()
 
 
 @pytest.mark.parametrize('selector', [['--gallery', 'robust_29_left'], ['--preset', 'supine']])

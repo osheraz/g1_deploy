@@ -1,5 +1,6 @@
 """Model selection and command settings shared by hardware and simulation."""
 import argparse
+import os
 from pathlib import Path
 from .paths import recovery_asset
 
@@ -22,14 +23,23 @@ def sampling_seed(value):
     return seed
 
 
-def model_settings(settings, model):
-    """Resolve an explicit published or retained pair without substituting weights."""
+def model_settings(settings, model, *, bundle=None):
+    """Explicit bundle wins; configured pairs precede the environment fallback."""
     from copy import deepcopy
     if model not in MODEL_NAMES:
         raise ValueError(f'Unsupported recovery model: {model}')
     selected=deepcopy(settings)
     selected.update(selected.get('models',{}).get(model,{}))
-    selected['bundle']=str(recovery_asset(selected['bundle']))
+    if bundle is not None:
+        selected['bundle']=str(Path(bundle).expanduser().resolve())
+    elif selected.get('bundle'):
+        selected['bundle']=str(recovery_asset(selected['bundle']))
+    elif os.environ.get('HV2_RECOVERY_BUNDLE'):
+        selected['bundle']=str(Path(os.environ['HV2_RECOVERY_BUNDLE']).expanduser().resolve())
+    else:
+        raise ValueError(f'No bundle configured for {model}. Prepare its matching bundle with '
+                         'scripts/recovery.py deployment-catalog and deploy prepare, then pass '
+                         '--bundle PATH or set HV2_RECOVERY_BUNDLE; see docs/guides/deployment.md')
     selected['exports']={name: str(recovery_asset(path))
                          for name, path in selected.get('exports', {}).items()}
     return selected

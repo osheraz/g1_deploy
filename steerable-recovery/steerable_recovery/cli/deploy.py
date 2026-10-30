@@ -137,8 +137,10 @@ def main(argv=None):
     if args.start_pose and (not args.actuate or args.default_pose or args.check or args.preflight):
         parser.error('--start-pose requires --actuate and a normal recovery session')
     config_path=args.config.resolve()
-    settings=model_settings(_load_config(config_path),args.model)
-    if args.bundle is not None:settings['bundle']=str(args.bundle.resolve())
+    try:
+        settings=model_settings(_load_config(config_path),args.model,bundle=args.bundle)
+    except ValueError as error:
+        parser.error(str(error))
     if args.depth_processing is not None:
         settings['camera']['processing']=args.depth_processing
         print(f'Deployment depth processing: {args.depth_processing}; server must use the same mode.',flush=True)

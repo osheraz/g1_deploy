@@ -154,8 +154,8 @@ def main():
     save()
     for name in (args.model,):
         from steerable_recovery.settings import model_settings
-        selected=model_settings(settings,name)
-        root,manifest=load_bundle(args.bundle or selected['bundle'])
+        selected=model_settings(settings,name,bundle=args.bundle)
+        root,manifest=load_bundle(selected['bundle'])
         row=manifest['models'][name];checkpoint=asset_path(root,row['planner'])
         options=dict(row['reference_inference'],seed=42,sampling_rng='legacy_v1')
         ticks=replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])

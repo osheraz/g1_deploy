@@ -554,13 +554,16 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
 
 def main(argv=None):
     args=arguments(argv)
+    import yaml
+    from steerable_recovery.settings import model_settings
+    selected=model_settings(yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text()),
+                            args.model,bundle=args.bundle)
     # N varies diffusion noise independently of pose and camera delivery.
     if args.pose_seed is None:args.pose_seed=args.seed
     args.start_offset={};args.start_jitter=0.
     if args.sensor_seed is None:args.sensor_seed=args.seed
     if args.video and not args.viewer:os.environ.setdefault('MUJOCO_GL','egl')
     import torch
-    import yaml
     from omegaconf import OmegaConf
     from motion_diffusion.inference.policy import NativeRecoveryPolicy
     from motion_diffusion.inference.policy import load_controller
@@ -570,16 +573,13 @@ def main(argv=None):
     from motion_diffusion.inference.engines import configure_controller, configure_planner
     from motion_diffusion.inference.mujoco import DEFAULT_ROBOT, scene_model, MujocoNativePlant
     torch.set_num_threads(1)
-    config=yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())
-    from steerable_recovery.settings import model_settings
     output=(args.output or ROOT/'logs/native_recovery'/f'mujoco_{args.terrain}_{time.time_ns()}').resolve()
     output.mkdir(parents=True,exist_ok=False)
     print(f'Output: {output}',flush=True)
     runs={}
     for name in (args.model,):
-        selected=model_settings(config,name)
         backend=args.backend or selected.get('default_backend','pytorch')
-        bundle,manifest=load_bundle(args.bundle or selected['bundle'])
+        bundle,manifest=load_bundle(selected['bundle'])
         if name not in manifest['models']:
             raise ValueError(f'Bundle does not contain {name}; supply its verified bundle with --bundle')
         row=manifest['models'][name]
