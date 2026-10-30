@@ -1,0 +1,99 @@
+{
+  "schema": "hv2.mujoco_rest_start.v1",
+  "plant_sha256": "45bc92cd974c55e531e16c59a68f7fca780cd6754736fa99db72d25930db780a",
+  "joint_positions_rad": {
+    "left_hip_pitch_joint": 0.36129811222964164,
+    "left_hip_roll_joint": 1.2401899051359544,
+    "left_hip_yaw_joint": 1.7740711343415365,
+    "left_knee_joint": 1.3841353166210193,
+    "left_ankle_pitch_joint": -0.7697856840169953,
+    "left_ankle_roll_joint": -0.3019922238971115,
+    "right_hip_pitch_joint": 0.19713697287440712,
+    "right_hip_roll_joint": 0.45152835944853403,
+    "right_hip_yaw_joint": 1.5151725165077266,
+    "right_knee_joint": -0.084896790350886,
+    "right_ankle_pitch_joint": 0.5156461025656287,
+    "right_ankle_roll_joint": -0.28942464794746237,
+    "waist_yaw_joint": -0.0032716638778539,
+    "waist_roll_joint": 0.2681646628519179,
+    "waist_pitch_joint": -0.013154157180837608,
+    "left_shoulder_pitch_joint": 0.20191375457161967,
+    "left_shoulder_roll_joint": 0.12797006249517348,
+    "left_shoulder_yaw_joint": 0.26004785622573245,
+    "left_elbow_joint": 1.3009709852383113,
+    "left_wrist_roll_joint": 0.05633890351170553,
+    "left_wrist_pitch_joint": -0.08560174288601675,
+    "left_wrist_yaw_joint": 0.5498339521124623,
+    "right_shoulder_pitch_joint": 0.17592201790522663,
+    "right_shoulder_roll_joint": -0.23160004035591342,
+    "right_shoulder_yaw_joint": -0.0701394635780246,
+    "right_elbow_joint": 1.355876130383115,
+    "right_wrist_roll_joint": -0.6273202535879655,
+    "right_wrist_pitch_joint": -0.13723315876615022,
+    "right_wrist_yaw_joint": 0.045089106630652985
+  },
+  "root_position_m": [
+    0.01782121140522182,
+    -0.004031778914175274,
+    0.06225783463170945
+  ],
+  "root_quat_xyzw": [
+    -0.6887005472976389,
+    -0.003715470980648308,
+    -0.7249926858301469,
+    0.007959706031928322
+  ],
+  "preparation": {
+    "requested": "supine",
+    "posture": "supine",
+    "seed": 42,
+    "joint_jitter": 0.0,
+    "root_xy_offset_m": [
+      0.0,
+      0.0
+    ],
+    "root_rpy_offset_rad": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "settled": true,
+    "settle_simulated_s": 1.6600000000000001,
+    "settle_speed_before_zero": 0.05840273819545554,
+    "settle_converged": true,
+    "initial_contacts": 13,
+    "initial_speed": 0.0,
+    "passive_root_drift_100ms_m": 8.566587557927262e-05,
+    "passive_joint_drift_100ms_rad": 0.00842493186462323
+  },
+  "source": {
+    "release": "/nfs/turbo/coe-stellayu-extra/osher/projects/hv2/releases/fork3_rise_salmon15501_isaac6_20260911",
+    "split": "train",
+    "setup_identity": [
+      "e8289fcd0d43d1c3196c7647938727db85527743827cd2541d1f6dbac676d008",
+      6819,
+      20458,
+      1
+    ],
+    "raw_files": [
+      "batch_00010_00019_env48_lafan1_fallAndGetUp1_subject1_e011_m@p+120g_L16.npz",
+      "batch_00010_01186_env47_lafan1_fallAndGetUp1_subject1_e010_m_L16.npz"
+    ],
+    "raw_sha256": [
+      "cf4daa6a623668389d58d5154eb290d1a4bdc7464c76238bfed97fb441dadcac",
+      "05ed0904f3807d7dc5391f82562eb2a38055f371bb6dc1907701eca21bd91908"
+    ],
+    "reset_inputs_equal": true,
+    "measured_first_joint_gap_rad": 0.0,
+    "measured_first_rotation_gap_rad": 0.0,
+    "first_joint_speed_rms_rad_s": 4.591873093924035,
+    "heading_gap_deg": 176.27323523174394,
+    "path_gap_m": 0.874864381702233,
+    "body_path_distance": 0.3514517778008319,
+    "terrain": "step",
+    "references": [
+      "lafan1_fallAndGetUp1_subject1_e011_m@p+120g",
+      "lafan1_fallAndGetUp1_subject1_e010_m"
+    ]
+  }
+}

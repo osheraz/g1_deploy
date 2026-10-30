@@ -1,0 +1,200 @@
+{
+  "schema": "hv2.hardware_motion_goal.v1",
+  "clock": "physical_elapsed_s",
+  "frame": "initial_pelvis_origin_causal_heading",
+  "mode": "waypoint_xyz",
+  "guidance_scale": 2500.0,
+  "guidance_max_grad_norm": 1.0,
+  "position_error_scale_m": 0.12,
+  "yaw_error_scale_deg": 12.0,
+  "target": {
+    "pose_waypoints": {
+      "schema": "hv2.pose_waypoints.v1",
+      "clock": "physical_elapsed_s",
+      "frame": "initial_pelvis_origin_causal_heading",
+      "rotation_convention": "xyzw_body_to_initial_heading",
+      "times_s": [
+        0.0,
+        0.44,
+        1.76,
+        2.64,
+        3.0,
+        3.36,
+        3.72,
+        4.4,
+        4.94,
+        5.6000000000000005,
+        7.0
+      ],
+      "positions_m": [
+        [
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.03604250026315252,
+          -0.02551983434008071,
+          -0.12067937850952148
+        ],
+        [
+          0.029815961832479546,
+          -0.03477273323306963,
+          -0.11929112672805786
+        ],
+        [
+          0.007611982364992255,
+          -0.026136291379156504,
+          -0.08719351887702942
+        ],
+        [
+          -0.04504640599595434,
+          -0.053742118234986196,
+          -0.017602235078811646
+        ],
+        [
+          -0.18079516952506755,
+          -0.056190719292138896,
+          -0.00563774871081114
+        ],
+        [
+          -0.29565496498785415,
+          0.07461680882383112,
+          -0.007895402789115906
+        ],
+        [
+          -0.38543638214974313,
+          0.16205230475349455,
+          -0.02258974313735962
+        ],
+        [
+          -0.3024731406417096,
+          0.19688694459961797,
+          0.061150431632995605
+        ],
+        [
+          -0.4477447220313178,
+          0.10844342744588074,
+          0.3646741807460785
+        ],
+        [
+          -0.4551219230483497,
+          0.13232397097384171,
+          0.36002418398857117
+        ]
+      ],
+      "quaternion_xyzw": [
+        [
+          0.5336447941917357,
+          -0.03341516109613063,
+          0.8310188247860509,
+          0.1533439711634939
+        ],
+        [
+          0.7047222118465065,
+          -0.014670000951294039,
+          0.6685102518349448,
+          0.23716120760747436
+        ],
+        [
+          0.6895255295060175,
+          -0.07818644027624089,
+          0.6937994947377115,
+          0.19257124867973424
+        ],
+        [
+          0.559620486027615,
+          -0.07426823965445867,
+          0.8073683943353681,
+          0.1716549330056475
+        ],
+        [
+          0.40984562205447156,
+          -0.21325996471881545,
+          0.8863028312541673,
+          0.03184407074731283
+        ],
+        [
+          0.19015455788473715,
+          -0.0071900981073179685,
+          0.9214036934105054,
+          0.3388285412629025
+        ],
+        [
+          -0.21574135418728893,
+          0.11652638987097595,
+          0.8549165528424301,
+          0.45715966164250355
+        ],
+        [
+          -0.3622053087010808,
+          0.03646387431072853,
+          0.9259140402222021,
+          0.10080124175030954
+        ],
+        [
+          -0.06713852724262424,
+          -0.17579943922350225,
+          0.9575253034321778,
+          0.21847715810928464
+        ],
+        [
+          0.026721288763495228,
+          0.021290113812440097,
+          0.9747302886146857,
+          -0.2207568079081654
+        ],
+        [
+          0.09653518523321951,
+          0.014680569496368265,
+          0.9593698825803371,
+          -0.26471657917297264
+        ]
+      ],
+      "position_deadband_m": 0.035,
+      "rotation_deadband_deg": 5.0,
+      "rotation_error_scale_deg": 30.0,
+      "rotation_weight": 2.0
+    },
+    "path_progress": {
+      "mode": "measured_pelvis_arc_length_window",
+      "near_lookahead_m": 0.02,
+      "far_lookahead_m": 0.18,
+      "knot_radius_m": 0.06,
+      "corridor_radius_m": 0.25,
+      "forward_window_m": 0.3,
+      "max_advance_ratio": 2.0
+    },
+    "turn_release": {
+      "axis": "initial_horizontal_spine",
+      "direction": "left",
+      "angle_deg": 60.0,
+      "confirmation_ticks": 3
+    }
+  },
+  "execution": {
+    "release_on_upright": false
+  },
+  "provenance": {
+    "run_id": "z_refine_left_window_s54001_mid304",
+    "source_commit": "bfa03efad91edd529271b9834a074935f9dc1968",
+    "source_model": "S50R",
+    "planner_sha256": "02c2ef96ac30a60c5d8dfea5d20b3cc08654fb10ebd6b9f198e515dc18342fcd",
+    "tracker_sha256": "860784ab07a1a521e2532e326151260f5cf44451482ff91e293af526bd144703",
+    "motion_id": 304,
+    "case_index": 19,
+    "source_batch_size": 48,
+    "plan_sha256": "ed067f2977a69092a408063a33ffff5e41934ec2acf368337ecbc92c2fa0ebe1",
+    "options_sha256": "b0b768db85617d8d7446e8e5e515ca7a82032bf39c2f7756c966cee121921ce0",
+    "targets_sha256": "82e81a04c74c1dff7970322b47aa14ad12588e194582e9e24e6cf874e453e339",
+    "starts_sha256": "957f7194a291f42caa71eb1b64bc39846deeb7cf557aae62c3bb6ebdd960742d",
+    "terrain_sha256": "7206d5a2145de39e5559cb3e8ce5e852a24d392b37e51dc5d2ce80ea3b15ed86",
+    "behavior_axis": "initial_spine",
+    "start_id": "lab19",
+    "edge": "lower_right",
+    "scope": "Single-robot adaptation with measured feedback and asynchronous plans; not exact Isaac batch/DR replay.",
+    "source_set": "progress_recipe_04",
+    "task_source_set": "progress_recipe_03"
+  },
+  "hardware_qualified": false
+}

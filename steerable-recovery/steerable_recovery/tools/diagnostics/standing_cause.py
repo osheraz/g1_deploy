@@ -18,7 +18,7 @@ import torch
 
 from humanoidverse2.agents.action_vae.modules import ReconstructionHead
 from motion_diffusion.behavioral.hardware.bundle import sha256
-from motion_diffusion.behavioral.hardware.cli import load_controller
+from motion_diffusion.behavioral.deploy import load_controller
 from motion_diffusion.behavioral.hardware.depth_recording import RecordedModelDepth
 from motion_diffusion.behavioral.hardware.model_trace import read_trace
 from motion_diffusion.behavioral.standing import StandingReference

@@ -27,7 +27,7 @@ def main():
     import mujoco
     from omegaconf import OmegaConf
     from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path
-    from motion_diffusion.behavioral.hardware.cli import load_controller
+    from motion_diffusion.behavioral.deploy import load_controller
     from motion_diffusion.behavioral.mujoco import scene_model,MujocoNativePlant,MujocoDepth
     from motion_diffusion.terrain.planner_depth import PlannerDepthRenderer,depth_view
     torch.set_num_threads(1)

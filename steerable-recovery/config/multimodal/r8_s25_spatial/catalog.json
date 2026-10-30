@@ -1,0 +1,137 @@
+{
+  "schema": "hv2.multimodal_demo.v1",
+  "model": "r8_s25_diffusion",
+  "backend": "tensorrt",
+  "controller_sha256": "cc1941f7c9d6d19c91e0cdb1a482c8ced302561244702f24c6c212931deeae48",
+  "planner_sha256": "05cdd410781ac1ceac5f41974386bc6972249d55a8fde872d60484581297a0a9",
+  "reference_inference": {
+    "mode": "staged",
+    "sampler": "ddim",
+    "num_inference_steps": 8,
+    "use_ema": true,
+    "numerical_precision": "tf32",
+    "replan_every_ticks": 20,
+    "blend_ticks": 0,
+    "noise_policy": "fresh"
+  },
+  "planner_precision": "fp32",
+  "engine_mode": "cuda_graph",
+  "sensor_seed": 42,
+  "depth_startup": "prefill",
+  "tracker_startup": "repeat",
+  "command_limits": "bounded",
+  "seconds": 12.0,
+  "fixed_camera": true,
+  "scope": "Pairs selected for pelvis XY path separation with successful quiet recoveries. Each pair restores identical physics and model conditions; only planner noise changes. Not a population success estimate or hardware-tested pose.",
+  "starts": [
+    {
+      "category": "supine",
+      "posture": "supine",
+      "candidate_id": "supine_03_anchor6819",
+      "start_state": "supine.json",
+      "start_sha256": "357bfb27467db561428dd17423fc992d0c8ebaf4e0e4a1c00c3a634c24a157f2",
+      "seeds": [
+        49,
+        707
+      ],
+      "metrics": {
+        "route_distance_m": 0.797496341009108,
+        "heading_gap_deg": 36.21277676236279,
+        "first_upright_endpoint_gap_m": 1.2062037171444726,
+        "before_rise_endpoint_gap_m": 1.1641493627272907
+      },
+      "initial_condition_sha256": "7b8c49b034ddd7e28420db19b84ca00747d2d125bd50ceb87026d6ecc2212fae",
+      "source": {
+        "release": "/nfs/turbo/coe-stellayu-extra/osher/projects/hv2/releases/fork3_rise_salmon15501_isaac6_20260911",
+        "split": "train",
+        "setup_identity": [
+          "e8289fcd0d43d1c3196c7647938727db85527743827cd2541d1f6dbac676d008",
+          6819,
+          20458,
+          1
+        ],
+        "raw_files": [
+          "batch_00010_00019_env48_lafan1_fallAndGetUp1_subject1_e011_m@p+120g_L16.npz",
+          "batch_00010_01186_env47_lafan1_fallAndGetUp1_subject1_e010_m_L16.npz"
+        ],
+        "raw_sha256": [
+          "cf4daa6a623668389d58d5154eb290d1a4bdc7464c76238bfed97fb441dadcac",
+          "05ed0904f3807d7dc5391f82562eb2a38055f371bb6dc1907701eca21bd91908"
+        ],
+        "reset_inputs_equal": true,
+        "measured_first_joint_gap_rad": 0.0,
+        "measured_first_rotation_gap_rad": 0.0,
+        "first_joint_speed_rms_rad_s": 4.591873093924035,
+        "heading_gap_deg": 176.27323523174394,
+        "path_gap_m": 0.874864381702233,
+        "body_path_distance": 0.3514517778008319,
+        "terrain": "step",
+        "references": [
+          "lafan1_fallAndGetUp1_subject1_e011_m@p+120g",
+          "lafan1_fallAndGetUp1_subject1_e010_m"
+        ]
+      },
+      "selected_trials": [
+        "/home/osher/hv2/logs/multimodal_recovery/spatial_confirm_20260914/supine/r8_s25_diffusion_000",
+        "/home/osher/hv2/logs/multimodal_recovery/spatial_confirm_20260914/supine/r8_s25_diffusion_001"
+      ],
+      "search_tested": 20,
+      "search_usable": 19,
+      "robot_start_pose": "supine_robot.json"
+    },
+    {
+      "category": "prone",
+      "posture": "prone",
+      "candidate_id": "prone_00_anchor6649",
+      "start_state": "prone.json",
+      "start_sha256": "59220f7d8f5840bbea512e8a1e2072bcaff7a2dad2045764f819ee99bb8d77a2",
+      "seeds": [
+        50,
+        44
+      ],
+      "metrics": {
+        "route_distance_m": 0.18197166749427243,
+        "heading_gap_deg": 19.746165682966073,
+        "first_upright_endpoint_gap_m": 0.2954777821200952,
+        "before_rise_endpoint_gap_m": 0.21270605160670472
+      },
+      "initial_condition_sha256": "2427e880dc7ce384b3e1280b595831f2530ef5530c4525e927e6a38cfacaa45b",
+      "source": {
+        "release": "/nfs/turbo/coe-stellayu-extra/osher/projects/hv2/releases/fork3_rise_salmon15501_isaac6_20260911",
+        "split": "train",
+        "setup_identity": [
+          "e72704b00b2d7d3633dd9152433ca6dafce25fb5502d243398323f84e07f642f",
+          6649,
+          19949,
+          1
+        ],
+        "raw_files": [
+          "batch_00009_01738_env1534_bones_seed_stand_up_lying_stomach_r_002_a474~chain77+bones_seed_stand_up_lying_stomach_r_002_a472~at86_t080_L11.npz",
+          "batch_00009_01932_env1529_bones_seed_stand_up_lying_stomach_r_002_a474_m~roll+1+bones_seed_stand_up_lying_r_002_a472_t060_L11.npz"
+        ],
+        "raw_sha256": [
+          "eb21bf0811e4822a0f57ea527e738f51a17ff62f8b552da08e87985fd1050dd2",
+          "9331ae3c7ccf57650f50801931b98682706d880047a3a46edd7ebde04a733dbe"
+        ],
+        "reset_inputs_equal": true,
+        "measured_first_joint_gap_rad": 0.005303859710693359,
+        "measured_first_rotation_gap_rad": 0.0006277453425218698,
+        "first_joint_speed_rms_rad_s": 5.097181115536119,
+        "heading_gap_deg": 146.64840473519564,
+        "path_gap_m": 0.9091206911092721,
+        "body_path_distance": 0.46070065328774534,
+        "terrain": "stairs",
+        "references": [
+          "bones_seed_stand_up_lying_stomach_r_002_a474~chain77+bones_seed_stand_up_lying_stomach_r_002_a472~at86_t080",
+          "bones_seed_stand_up_lying_stomach_r_002_a474_m~roll+1+bones_seed_stand_up_lying_r_002_a472_t060"
+        ]
+      },
+      "selected_trials": [
+        "/home/osher/hv2/logs/multimodal_recovery/flat_prone_confirm_20260914/r8_s25_diffusion_000",
+        "/home/osher/hv2/logs/multimodal_recovery/flat_prone_confirm_20260914/r8_s25_diffusion_001"
+      ],
+      "search_tested": 12,
+      "search_usable": 11
+    }
+  ]
+}

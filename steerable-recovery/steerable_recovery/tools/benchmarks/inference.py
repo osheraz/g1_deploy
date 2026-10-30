@@ -136,7 +136,7 @@ def main():
         import tensorrt
     else:tensorrt=None
     from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path,replan_ticks_for_hz
-    from motion_diffusion.behavioral.hardware.cli import load_controller
+    from motion_diffusion.behavioral.deploy import load_controller
     from motion_diffusion.behavioral.hardware.engines import configure_controller,configure_planner
     from motion_diffusion.behavioral.hardware.execution import sample_snapshot
     from motion_diffusion.behavioral.hardware.export import graph_examples

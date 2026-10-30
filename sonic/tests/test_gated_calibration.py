@@ -144,7 +144,7 @@ class ReviewGatedProtocolTest(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    str(DEPLOY / "scripts/fit_suspended_calibration.py"),
+                    str(DEPLOY / "sonic/scripts/fit_suspended_calibration.py"),
                     str(state),
                     "--coordinate-basis", "encoder_only",
                     "--output", str(output),

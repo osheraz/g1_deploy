@@ -42,7 +42,7 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
     from motion_diffusion.behavioral.hardware.model_trace import read_trace, engine_identity
     from motion_diffusion.behavioral.hardware.bundle import sha256
     from motion_diffusion.behavioral.hardware.execution import sample_snapshot, _ipc_tensors
-    from motion_diffusion.behavioral.hardware.cli import load_controller
+    from motion_diffusion.behavioral.deploy import load_controller
     from motion_diffusion.behavioral.runtime import load_frozen_planner
     from motion_diffusion.behavioral.hardware.engines import configure_planner
     from motion_diffusion.behavioral.action_limits import PDTargetLimiter

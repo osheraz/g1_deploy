@@ -21,7 +21,6 @@ import time
 from steerable_recovery.paths import ROOT, CONFIG_ROOT
 sys.path.insert(0,str(ROOT))
 sys.path.insert(0,str(ROOT/'g1_deploy'))
-sys.path.insert(0,str(ROOT/'dependencies/isaac_utils'))
 
 from steerable_recovery.recording.session import DEFAULT_CAMERA, RESULTS_ROOT
 from steerable_recovery.settings import sampling_seed, model_settings, hardware_settings, MODEL_NAMES
@@ -240,7 +239,8 @@ def main(argv=None):
         print(f'Requested planner cadence: {50/replan_ticks:g} Hz; actual replies remain subject to compute/transport latency.',flush=True)
     if args.check:
         if args.standing_hold:
-            from motion_diffusion.behavioral.hardware.cli import load_controller,load_standing_reference
+            from motion_diffusion.behavioral.deploy import load_controller
+            from motion_diffusion.behavioral.hardware.cli import load_standing_reference
             hold_controller=load_controller(dict(config,tracker_device='cpu',controller_engine=None))
             hold_reference=load_standing_reference(config,hold_controller)
             hold_reference.warmup()

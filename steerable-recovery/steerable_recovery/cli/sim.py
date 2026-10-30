@@ -11,7 +11,7 @@ from pathlib import Path
 import sys
 import time
 
-from steerable_recovery.paths import ROOT, CONFIG_ROOT
+from steerable_recovery.paths import ROOT, CONFIG_ROOT, recovery_asset
 sys.path.insert(0,str(ROOT))
 
 
@@ -112,12 +112,12 @@ def arguments(argv=None):
         terrain=args.recorded_snapshot['terrain']
         if 'geometry' in terrain:
             path=Path(terrain['geometry'])
-            args.terrain_geometry=path if path.is_absolute() else ROOT/path
+            args.terrain_geometry=recovery_asset(path)
             if sha256(args.terrain_geometry)!=terrain['sha256']:parser.error('Measured terrain hash mismatch')
             args.terrain='flat'
         else:
             path=Path(terrain['cache'])
-            args.terrain_cache=path if path.is_absolute() else ROOT/path
+            args.terrain_cache=recovery_asset(path)
             if sha256(args.terrain_cache)!=terrain['sha256']:parser.error('Recorded terrain hash mismatch')
             args.terrain='fork3';args.terrain_seed=terrain['seed']
         args.noise_only=True
@@ -337,7 +337,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                     if tick==0:
                         camera_info=sensor.startup_info
                         plant.reset_info['camera']=camera_info
-                        from motion_diffusion.terrain.depth_protocol import is_v3
+                        from hv2_common.sensors.depth import is_v3
                         semantics=('Near pixels are masked; healthy empty rays saturate at 2 m.'
                                    if is_v3(capture) else 'These pixels stay masked.')
                         print(f'  Camera: {100*camera_info["camera_clearance_above_terrain_m"]:.1f} cm above terrain; '
@@ -540,7 +540,7 @@ def main(argv=None):
     import yaml
     from omegaconf import OmegaConf
     from motion_diffusion.behavioral.deploy import NativeRecoveryPolicy
-    from motion_diffusion.behavioral.hardware.cli import load_controller
+    from motion_diffusion.behavioral.deploy import load_controller
     from motion_diffusion.behavioral.hardware.steering import load_hardware_planner
     from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path,replan_ticks_for_hz
     from motion_diffusion.behavioral.hardware.export_pd import derive_pd
@@ -648,7 +648,7 @@ def main(argv=None):
                 backend=backend,planner_precision=(args.planner_precision if backend=='tensorrt' else inference['numerical_precision']),engine_mode=args.engine_mode,
                 camera_randomization=False,
                 fixed_start_snapshot=getattr(args,'start_snapshot',None),noise_only=args.noise_only and not args.start_pose_jitter_deg,
-                recorded_recorded_start=getattr(args,'recorded_snapshot',None),
+                recorded_gallery_start=getattr(args,'recorded_snapshot',None),
                 start_pose_jitter_deg=args.start_pose_jitter_deg,start_pose_seed=args.start_pose_seed,
                 seed_list=args.seed_list,requested_seconds=args.seconds,fixed_camera=args.fixed_camera,
                 standing_hold=dict(enabled=args.standing_hold,at_s=args.standing_hold_at,

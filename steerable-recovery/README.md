@@ -1,7 +1,9 @@
 # Steerable Recovery
 
 Run from the hv2 checkout with its pinned `g1_deploy` submodule. The supported
-models are `ours`, `joint`, `depth_blind`, and `blind_blind`; the default is `ours`.
+published models are `ours`, `joint`, `depth_blind`, and `blind_blind`; the default is `ours`.
+[Retained Osher consumers](docs/retained-consumers.md) keep their exact S25/S50/R8
+pairs, same-start presets, and measured-lab progress/Y recipes.
 The [release guide](../../docs/recovery/deployment.md) identifies the verified
 bundle and explains how to package another published pair. Joint uses 8 DDIM steps.
 
@@ -29,5 +31,6 @@ and diagnostics live in `steerable_recovery/`; learned inference lives in
 joint ordering. Compiled engines require their own export validation.
 
 [Environment/network setup](../tutorials/GETTING_STARTED.md) covers a new machine.
-The current model bundle is not hardware-qualified. No preset implicitly enables
-motor output; actuation requires an explicit operator command.
+The current model bundle is not hardware-qualified. The direct runtime requires `--actuate` for motor output. Retained `deploy.py
+--preset` and `--gallery` commands select actuated deployment; inspect them first
+with `--print-command`, or use gallery `--sensor-only` for a sensor session.

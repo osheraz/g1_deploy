@@ -1,9 +1,13 @@
 """Model selection and command settings shared by hardware and simulation."""
 import argparse
 from pathlib import Path
-from .paths import ROOT
+from .paths import recovery_asset
 
-MODEL_NAMES = ('ours', 'joint', 'depth_blind', 'blind_blind')
+PUBLISHED_MODELS = ('ours', 'joint', 'depth_blind', 'blind_blind')
+RETAINED_MODELS = ('s25r_diffusion', 's50r_diffusion', 'r8_s50r_diffusion', 'r8_s25_diffusion', 'r2_f50r_flow')
+MODEL_NAMES = PUBLISHED_MODELS + RETAINED_MODELS
+DIFFUSION_RATES = {'r8_s25_diffusion': 2.5, 'r8_s50r_diffusion': 5.,
+                   's25r_diffusion': 2.5, 's50r_diffusion': 2.5}
 
 def sampling_seed(value):
     if value == 'random':
@@ -19,14 +23,15 @@ def sampling_seed(value):
 
 
 def model_settings(settings, model):
-    """Resolve one published pair; never substitute a retired model alias."""
+    """Resolve an explicit published or retained pair without substituting weights."""
     from copy import deepcopy
     if model not in MODEL_NAMES:
         raise ValueError(f'Unsupported recovery model: {model}')
     selected=deepcopy(settings)
     selected.update(selected.get('models',{}).get(model,{}))
-    path=Path(selected['bundle'])
-    selected['bundle']=str(path if path.is_absolute() else ROOT/path)
+    selected['bundle']=str(recovery_asset(selected['bundle']))
+    selected['exports']={name: str(recovery_asset(path))
+                         for name, path in selected.get('exports', {}).items()}
     return selected
 
 
