@@ -170,6 +170,21 @@ def sample_start_offset(seed,*,xy_m=.1,tilt_deg=5.,yaw_deg=15.):
                 root_rpy=np.deg2rad(rng.uniform([-tilt_deg,-tilt_deg,-yaw_deg],[tilt_deg,tilt_deg,yaw_deg])).tolist())
 
 
+def advance_steering_release(planner, gate, observation, elapsed_s, context, status, *, standing=False):
+    """Apply shared release criteria to synchronous scheduling; Y owns its bypass."""
+    if standing or context is None:
+        return status
+    from motion_diffusion.behavioral.hardware.steering import command_finished
+    release = gate.update(observation) if gate is not None else None
+    if release is None and command_finished(planner.guidance_contract, elapsed_s):
+        release = dict(active=False, reason='command_window_elapsed')
+    if release is not None and (status is None or status['reason'] != release['reason']):
+        status = dict(release, release_elapsed_s=elapsed_s)
+        planner.request_replan()
+    context['steering_released'] = context['elapsed_s'].new_full((1,), float(status is not None))
+    return status
+
+
 def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None):
     import mujoco
     import numpy as np
@@ -223,6 +238,9 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
     if stand is not None:stand.reset()
     hold_requested=False;standing_ticks=0
     from motion_diffusion.behavioral.progress_steering import ProgressSteering
+    from motion_diffusion.behavioral.hardware.steering import configured_upright_release
+    upright_release = configured_upright_release(policy.planner.guidance_contract, plant.names)
+    steering_release_status = None
     progress_goal=policy.planner.guidance_contract.get('goal',{})
     progress_steering=(ProgressSteering(progress_goal)
         if progress_goal.get('target',{}).get('path_progress') else None)
@@ -373,6 +391,9 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                         if viewer:viewer.set_texts((None,None,
                             f'ENCODED STANDING HOLD ({stand.frame}) | tracker remains active\nR reset | N next seed | SPACE pause',None))
                     if stand.active:override=stand(tick*.02,position,heading)
+                steering_release_status = advance_steering_release(
+                    policy.planner, upright_release, obs, tick*.02, guidance_context,
+                    steering_release_status, standing=override is not None)
                 result=policy.step(obs.q[None],obs.dq[None],obs.gyro_body[None],obs.gravity_body[None],previous,
                     pelvis_quat=quat,previous_executed_code=code,reset_mask=torch.tensor([tick==0],device=device),
                     control_tick=torch.tensor([tick],device=device),episode_seeds=[seed],
@@ -480,6 +501,8 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 standing_hold_frame=None if stand is None else stand.frame,
                 standing_hold_start_s=None if stand is None else stand.start_time,
                 steering_progress=None if progress_steering is None else progress_steering.diagnostics(),
+                steering_release=steering_release_status,
+                upright_steering_release=None if upright_release is None else upright_release.contract,
                 tracker_startup=getattr(args,'tracker_startup','repeat'),tracker_preroll_s=getattr(args,'tracker_preroll_s',0.),
                 depth_startup=getattr(args,'depth_startup','cold'),
                 frames=len(frames),simulated_seconds=len(frames)*.02,

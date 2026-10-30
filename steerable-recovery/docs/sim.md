@@ -29,3 +29,10 @@ changes. The `hv2.recorded_sim_start.v1` format is unchanged. MuJoCo contacts an
 synchronous inference differ from native Isaac evaluation and robot deployment.
 Depth uses the checkpoint contract and the shared Warp renderer. See
 [steering](steering.md) and [standing mode](standing-hold.md) for optional controls.
+
+Configured timed and upright guidance release use the same criteria as hardware.
+They request an unguided solve immediately while preserving measured tracker
+history. Upright release latches until reset. Progress recipes that disable the
+upright cutoff retain their scheduled unguided solve. Y remains a separate
+encoded-standing intervention that bypasses planning. The simulation summary
+records the release reason, time and active upright thresholds.
