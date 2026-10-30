@@ -16,7 +16,7 @@ sys.path.insert(0,str(ROOT))
 
 
 def arguments(argv=None):
-    from motion_diffusion.behavioral.mujoco_terrain import SIM_TERRAINS,DEFAULT_CACHE
+    from motion_diffusion.inference.mujoco_terrain import SIM_TERRAINS, DEFAULT_CACHE
     from steerable_recovery.settings import sampling_seed, MODEL_NAMES
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--model',choices=MODEL_NAMES,
@@ -106,7 +106,7 @@ def arguments(argv=None):
     if args.recorded_start:
         if args.start_state or args.postures or args.joint_jitter or args.tracker_preroll_s or args.tracker_startup!='repeat':
             parser.error('--recorded-start preserves the recorded reset; no other reset or pre-physics options')
-        from motion_diffusion.behavioral.hardware.bundle import sha256
+        from motion_diffusion.inference.bundle import sha256
         args.recorded_snapshot=json.loads(args.recorded_start.resolve().read_text())
         if args.recorded_snapshot.get('schema')!='hv2.recorded_sim_start.v1':parser.error('Invalid recorded reset schema')
         terrain=args.recorded_snapshot['terrain']
@@ -123,7 +123,7 @@ def arguments(argv=None):
         args.noise_only=True
     if args.terrain_geometry:
         if args.terrain!='flat':parser.error('--terrain-geometry replaces flat terrain; do not combine with another terrain')
-        from motion_diffusion.behavioral.measured_scene import load_geometry
+        from motion_diffusion.inference.measured_scene import load_geometry
         args.measured_geometry=load_geometry(args.terrain_geometry)
     import math
     if args.seconds is None:args.seconds=None if args.viewer else 10.
@@ -174,7 +174,7 @@ def advance_steering_release(planner, gate, observation, elapsed_s, context, sta
     """Apply shared release criteria to synchronous scheduling; Y owns its bypass."""
     if standing or context is None:
         return status
-    from motion_diffusion.behavioral.hardware.steering import command_finished
+    from motion_diffusion.inference.steering import command_finished
     release = gate.update(observation) if gate is not None else None
     if release is None and command_finished(planner.guidance_contract, elapsed_s):
         release = dict(active=False, reason='command_window_elapsed')
@@ -190,17 +190,17 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
     import numpy as np
     import torch
     from humanoidverse2.agents.action_vae.heading import initialize_heading,transport_heading
-    from motion_diffusion.behavioral.mujoco import WarpDepth
+    from motion_diffusion.inference.mujoco import WarpDepth
     pose_seed=getattr(args,'pose_seed',None)
     sensor_seed=getattr(args,'sensor_seed',None)
     pose_seed=seed if pose_seed is None else pose_seed
     sensor_seed=seed if sensor_seed is None else sensor_seed
     with viewer.lock() if viewer else nullcontext():
         if getattr(args,'recorded_snapshot',None) is not None:
-            from motion_diffusion.behavioral.start_state import restore_recorded_start
+            from motion_diffusion.inference.start_state import restore_recorded_start
             restore_recorded_start(plant,args.recorded_snapshot)
         elif getattr(args,'start_snapshot',None) is not None:
-            from motion_diffusion.behavioral.start_state import restore_start,prepare_jittered_start
+            from motion_diffusion.inference.start_state import restore_start, prepare_jittered_start
             if getattr(args,'start_pose_jitter_deg',0.):
                 prepared=prepare_jittered_start(plant,args.start_snapshot,args.start_pose_jitter_deg,args.start_pose_seed)
                 (output/'prepared_start.json').write_text(json.dumps(prepared,indent=2)+'\n')
@@ -212,7 +212,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                         **getattr(args,'start_offset',{}))
         initial_tracker_history=None
         if getattr(args,'tracker_preroll_s',0.):
-            from motion_diffusion.behavioral.mujoco import passive_tracker_history
+            from motion_diffusion.inference.mujoco import passive_tracker_history
             prehistory=passive_tracker_history(plant,args.tracker_preroll_s)
             np.savez_compressed(output/'tracker_prehistory.npz',**{k:v.numpy() for k,v in prehistory.items()})
             if getattr(args,'tracker_startup','repeat')=='measured':initial_tracker_history=prehistory
@@ -237,8 +237,8 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
     stand=getattr(policy,'standing_reference',None)
     if stand is not None:stand.reset()
     hold_requested=False;standing_ticks=0
-    from motion_diffusion.behavioral.progress_steering import ProgressSteering
-    from motion_diffusion.behavioral.hardware.steering import configured_upright_release
+    from motion_diffusion.planner.progress_steering import ProgressSteering
+    from motion_diffusion.inference.steering import configured_upright_release
     upright_release = configured_upright_release(policy.planner.guidance_contract, plant.names)
     steering_release_status = None
     progress_goal=policy.planner.guidance_contract.get('goal',{})
@@ -302,7 +302,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                                 tilt_deg=getattr(args,'n_tilt_deg',5.),yaw_deg=getattr(args,'n_yaw_deg',15.))
                             args.start_jitter=getattr(args,'n_joint_jitter',.15)
                     if ord('1')<=event<=ord('7'):
-                        from motion_diffusion.behavioral.mujoco import START_POSTURES
+                        from motion_diffusion.inference.mujoco import START_POSTURES
                         args.start=START_POSTURES[event-ord('1')]
                     break
                 if viewer and (paused or halted or (end_tick is not None and tick>=end_tick)):
@@ -336,7 +336,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                         if progress_steering.released and not was_released:
                             print('Requested side roll confirmed; next replan is unguided.',flush=True)
                     if viewer and tick==0:
-                        from motion_diffusion.behavioral.hardware.steering import goal_display_segments
+                        from motion_diffusion.inference.steering import goal_display_segments
                         segments=goal_display_segments(policy.planner.guidance_contract['goal'])
                         ch,sh=float(c[0]),float(s[0])
                         segments=segments@np.array([[ch,sh,0],[-sh,ch,0],[0,0,1]])+steering_origin
@@ -370,7 +370,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                         if not prefix:
                             availability=depth['available'][0].cpu().numpy()
                             if viewer and getattr(args,'depth_view',True):
-                                from motion_diffusion.behavioral.mujoco_terrain import depth_panel
+                                from motion_diffusion.inference.mujoco_terrain import depth_panel
                                 panel=depth_panel(depth['frames'][0].detach().cpu().numpy(),availability,config['max_depth_m'])
                                 viewer.set_images((mujoco.MjrRect(12,12,panel.shape[1],panel.shape[0]),panel))
                 override=None
@@ -484,7 +484,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 arrays['final_qpos']=plant.data.qpos.copy()
                 np.savez_compressed(output/'trajectory.npz',**arrays)
                 # Sensor-only archive; consumes no goals and changes no planner behavior.
-                from motion_diffusion.behavioral.hardware.measured_pose import simulation_packet
+                from steerable_recovery.hardware.measured_pose import simulation_packet
                 with (output/'measured_pose.jsonl').open('w') as stream:
                     for frame in frames:
                         packet=simulation_packet(frame['root_position'],frame['pelvis_quat_xyzw'].tolist(),frame['time'])
@@ -562,13 +562,13 @@ def main(argv=None):
     import torch
     import yaml
     from omegaconf import OmegaConf
-    from motion_diffusion.behavioral.deploy import NativeRecoveryPolicy
-    from motion_diffusion.behavioral.deploy import load_controller
-    from motion_diffusion.behavioral.hardware.steering import load_hardware_planner
-    from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path,replan_ticks_for_hz
-    from motion_diffusion.behavioral.hardware.export_pd import derive_pd
-    from motion_diffusion.behavioral.hardware.engines import configure_controller,configure_planner
-    from motion_diffusion.behavioral.mujoco import DEFAULT_ROBOT,scene_model,MujocoNativePlant
+    from motion_diffusion.inference.policy import NativeRecoveryPolicy
+    from motion_diffusion.inference.policy import load_controller
+    from motion_diffusion.inference.steering import load_hardware_planner
+    from motion_diffusion.inference.bundle import load_bundle, asset_path, replan_ticks_for_hz
+    from motion_diffusion.inference.export_pd import derive_pd
+    from motion_diffusion.inference.engines import configure_controller, configure_planner
+    from motion_diffusion.inference.mujoco import DEFAULT_ROBOT, scene_model, MujocoNativePlant
     torch.set_num_threads(1)
     config=yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())
     from steerable_recovery.settings import model_settings
@@ -590,7 +590,7 @@ def main(argv=None):
             pd_sidecar=str(asset_path(bundle,row['pd_binding']))))
         inference=dict(row['reference_inference'])
         if args.goal_json:
-            from motion_diffusion.behavioral.hardware.steering import with_guidance_scale
+            from motion_diffusion.inference.steering import with_guidance_scale
             inference['motion_goal']=with_guidance_scale(json.loads(args.goal_json.read_text()),args.guidance_scale)
         if args.noise_policy is not None:inference['noise_policy']=args.noise_policy
         ticks=replan_ticks_for_hz(args.replan_hz,horizon=row['inspected_contract']['F'])
@@ -612,7 +612,7 @@ def main(argv=None):
             if not args.goal_json:configure_planner(planner,planner_path,engine(name,args.planner_precision))
         policy=NativeRecoveryPolicy(controller,planner)
         if args.standing_hold:
-            from motion_diffusion.behavioral.standing import StandingReference
+            from motion_diffusion.inference.standing import StandingReference
             policy.standing_reference=StandingReference(torch.load(controller_path,map_location='cpu',weights_only=True),
                 controller,blend_s=args.standing_hold_blend_s,frame=args.standing_hold_frame)
         validation={key:engine.validation_report for key,engine in (
@@ -660,7 +660,7 @@ def main(argv=None):
                 seed=args.seed_list[episode%args.episodes] if args.seed_list else args.seed+episode%args.episodes
                 if args.start_pose_jitter_deg:args.start_pose_seed=(initial_start_pose_seed+episode)%(2**63)
             directory=output/f'{name}_{episode:03d}';directory.mkdir()
-            from motion_diffusion.behavioral.mujoco_terrain import SIM_TERRAINS,sample_terrain_mesh
+            from motion_diffusion.inference.mujoco_terrain import SIM_TERRAINS, sample_terrain_mesh
             tile_info=sample_terrain_mesh(args.terrain,scene['terrain_seed'],args.terrain_cache)[2] if args.terrain in SIM_TERRAINS else None
             args.terrain_label=(f'{tile_info["family"]} tile {tile_info["tile"]} terrain seed {scene["terrain_seed"]}' if tile_info else args.terrain)
             if args.terrain_geometry:args.terrain_label=args.measured_geometry.get('name','measured lab')

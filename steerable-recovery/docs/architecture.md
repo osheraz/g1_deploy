@@ -8,8 +8,9 @@
 | `steerable_recovery/review` | Offline preparation and model replay |
 | `steerable_recovery/tools` | Diagnostics, benchmarks and figure exports |
 | `g1_deploy/core` | Shared robot I/O, episode formats and Viser |
-| `motion_diffusion/behavioral/hardware` | Asynchronous inference, histories, action limits, measured feedback |
-| `motion_diffusion/behavioral/runtime.py` | Learned planner/tracker contract shared with simulation |
+| `steerable_recovery/hardware` | Unitree/ROS transports, device lifecycles, hardware sessions |
+| `motion_diffusion/inference` | Portable tracker/planner composition, asynchronous execution, histories and release rules |
+| `motion_diffusion/planner/runtime.py` | Frozen sampling and code scheduling shared with simulation |
 
 The robot-side depth server captures at 30 Hz, publishes the latest pending frame
 on a worker and serves clock replies separately. The workstation receiver pairs

@@ -33,7 +33,8 @@ from steerable_recovery.settings import sampling_seed, model_settings, hardware_
 
 
 def run_default_pose(config, model_contract, *, release_controller=None):
-    from motion_diffusion.behavioral.hardware.unitree import UnitreeHG,NativePDContract,wait_for_policy_start
+    from steerable_recovery.hardware.unitree import UnitreeHG, wait_for_policy_start
+    from motion_diffusion.inference.pd import NativePDContract
     contract=dict(model_contract)
     if contract.get('deployment_pd') not in (None,config['pd']['training_pd']):
         raise ValueError('Default-pose PD binding differs from the decoder')
@@ -67,7 +68,7 @@ def run_default_pose(config, model_contract, *, release_controller=None):
 
 def main(argv=None):
     from core.config import _load_config
-    from motion_diffusion.behavioral.hardware import bundle
+    from motion_diffusion.inference import bundle
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',type=Path,default=CONFIG_ROOT / 'models.yaml')
     parser.add_argument('--bundle',type=Path,help='Verified bundle containing the explicitly selected published pair')
@@ -162,10 +163,10 @@ def main(argv=None):
         if not 1<=args.odometry_port<=65535:parser.error('Invalid odometry UDP port')
         if not args.odometry_mount.is_file():parser.error('Missing odometry mount calibration')
         if args.odometry_clock is not None:
-            from motion_diffusion.behavioral.hardware.pelvis_odometry import load_clock_calibration
+            from steerable_recovery.hardware.pelvis_odometry import load_clock_calibration
             load_clock_calibration(args.odometry_clock)
     if args.goal_json:
-        from motion_diffusion.behavioral.hardware.steering import motion_goal,with_guidance_scale
+        from motion_diffusion.inference.steering import motion_goal, with_guidance_scale
         _,goal_contract=motion_goal(with_guidance_scale(bundle.read_json(args.goal_json),args.guidance_scale))
         if args.default_pose:parser.error('Steering requires policy inference')
         if goal_contract['requires_position'] and not (args.live_odometry or args.check):
@@ -211,8 +212,8 @@ def main(argv=None):
     receipt['standing_hold']=config['standing_hold']
     receipt['startup_zero_torque']=bool(args.actuate)
     if args.start_pose:
-        from motion_diffusion.behavioral.hardware.start_pose import load_start_pose,perturb_start_pose
-        from motion_diffusion.behavioral.hardware.unitree import NativePDContract
+        from motion_diffusion.inference.start_pose import load_start_pose, perturb_start_pose
+        from motion_diffusion.inference.pd import NativePDContract
         contract=dict(checkpoint['action_vae']['model_contract'],deployment_pd=config['pd']['training_pd'])
         path=CONFIG_ROOT / 'poses/prone_ground_01.json' if args.start_pose=='prone' else Path(args.start_pose)
         pd=NativePDContract(contract,config['pd'])
@@ -226,7 +227,7 @@ def main(argv=None):
     print(f'Planner seed: {args.seed}; noise policy: {args.noise_policy} ('+
           ('new noise each plan' if args.noise_policy=='fresh' else 'one noise sample reused; replanning stays active')+').',flush=True)
     if not args.default_pose:
-        from motion_diffusion.behavioral.action_limits import deployment_command_limits,PDTargetLimiter
+        from motion_diffusion.inference.action_limits import deployment_command_limits, PDTargetLimiter
         from omegaconf import OmegaConf
         training=OmegaConf.load(bundle.asset_path(root,row['controller_training_config']))
         parameters=deployment_command_limits(checkpoint['action_vae']['model_contract'],config['pd']['training_pd'],training.robot)
@@ -239,8 +240,8 @@ def main(argv=None):
         print(f'Requested planner cadence: {50/replan_ticks:g} Hz; actual replies remain subject to compute/transport latency.',flush=True)
     if args.check:
         if args.standing_hold:
-            from motion_diffusion.behavioral.deploy import load_controller
-            from motion_diffusion.behavioral.hardware.cli import load_standing_reference
+            from motion_diffusion.inference.policy import load_controller
+            from motion_diffusion.inference.standing import load_standing_reference
             hold_controller=load_controller(dict(config,tracker_device='cpu',controller_engine=None))
             hold_reference=load_standing_reference(config,hold_controller)
             hold_reference.warmup()
@@ -248,7 +249,7 @@ def main(argv=None):
             del hold_reference,hold_controller
         result=bundle.inspect_pair(bundle.asset_path(root,row['planner']),
             bundle.asset_path(root,row['controller']),config['planner_options'],row['objective'],sample=True)
-        from motion_diffusion.behavioral.hardware.export_pd import derive_pd
+        from motion_diffusion.inference.export_pd import derive_pd
         from omegaconf import OmegaConf
         training=OmegaConf.load(bundle.asset_path(root,row['controller_training_config']))
         actual_pd=derive_pd(checkpoint['action_vae']['model_contract'],training)
@@ -296,7 +297,7 @@ def main(argv=None):
     if args.record_depth and not args.default_pose:
         config['depth_recording_directory']=str(output/'sensors/depth')
     if args.record_model and not args.default_pose:
-        from motion_diffusion.behavioral.hardware.model_trace import prepare_trace
+        from motion_diffusion.inference.model_trace import prepare_trace
         config['model_trace_directory']=str(output/'model_trace')
         prepare_trace(output/'model_trace',config,ROOT)
         print('Model recording enabled: exact inputs, depth history, noise and outputs; asynchronous disk writes.',flush=True)
@@ -311,7 +312,7 @@ def main(argv=None):
         print(f'Command limits: {args.command_limits}'+
             (' — added target limits apply for the first 0.5 s only, then direct controller targets.'
              if args.command_limits=='bounded' else ' — original direct PD targets.'),flush=True)
-    from motion_diffusion.behavioral.hardware.cli import run
+    from steerable_recovery.hardware.runtime import run
     motion_switcher=None;recording=None
     def release_control():
         nonlocal motion_switcher

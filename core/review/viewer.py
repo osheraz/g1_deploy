@@ -94,7 +94,7 @@ def load_session(spec):
     recorded_depth=depth_indices=depth_error=None;depth_summary={}
     if spec.get('depth_recording'):
         import torch
-        from motion_diffusion.behavioral.hardware.depth_recording import RecordedDepth
+        from steerable_recovery.hardware.depth_recording import RecordedDepth
         torch.set_num_threads(1)
         directory=Path(spec['depth_recording'])
         try:
@@ -296,7 +296,11 @@ def main():
         trace.clear()
         goal=s.get('steering_goal')
         if goal and not s['meta'].get('position_origin_delay_s',0):
-            from motion_diffusion.behavioral.hardware.steering import goal_display_keypoints,goal_display_segments,fit_route_for_display
+            from motion_diffusion.inference.steering import (
+                goal_display_keypoints,
+                goal_display_segments,
+                fit_route_for_display,
+            )
             fitted=None
             if fit_route.value and s['positions'] is not None:
                 marks=session_directory(s['ep'])/'review/recovery_interval.json'

@@ -61,3 +61,22 @@ def test_named_simulation_rejects_motor_enable(selector, motor_flag):
     with pytest.raises(SystemExit) as error:
         entrypoints.run('sim', [*selector, motor_flag, '--print-command'])
     assert error.value.code == 2
+def test_recorded_source_relocation_keeps_original_byte_verification(tmp_path, monkeypatch):
+    import hashlib
+    import json
+    from steerable_recovery.review import model
+    from motion_diffusion.source_paths import SOURCE_MOVES
+
+    old = 'humanoidverse2/rollouts/tracker_depth_archive.py'
+    current = tmp_path / SOURCE_MOVES[old]
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b'recorded source\n')
+    digest = hashlib.sha256(current.read_bytes()).hexdigest()
+    project = tmp_path / 'operator'
+    project.mkdir()
+    (project / 'migration_paths.json').write_text(json.dumps({}))
+    monkeypatch.setattr(model, 'ROOT', tmp_path)
+    monkeypatch.setattr(model, 'PROJECT', project)
+    assert model.source_changes({old: digest}) == ([], {old: SOURCE_MOVES[old]})
+    current.write_bytes(b'changed implementation\n')
+    assert model.source_changes({old: digest}) == ([old], {old: SOURCE_MOVES[old]})

@@ -19,8 +19,8 @@ import numpy as np
 from scipy.spatial.transform import Rotation, Slerp
 
 sys.path.insert(0, str(ROOT))
-from motion_diffusion.behavioral.hardware.measured_pose import PelvisPoseEstimator
-from motion_diffusion.behavioral.hardware.pelvis_odometry import G1Body
+from steerable_recovery.hardware.measured_pose import PelvisPoseEstimator
+from steerable_recovery.hardware.pelvis_odometry import G1Body
 
 
 def nearest_indices(times, query):

@@ -1,0 +1,29 @@
+{
+  "r8_supine_fixed_episode_20260915_003929_WOW": {
+    "reason": "Robot is back on the floor at the marked end (last replay sample). Keep for a failure clip if intended; not a standing endpoint. User mark preserved.",
+    "evidence_frame": "logs/real_world/facedown/r8_supine_fixed_episode_20260915_003929_WOW/review/frames/external/000181.jpg",
+    "marked_interval": {
+      "timeline_sha256": "b4153eb3ae27b03f74830ec9a773279fb6456b0ce0d339ce217b6e137fe774a0",
+      "start_sample_index": 0,
+      "end_sample_index": 305
+    }
+  },
+  "r8_20260914_200806": {
+    "reason": "Operator has hands on robot at the marked end. This frame does not establish unassisted standing. User mark preserved.",
+    "evidence_frame": "logs/real_world/facedown/r8_20260914_200806/review/frames/external/000242.jpg",
+    "marked_interval": {
+      "timeline_sha256": "ea42a1cea59e74ea8bd87c30abe9c99365a2ba1cd55e8fb777833aaa1fcd5e1d",
+      "start_sample_index": 0,
+      "end_sample_index": 405
+    }
+  },
+  "r8_20260914_220218": {
+    "reason": "Operator has hands on robot at the marked end. This frame does not establish unassisted standing. User mark preserved.",
+    "evidence_frame": "logs/real_world/facedown/r8_20260914_220218/review/frames/external/000220.jpg",
+    "marked_interval": {
+      "timeline_sha256": "68406055a2947078ea294c08f3f1eb41a0bf10362631681ec1694c7b455e6b1e",
+      "start_sample_index": 0,
+      "end_sample_index": 368
+    }
+  }
+}

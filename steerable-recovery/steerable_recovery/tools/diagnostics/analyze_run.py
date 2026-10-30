@@ -12,7 +12,7 @@ sys.path.insert(0,str(ROOT))
 
 
 def analyze(session):
-    from motion_diffusion.behavioral.hardware.sensors import motor_indices
+    from motion_diffusion.inference.sensors import motor_indices
     with gzip.open(session/'telemetry.jsonl.gz','rt') as f:rows=[json.loads(line) for line in f]
     contract=next(r for r in rows if r.get('event')=='session_contract')
     control=[r for r in rows if r.get('event')=='control']

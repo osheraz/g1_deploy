@@ -26,9 +26,9 @@ def main():
     import torch
     import mujoco
     from omegaconf import OmegaConf
-    from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path
-    from motion_diffusion.behavioral.deploy import load_controller
-    from motion_diffusion.behavioral.mujoco import scene_model,MujocoNativePlant,MujocoDepth
+    from motion_diffusion.inference.bundle import load_bundle, asset_path
+    from motion_diffusion.inference.policy import load_controller
+    from motion_diffusion.inference.mujoco import scene_model, MujocoNativePlant, MujocoDepth
     from motion_diffusion.terrain.planner_depth import PlannerDepthRenderer,depth_view
     torch.set_num_threads(1)
     args.output.mkdir(parents=True,exist_ok=False)
@@ -41,7 +41,7 @@ def main():
                            OmegaConf.to_container(training.robot,resolve=True))
     names=[mujoco.mj_id2name(plant.model,mujoco.mjtObj.mjOBJ_BODY,i) for i in range(1,plant.model.nbody)]
     capture=dict(config['camera']);capture['robot_urdf']=str((ROOT/capture['robot_urdf']).resolve())
-    from motion_diffusion.behavioral.mujoco_terrain import terrain_geometry
+    from motion_diffusion.inference.mujoco_terrain import terrain_geometry
     vertices,triangles=terrain_geometry(plant.model)
     renderer=PlannerDepthRenderer(vertices=vertices,triangles=triangles,
         body_names=names,config=capture,device=args.device)

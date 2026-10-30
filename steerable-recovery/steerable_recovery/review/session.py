@@ -134,7 +134,7 @@ def export_depth_video(session,recording,review):
     """review/depth_aligned.mp4: one frame per external camera frame, showing the
     latest depth capture at that exposure, so it plays in step with external.mp4."""
     import numpy as np
-    from motion_diffusion.behavioral.hardware.depth_recording import RecordedDepth
+    from steerable_recovery.hardware.depth_recording import RecordedDepth
     camera=recording/'camera';depth_dir=recording/'depth';video=review/'depth_aligned.mp4'
     if not (camera/'frames.npz').is_file() or not (depth_dir/'frames.jsonl').is_file():return None
     start=policy_start_frame(recording);marker=review/'depth_export.json'
@@ -191,7 +191,7 @@ def export_frames(session,recording,review):
     indices=[]
     if (depth_dir/'frames.jsonl').is_file():
         import cv2,torch;torch.set_num_threads(1)
-        from motion_diffusion.behavioral.hardware.depth_recording import RecordedDepth
+        from steerable_recovery.hardware.depth_recording import RecordedDepth
         depth_out=root/'depth';depth_out.mkdir(exist_ok=True)
         depth=RecordedDepth(depth_dir);indices=depth.indices_at(times)
         if len(list(depth_out.glob('*.png')))!=len(times):

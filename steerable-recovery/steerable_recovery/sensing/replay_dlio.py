@@ -19,9 +19,8 @@ import time
 
 import numpy as np
 # Keep ROS system Python independent of the training package dependencies.
-sys.path.insert(0,str(ROOT/'motion_diffusion/behavioral/hardware'))
-from livox_imu_si import imu_to_si
-from livox_cloud_window import join_cloud_packets
+from steerable_recovery.hardware.livox_imu_si import imu_to_si
+from steerable_recovery.hardware.livox_cloud_window import join_cloud_packets
 
 
 def main():
@@ -74,7 +73,7 @@ def main():
         children.append(proc);return proc
     bridge=None
     if a.hardware_capture:
-        from pelvis_odometry import G1Body,PelvisBridge
+        from steerable_recovery.hardware.pelvis_odometry import G1Body,PelvisBridge
         from scripts.fall_recovery.validation.replay_motion_state import RecordedStateReader
         state=RecordedStateReader(a.hardware_capture/'sensors.npz')
         # Subscription order ensures the replay time base exists before odometry.
@@ -85,7 +84,7 @@ def main():
             record=a.output/'measured_pose.jsonl',mount_rotation=mount,
             odometry_topic='/validation/odom',publish_diagnostics=True)
     if a.sim_state:
-        from pelvis_odometry import G1Body,NpzStateReader,PelvisBridge
+        from steerable_recovery.hardware.pelvis_odometry import G1Body,NpzStateReader,PelvisBridge
         bridge=PelvisBridge(node,G1Body(load_body_boxes=False),NpzStateReader(a.sim_state,a.sim_env,1.7e9),
             None,None,3.,record=a.output/'measured_pose.jsonl',odometry_topic='/validation/odom')
     started=time.monotonic()

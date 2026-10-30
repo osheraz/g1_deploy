@@ -413,7 +413,7 @@ def camera_command(device,size,fps,target):
 
 
 def commands(args, output):
-    hw=ROOT/'motion_diffusion/behavioral/hardware'
+    hw=PACKAGE_ROOT/'hardware'
     validation=PACKAGE_ROOT / 'sensing'
     result=[]
     if not args.existing_driver:

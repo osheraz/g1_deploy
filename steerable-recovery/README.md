@@ -27,7 +27,7 @@ python g1_deploy/steerable-recovery/deploy.py --model ours --check --max-plan-ag
 
 Configuration lives in `config/models.yaml`. Sensor transport, recording, replay,
 and diagnostics live in `steerable_recovery/`; learned inference lives in
-`motion_diffusion/behavioral/`. The checkpoint determines inference, gains and
+`motion_diffusion/inference/` and `motion_diffusion/planner/`. The checkpoint determines inference, gains and
 joint ordering. Compiled engines require their own export validation.
 
 [Environment/network setup](../tutorials/GETTING_STARTED.md) covers a new machine.

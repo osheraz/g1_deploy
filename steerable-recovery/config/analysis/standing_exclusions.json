@@ -1,0 +1,10 @@
+{
+  "r8_20260914_200806": {
+    "reason": "Manual contact/support visible at the measured standing endpoint; not an isolated autonomous-motion endpoint.",
+    "evidence_frame": "logs/real_world/facedown/r8_20260914_200806/review/frames/external/000208.jpg"
+  },
+  "r8_20260914_220218": {
+    "reason": "Operator holding the torso with both hands at the measured standing endpoint; not an isolated autonomous-motion endpoint.",
+    "evidence_frame": "logs/real_world/facedown/r8_20260914_220218/review/frames/external/000203.jpg"
+  }
+}

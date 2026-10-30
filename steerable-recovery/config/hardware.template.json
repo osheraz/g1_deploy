@@ -1,0 +1,45 @@
+{
+  "controller_checkpoint": "/absolute/path/to/frozen_stage2.pt",
+  "planner_checkpoint": "/absolute/path/to/paired_native_joint_stage3.pt",
+  "tracker_device": "cuda:0",
+  "planner_device": "cuda:0",
+  "pd_sidecar": null,
+  "planner_options": {
+    "replan_every_ticks": 10,
+    "blend_ticks": 0,
+    "noise_policy": "fresh",
+    "seed": 42,
+    "guidance": "none"
+  },
+  "max_plan_age_ticks": 2,
+  "robot": {
+    "interface": "eth0",
+    "domain_id": 0,
+    "tick_period_s": 0.001,
+    "tick_clock": {
+      "scale": 1.0,
+      "offset_s": 0.0,
+      "uncertainty_s": 0.002,
+      "source": "REPLACE with qualified LowState tick-to-monotonic calibration; values here are placeholders"
+    },
+    "max_command_age_s": 0.06
+  },
+  "camera": {
+    "source": "realsense",
+    "serial": "REPLACE_WITH_PHYSICAL_CAMERA_SERIAL",
+    "calibration_receipt": "/absolute/path/to/measured_camera_receipt.json"
+  },
+  "pelvis_odometry_port": null,
+  "hardware_commissioning_receipt": {
+    "qualified": false,
+    "note": "Complete sensor/clock/plant/latency/emergency-stop qualification on the actual robot before enabling output"
+  },
+  "pd": {
+    "training_pd": null,
+    "mode_machine": 2,
+    "lower_joint_limits": null,
+    "upper_joint_limits": null,
+    "max_joint_velocity_rad_s": null,
+    "max_abs_requested_action": null
+  }
+}

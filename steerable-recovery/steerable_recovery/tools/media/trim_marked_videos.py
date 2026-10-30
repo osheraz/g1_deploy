@@ -121,7 +121,7 @@ def export_run(plan):
         ['-f', 'mjpeg', '-framerate', str(fps)], camera_bytes, count)}
     depth_dir = run/'sensors/depth'
     if (depth_dir/'frames.jsonl').is_file():
-        from motion_diffusion.behavioral.hardware.depth_recording import RecordedDepth
+        from steerable_recovery.hardware.depth_recording import RecordedDepth
         depth = RecordedDepth(depth_dir)
         indices = depth.indices_at(camera.times[first:last+1])
         runtime = run/'model_trace/planner/runtime.json'

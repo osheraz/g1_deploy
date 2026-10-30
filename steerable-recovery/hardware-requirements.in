@@ -1,0 +1,37 @@
+# Additional model dependencies for source-checkout hardware inference.
+# Install the g1_deploy package first for its Python-specific NumPy/OpenCV bounds.
+# This file is not a complete lockfile.
+# Install a CUDA-enabled PyTorch build appropriate for the GPU/driver separately.
+# Parent training and deployment metadata use compatible NumPy bounds, but a
+# successful resolution alone does not reproduce a checkpoint-tested environment.
+#
+# Observed CPU checkpoint-load audit, 2026-09-10:
+# Python 3.12.13; torch 2.10.0+cu128; numpy 2.4.4;
+# omegaconf 2.4.0.dev11; diffusers 0.38.0; loguru 0.7.3;
+# scipy 1.18.0; termcolor 3.3.0; PyYAML 6.0.3.
+# These observations are not a claim that an arbitrary fresh resolution or
+# another CUDA/driver combination has been tested. Run bundle check --sample.
+numpy
+omegaconf
+diffusers
+loguru
+scipy
+termcolor
+PyYAML
+h5py
+
+# Portable math/depth helpers are provided by the parent checkout's hv2_common.
+# Install the parent checkout as an editable package for direct Python entry points.
+#
+# Real sensors additionally require platform-specific installations, maintained
+# separately from this model-only list:
+# - unitree_sdk2py and CycloneDDS, including G1 HG LowState/LowCmd bindings.
+# - pyrealsense2 for the mounted RealSense used by the selected depth planners.
+# pyrealsense2 is only needed on the USB-camera host. Network-camera inference
+# uses opencv-python + pyzmq and the timestamped native depth protocol instead.
+# None of these sensor dependencies are needed for bundle check --sample.
+#
+# Optional neural exports: onnx, onnxruntime, onnxscript. TensorRT execution also
+# needs matching TensorRT 10 bindings/native libraries on the deployment host.
+# Verified on Bluefin: onnxscript==0.4.0, tensorrt-cu12==10.10.0.31 with its matching
+# bindings and system libnvinfer10. Do not upgrade Torch to install these extras.

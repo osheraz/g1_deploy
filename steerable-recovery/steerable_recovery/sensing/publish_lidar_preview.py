@@ -17,7 +17,6 @@ import uuid
 import numpy as np
 
 sys.path.insert(0,str(ROOT/'g1_deploy'))
-sys.path.insert(0,str(ROOT/'motion_diffusion/behavioral/hardware'))
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from core.common.lidar_stream import encode_scan
 
@@ -56,7 +55,7 @@ def live(args,publish):
     import rclpy
     from rclpy.qos import qos_profile_sensor_data
     from sensor_msgs.msg import PointCloud2,Imu
-    from pelvis_odometry import LowStateReader,LidarClock
+    from steerable_recovery.hardware.pelvis_odometry import LowStateReader,LidarClock
     from record_lidar_live import cloud_array
     reader=LowStateReader(args.interface);clock=LidarClock();session=str(uuid.uuid4());seq=0
     rclpy.init();node=rclpy.create_node('hv2_lidar_preview_publisher')

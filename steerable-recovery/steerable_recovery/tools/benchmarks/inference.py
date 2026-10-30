@@ -34,7 +34,7 @@ def engine_config(settings,key,profile,*,tracker=False):
 
 def fixtures(runtime):
     import torch
-    from motion_diffusion.behavioral.hardware.export import graph_examples
+    from motion_diffusion.inference.export import graph_examples
     model=runtime.model;examples=graph_examples(model=model);pairs=[]
     generator=torch.Generator(device=model.device).manual_seed(17)
     for i,sample in enumerate(examples['denoiser'][3]):
@@ -52,7 +52,7 @@ def fixtures(runtime):
 
 
 def tracker_fixtures(controller):
-    from motion_diffusion.behavioral.hardware.export import graph_examples
+    from motion_diffusion.inference.export import graph_examples
     examples=graph_examples(controller=controller)
     depths=examples.get('depth',(None,None,None,[None]))[3]
     width=controller.contract['proprio_dim'];cases=[]
@@ -73,8 +73,8 @@ def tracker_forward(controller,case):
 def concurrent(checkpoint,options,engine,controller,features,requests,seconds):
     import numpy as np
     import torch
-    from motion_diffusion.behavioral.hardware.execution import PlannerProcess
-    from motion_diffusion.behavioral.hardware.telemetry import latency_summary
+    from motion_diffusion.inference.execution import PlannerProcess
+    from steerable_recovery.hardware.telemetry import latency_summary
     # Fixed fixtures isolate scheduling/compute; no fictitious robot latency.
     with_worker=PlannerProcess(checkpoint,device=str(controller.device),options=options,
                               engine_config=engine,startup_timeout_s=600.)
@@ -135,13 +135,13 @@ def main():
     if any(name.startswith('trt_') for name in args.profiles):
         import tensorrt
     else:tensorrt=None
-    from motion_diffusion.behavioral.hardware.bundle import load_bundle,asset_path,replan_ticks_for_hz
-    from motion_diffusion.behavioral.deploy import load_controller
-    from motion_diffusion.behavioral.hardware.engines import configure_controller,configure_planner
-    from motion_diffusion.behavioral.hardware.execution import sample_snapshot
-    from motion_diffusion.behavioral.hardware.export import graph_examples
-    from motion_diffusion.behavioral.hardware.telemetry import latency_summary
-    from motion_diffusion.behavioral.runtime import load_frozen_planner
+    from motion_diffusion.inference.bundle import load_bundle, asset_path, replan_ticks_for_hz
+    from motion_diffusion.inference.policy import load_controller
+    from motion_diffusion.inference.engines import configure_controller, configure_planner
+    from motion_diffusion.inference.execution import sample_snapshot
+    from motion_diffusion.inference.export import graph_examples
+    from steerable_recovery.hardware.telemetry import latency_summary
+    from motion_diffusion.planner.runtime import load_frozen_planner
     torch.set_num_threads(1)
     torch.backends.cuda.matmul.allow_tf32=False;torch.backends.cudnn.allow_tf32=False
     settings=yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text())

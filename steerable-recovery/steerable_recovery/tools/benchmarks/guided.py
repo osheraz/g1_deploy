@@ -9,10 +9,10 @@ def benchmark(args, *, goal_path):
     import torch
     from core.config import _load_config
     from steerable_recovery.settings import model_settings, hardware_settings, sampling_seed
-    from motion_diffusion.behavioral.hardware import bundle
-    from motion_diffusion.behavioral.deploy import load_controller
-    from motion_diffusion.behavioral.hardware.engines import configure_controller
-    from motion_diffusion.behavioral.hardware.execution import PlannerProcess,AsyncNativeRecovery
+    from motion_diffusion.inference import bundle
+    from motion_diffusion.inference.policy import load_controller
+    from motion_diffusion.inference.engines import configure_controller
+    from motion_diffusion.inference.execution import PlannerProcess, AsyncNativeRecovery
     torch.set_num_threads(1)
     path=CONFIG_ROOT / 'models.yaml'
     settings=model_settings(_load_config(path),args.model)

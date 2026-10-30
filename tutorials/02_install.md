@@ -47,7 +47,7 @@ requires authorized SSH access.
 
 Use Python 3.11 or newer and a CUDA/Torch environment appropriate for that
 machine. The model dependency list is
-[`requirements.in`](../../motion_diffusion/behavioral/hardware/requirements.in);
+[`requirements.in`](../steerable-recovery/hardware-requirements.in);
 it is not a pinned replacement for an existing training environment.
 `g1_deploy/pyproject.toml` lists viewer/robot-tool dependencies.
 

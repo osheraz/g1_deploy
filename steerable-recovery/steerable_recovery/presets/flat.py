@@ -23,7 +23,7 @@ def configured_bundle(catalog):
     """Bind selected seeds to the evaluated weights and sampling recipe."""
     import yaml
     from steerable_recovery.settings import model_settings
-    from motion_diffusion.behavioral.hardware.bundle import load_bundle
+    from motion_diffusion.inference.bundle import load_bundle
     settings=model_settings(yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text()),catalog['model'])
     bundle,manifest=load_bundle(settings['bundle'])
     row=manifest['models'][catalog['model']]
@@ -130,7 +130,7 @@ def main(argv=None):
         # selected motion. Each normal launcher validates its own paired assets.
         import yaml
         from steerable_recovery.settings import model_settings
-        from motion_diffusion.behavioral.hardware.bundle import load_bundle
+        from motion_diffusion.inference.bundle import load_bundle
         settings=model_settings(yaml.safe_load((CONFIG_ROOT / 'models.yaml').read_text()),args.model)
         bundle,manifest=load_bundle(settings['bundle'])
         if args.model not in manifest['models']:raise ValueError('Selected model is absent from its configured bundle')

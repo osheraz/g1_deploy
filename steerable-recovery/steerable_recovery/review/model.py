@@ -12,8 +12,9 @@ sys.path.insert(0, str(ROOT))
 
 def source_changes(sources):
     """Resolve moved source paths, retaining the original byte checks."""
-    from motion_diffusion.behavioral.hardware.bundle import sha256
-    mapping = json.loads((PROJECT/'migration_paths.json').read_text())
+    from motion_diffusion.inference.bundle import sha256
+    from motion_diffusion.source_paths import SOURCE_MOVES
+    mapping = {**SOURCE_MOVES, **json.loads((PROJECT/'migration_paths.json').read_text())}
     changed, relocated = [], {}
     for name, digest in sources.items():
         path = ROOT/name
@@ -39,13 +40,13 @@ def compare(actual, expected, *, atol, rtol):
 def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, allow_code_changes=False):
     import numpy as np
     import torch
-    from motion_diffusion.behavioral.hardware.model_trace import read_trace, engine_identity
-    from motion_diffusion.behavioral.hardware.bundle import sha256
-    from motion_diffusion.behavioral.hardware.execution import sample_snapshot, _ipc_tensors
-    from motion_diffusion.behavioral.deploy import load_controller
-    from motion_diffusion.behavioral.runtime import load_frozen_planner
-    from motion_diffusion.behavioral.hardware.engines import configure_planner
-    from motion_diffusion.behavioral.action_limits import PDTargetLimiter
+    from motion_diffusion.inference.model_trace import read_trace, engine_identity
+    from motion_diffusion.inference.bundle import sha256
+    from motion_diffusion.inference.execution import sample_snapshot, _ipc_tensors
+    from motion_diffusion.inference.policy import load_controller
+    from motion_diffusion.planner.runtime import load_frozen_planner
+    from motion_diffusion.inference.engines import configure_planner
+    from motion_diffusion.inference.action_limits import PDTargetLimiter
     root = Path(session).resolve()
     if root.name == 'sensors': root = root.parent
     directory = root/'model_trace'
@@ -67,7 +68,7 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
     totals = {name: sum(1 for _ in read_trace(directory/name)) for name in ('control', 'planner')}
     depth_archive=None
     if manifest.get('depth_storage')=='metric_capture_refs_v1':
-        from motion_diffusion.behavioral.hardware.depth_recording import RecordedModelDepth
+        from steerable_recovery.hardware.depth_recording import RecordedModelDepth
         depth_archive=RecordedModelDepth(root/'sensors/depth')
     def restore_depth(view,view_config):
         if view is not None and view.get('storage')=='metric_capture_refs_v1':
@@ -88,7 +89,7 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
 
     if component in ('all', 'tracker'):
         controller = load_controller(config)
-        from motion_diffusion.behavioral.hardware.cli import load_standing_reference
+        from motion_diffusion.inference.standing import load_standing_reference
         standing=load_standing_reference(config,controller)
         verify_engines('control', controller)
         limiter = None
@@ -148,7 +149,7 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
 
     if component in ('all', 'planner'):
         options = dict(config['planner_options'])
-        from motion_diffusion.behavioral.hardware.steering import load_hardware_planner
+        from motion_diffusion.inference.steering import load_hardware_planner
         runtime = load_hardware_planner(config['planner_checkpoint'], device=config.get('planner_device', 'cuda'), **options)
         configure_planner(runtime, config['planner_checkpoint'], config.get('planner_engine'))
         verify_engines('planner', runtime.model)

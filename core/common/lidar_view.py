@@ -10,8 +10,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 ROOT=Path(__file__).resolve().parents[3]
-sys.path.insert(0,str(ROOT/'motion_diffusion/behavioral/hardware'))
-from pelvis_odometry import G1Body
+from steerable_recovery.hardware.pelvis_odometry import G1Body
 
 
 def display_window(samples,window_ms):

@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 from steerable_recovery.paths import ROOT, CONFIG_ROOT, ASSET_ROOT, recovery_asset
-from motion_diffusion.behavioral.hardware import bundle
-from motion_diffusion.behavioral.hardware.steering import motion_goal
+from motion_diffusion.inference import bundle
+from motion_diffusion.inference.steering import motion_goal
 
 CATALOG = CONFIG_ROOT/'steering/lab_gallery/catalog.json'
 PLANNER_SHA = '02c2ef96ac30a60c5d8dfea5d20b3cc08654fb10ebd6b9f198e515dc18342fcd'

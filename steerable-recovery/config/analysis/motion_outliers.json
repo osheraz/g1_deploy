@@ -1,0 +1,11 @@
+{
+  "r8_20260914_223305": {
+    "reason": "Operator-requested post-hoc exclusion of the +101.959 degree prone heading outlier from all motion statistics; not a confirmed measurement fault. Applied after selecting the original ten recordings, without replacement. Recovery counts remain separately operator-reported.",
+    "endpoint_heading_deg": 101.95945200530622,
+    "marked_interval": {
+      "timeline_sha256": "108ea024443a59fb14a534e5da98b210618f29f500dfe9ed66b2b63ef3480be3",
+      "start_sample_index": 0,
+      "end_sample_index": 353
+    }
+  }
+}

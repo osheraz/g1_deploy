@@ -14,7 +14,7 @@ import numpy as np
 
 from steerable_recovery.paths import ROOT, CONFIG_ROOT, PACKAGE_ROOT
 sys.path.insert(0,str(ROOT))
-from motion_diffusion.behavioral.hardware.cli import PelvisOdometryReceiver
+from steerable_recovery.hardware.runtime import PelvisOdometryReceiver
 
 
 def stats(values,scale=1.):

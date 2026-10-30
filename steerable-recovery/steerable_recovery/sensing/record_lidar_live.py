@@ -69,8 +69,7 @@ def main():
     from nav_msgs.msg import Odometry
     from unitree_sdk2py.core.channel import ChannelFactoryInitialize,ChannelSubscriber
     from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_,IMUState_
-    sys.path.insert(0,str(ROOT/'motion_diffusion/behavioral/hardware'))
-    from fast_crc import CRC
+    from steerable_recovery.hardware.fast_crc import CRC
 
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
     metadata=dict(schema='hv2.lidar_live_capture.v1',pose=args.pose,interface=args.interface,
