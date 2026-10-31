@@ -35,7 +35,7 @@ Current lens at **640×480**: `[fx, fy, cx, cy] =
 The physical camera is configured in
 [`steerable-recovery/config/models.yaml`](../steerable-recovery/config/models.yaml), under
 `camera.base_intrinsics`. New simulated planner depth uses
-[`DEFAULT_DEPTH_CAPTURE`](../../motion_diffusion/terrain/planner_depth.py);
+[`DEFAULT_DEPTH_CAPTURE`](../../humanoidverse2/simulator/sensors/depth_capture.py);
 the environment default is also updated in
 [`legged_base.yaml`](../../humanoidverse2/config/env/legged_base.yaml).
 These are full-resolution intrinsics, before cropping/resizing. Use the shared

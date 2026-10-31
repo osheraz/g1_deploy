@@ -107,7 +107,7 @@ def test_recorded_source_relocation_keeps_original_byte_verification(tmp_path, m
     import hashlib
     import json
     from steerable_recovery.review import model
-    from motion_diffusion.source_paths import SOURCE_MOVES
+    from hv2_common.provenance import SOURCE_MOVES
 
     old = 'humanoidverse2/rollouts/tracker_depth_archive.py'
     current = tmp_path / SOURCE_MOVES[old]

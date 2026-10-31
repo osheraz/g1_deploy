@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 def source_changes(sources):
     """Resolve moved source paths, retaining the original byte checks."""
     from motion_diffusion.inference.bundle import sha256
-    from motion_diffusion.source_paths import SOURCE_MOVES
+    from hv2_common.provenance import SOURCE_MOVES
     mapping = {**SOURCE_MOVES, **json.loads((PROJECT/'migration_paths.json').read_text())}
     changed, relocated = [], {}
     for name, digest in sources.items():

@@ -29,7 +29,8 @@ def main():
     from motion_diffusion.inference.bundle import load_bundle, asset_path
     from motion_diffusion.inference.policy import load_controller
     from motion_diffusion.inference.mujoco import scene_model, MujocoNativePlant, MujocoDepth
-    from motion_diffusion.terrain.planner_depth import PlannerDepthRenderer,depth_view
+    from humanoidverse2.simulator.sensors.depth_capture import PlannerDepthRenderer
+    from hv2_common.sensors.depth_frames import depth_view
     torch.set_num_threads(1)
     args.output.mkdir(parents=True,exist_ok=False)
     config=json.loads((args.episode/'config.json').read_text())

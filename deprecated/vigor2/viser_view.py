@@ -54,7 +54,7 @@ def ghost_pose(row: np.ndarray, slices: dict, yaw_now: float):
 class PlanDrawer:
     def __init__(self, urdf_path: str, depth_min: float, depth_max: float, depth_scale: float,
                  feature_layout: list, dof_names: list, fk_urdf_path: str, yaw_cmd_deg: float, on_cmd) -> None:
-        from motion_diffusion.terrain.robot_mesh import build_pyroki_fk_model, load_fk_urdf_for_mesh
+        from humanoidverse2.simulator.sensors.robot_mesh import build_pyroki_fk_model, load_fk_urdf_for_mesh
         self.base = DeployViser(urdf_path=Path(urdf_path), with_depth=True, depth_min=depth_min,
                                 depth_max=depth_max, depth_scale=depth_scale)
         self.server = self.base.server

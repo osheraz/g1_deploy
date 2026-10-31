@@ -66,7 +66,7 @@ class FallRecRunner:
         self.action = np.zeros(self.num_actions, dtype=np.float32)
         self.act_count = 0
 
-        from motion_diffusion.terrain.robot_mesh import (
+        from humanoidverse2.simulator.sensors.robot_mesh import (
             build_pyroki_fk_model, load_fk_urdf_for_mesh,
         )
 
