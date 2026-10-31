@@ -146,5 +146,8 @@
   "humanoidverse2/data/reset_validation.py": "humanoidverse2/data/replay/validation.py",
   "humanoidverse2/agents/action_vae/native_intent.py": "humanoidverse2/data/replay/catalog.py",
   "humanoidverse2/agents/action_vae/provenance.py": "humanoidverse2/shadow/expert.py",
-  "humanoidverse2/agents/action_vae/run_reporting.py": "humanoidverse2/utils/logging.py"
+  "humanoidverse2/agents/action_vae/run_reporting.py": "humanoidverse2/utils/logging.py",
+  "humanoidverse2/agents/action_vae/runtime.py": "humanoidverse2/train_tracker.py",
+  "humanoidverse2/agents/action_vae/execution.py": "humanoidverse2/agents/action_vae/learning.py",
+  "humanoidverse2/agents/action_vae/cli.py": "scripts/stage2/evaluate.py"
 }
