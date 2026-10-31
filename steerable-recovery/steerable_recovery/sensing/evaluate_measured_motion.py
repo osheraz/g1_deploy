@@ -70,7 +70,7 @@ def episode_trace(times, positions, quaternions, *, start_s=None):
     its own causal heading update and episode origins in AsyncNativeRecovery.
     """
     import torch
-    from humanoidverse2.agents.action_vae.heading import replay_heading
+    from humanoidverse2.observations.heading import replay_heading
     start = times[0] if start_s is None else start_s
     if not times[0] <= start < times[-1]:raise ValueError('Reset time is outside the recording')
     t = np.arange(start, times[-1]+1e-9, .02)
@@ -142,7 +142,7 @@ def evaluate(args):
         imu_yaw=np.interp(ticks,joined['observation_arrival_s'],np.unwrap(joined['yaw_rel_rad']))
         imu_yaw=np.arctan2(np.sin(imu_yaw),np.cos(imu_yaw))
     # Position reset axes must follow runtime's IMU heading, not estimated heading.
-    from humanoidverse2.agents.action_vae.heading import initialize_heading
+    from humanoidverse2.observations.heading import initialize_heading
     import torch
     initial_q=Slerp(t,Rotation.from_quat(iq))([ticks[0]]).as_quat()
     h0=float(initialize_heading(torch.from_numpy(initial_q))[0])

@@ -18,7 +18,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0,str(ROOT))
-from humanoidverse2.agents.action_vae.heading import initialize_heading,transport_heading
+from humanoidverse2.observations.heading import initialize_heading,transport_heading
 
 
 class MotionDisplayState:

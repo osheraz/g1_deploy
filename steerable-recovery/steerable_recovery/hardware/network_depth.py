@@ -13,7 +13,7 @@ import time
 
 import numpy as np
 
-from motion_diffusion.inference.sensors import calibrated_depth_image
+from humanoidverse2.observations.streams import calibrated_depth_image
 from steerable_recovery.hardware.camera import DepthUnavailable
 from g1_deploy.core.common.depth_wire import decode_depth, PNG, RAW
 

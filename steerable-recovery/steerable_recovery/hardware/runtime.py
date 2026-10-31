@@ -18,7 +18,7 @@ import time
 import threading
 
 import numpy as np
-from motion_diffusion.inference.sensors import CONTROL_OBSERVATION_WARN_S, StaleRobotObservation
+from humanoidverse2.observations.streams import CONTROL_OBSERVATION_WARN_S, StaleRobotObservation
 
 
 class PelvisOdometryReceiver:
@@ -289,8 +289,8 @@ class LiveStartupPreview:
 def run(config,*,enable_actuation=False,duration_s=30.,telemetry_jsonl=None,
         release_controller=None,preflight_only=False,on_policy_start=None,before_policy_ready=None):
     if preflight_only and enable_actuation:raise ValueError('Preflight never enables motor output')
-    from motion_diffusion.inference.sensors import ClockMapping, CausalDepthBuffer
-    from motion_diffusion.inference.pd import NativePDContract
+    from humanoidverse2.observations.streams import ClockMapping, CausalDepthBuffer
+    from humanoidverse2.robots.g1.control import NativePDContract
     from steerable_recovery.hardware.unitree import UnitreeHG, wait_for_policy_start
     from motion_diffusion.inference.execution import PlannerProcess, AsyncNativeRecovery
     from steerable_recovery.hardware.camera import RealSenseDepth, DepthHealth, deployment_capture_config
@@ -352,7 +352,7 @@ def run(config,*,enable_actuation=False,duration_s=30.,telemetry_jsonl=None,
         shaping=config.get('command_limits',{'mode':'training'})
         if shaping['mode'] not in ('training','bounded'):raise ValueError('Unknown command limit mode')
         if shaping['mode']=='bounded':
-            from motion_diffusion.inference.action_limits import PDTargetLimiter
+            from humanoidverse2.robots.g1.control import PDTargetLimiter
             command_limiter=PDTargetLimiter(**shaping['parameters'])
             for actual,expected in ((command_limiter.default,controller.default_joint_pos.cpu().numpy()),
                                     (command_limiter.scale,pd.scale),(shaping['parameters']['kp'],pd.kp)):

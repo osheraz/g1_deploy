@@ -205,7 +205,7 @@ class RecordedDepth:
             self._index=index
 
     def _calibrated(self,index,*,native_resolution):
-        from motion_diffusion.inference.sensors import calibrated_depth_image
+        from humanoidverse2.observations.streams import calibrated_depth_image
         result=calibrated_depth_image(self._source,intrinsics=self.rows[index]['intrinsics'],
             capture_config=self.capture_config,native_resolution=native_resolution)
         return tuple(value.numpy() for value in result)
@@ -243,7 +243,7 @@ class RecordedModelDepth:
 
     def restore(self,view,config):
         import torch
-        from motion_diffusion.features.depth_conditioning import prepare_depth_history
+        from humanoidverse2.observations.depth import prepare_depth_history
         if view is None or view.get('storage')!='metric_capture_refs_v1':return view
         available=np.asarray(view['available'],dtype=bool);captures=np.asarray(view['capture_s'])
         if available.shape!=(1,config['history_steps']) or captures.shape!=available.shape:

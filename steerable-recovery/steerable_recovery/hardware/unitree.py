@@ -15,7 +15,7 @@ import time
 
 import numpy as np
 
-from motion_diffusion.inference.sensors import (
+from humanoidverse2.observations.streams import (
     motor_indices,
     observation_from_lowstate,
     CONTROL_OBSERVATION_WARN_S,
@@ -23,7 +23,7 @@ from motion_diffusion.inference.sensors import (
 )
 
 
-from motion_diffusion.inference.pd import NativePDContract
+from humanoidverse2.robots.g1.control import NativePDContract
 
 
 def default_pose_path(initial, default, elapsed_s):

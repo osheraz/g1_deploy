@@ -10,7 +10,7 @@ import time
 
 import numpy as np
 
-from motion_diffusion.inference.sensors import ClockMapping
+from humanoidverse2.observations.streams import ClockMapping
 
 
 class CameraClockProbeError(RuntimeError):

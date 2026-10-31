@@ -46,7 +46,7 @@ def model_settings(settings, model, *, bundle=None):
 
 
 def hardware_settings(config, contract):
-    from motion_diffusion.inference.sensors import motor_indices
+    from humanoidverse2.observations.streams import motor_indices
     indices=motor_indices(contract['dof_names'])
     configured=config['action_joint2motor_idx']
     if len(configured)!=29 or set(configured)!=set(range(29)):

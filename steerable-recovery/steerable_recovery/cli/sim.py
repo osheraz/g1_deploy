@@ -189,7 +189,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
     import mujoco
     import numpy as np
     import torch
-    from humanoidverse2.agents.action_vae.heading import initialize_heading,transport_heading
+    from humanoidverse2.observations.heading import initialize_heading,transport_heading
     from humanoidverse2.simulator.mujoco.plant import WarpDepth
     pose_seed=getattr(args,'pose_seed',None)
     sensor_seed=getattr(args,'sensor_seed',None)
@@ -318,8 +318,8 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 previous_quat=quat.clone()
                 guidance_context=None
                 if getattr(args,'goal_json',None):
-                    from humanoidverse2.agents.action_vae.heading import SCHEMA,heading_quat
-                    from humanoidverse2.agents.action_vae.motion_contract import quat_mul_xyzw,quat_conj_xyzw,rot6d_from_quat_xyzw
+                    from humanoidverse2.observations.heading import SCHEMA,heading_quat
+                    from humanoidverse2.motion.tokens import quat_mul_xyzw,quat_conj_xyzw,rot6d_from_quat_xyzw
                     if steering_heading is None:steering_heading=heading.clone()
                     delta=torch.as_tensor(plant.data.xpos[plant.pelvis]-steering_origin,device=device,dtype=torch.float32)
                     c,s=steering_heading.cos(),steering_heading.sin()
@@ -523,7 +523,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
             if frames and getattr(args,'goal_json',None):
                 from motion_diffusion.planner.pose_waypoints import waypoint_tracking_metrics
                 from hv2_common.geometry.rotation6d import quat_to_matrix
-                from humanoidverse2.agents.action_vae.heading import heading_matrix
+                from humanoidverse2.observations.heading import heading_matrix
                 goal=policy.planner.guidance_contract['goal']
                 h0=heading_matrix(torch.tensor(frames[0]['causal_heading_rad']))
                 p=torch.tensor(np.asarray([f['root_position'] for f in frames]),dtype=torch.float32)

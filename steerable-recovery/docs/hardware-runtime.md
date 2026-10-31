@@ -17,7 +17,7 @@ guidance requires PyTorch gradients; it cannot silently use TensorRT/ONNX.
 Sensor clocks, missing depth, feedback loss and stale plans remain explicit.
 Experimental measured-pelvis steering is not independently qualified dynamic
 accuracy. ROS estimator diagnostics live in `steerable_recovery.hardware.dlio_simulation`;
-portable simulation measurements live in `motion_diffusion.inference.simulation_measurements`.
+portable simulation measurements live in `humanoidverse2.observations.pelvis`.
 Neither supplies a live hardware fallback estimate.
 
 Historical operator guides and previous source are recoverable through

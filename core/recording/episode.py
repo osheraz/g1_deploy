@@ -338,8 +338,8 @@ def load_raw_motion(path):
     """Replay a sensor-only capture without inventing a policy telemetry log."""
     import torch
     from scipy.spatial.transform import Rotation
-    from motion_diffusion.inference.sensors import G1_MOTOR_NAMES
-    from humanoidverse2.agents.action_vae.heading import replay_heading
+    from humanoidverse2.observations.streams import G1_MOTOR_NAMES
+    from humanoidverse2.observations.heading import replay_heading
     path=Path(path);data=np.load(path/'sensors.npz')
     report=json.loads((path/'summary.json').read_text())
     times=data['state_receipt_monotonic_s']

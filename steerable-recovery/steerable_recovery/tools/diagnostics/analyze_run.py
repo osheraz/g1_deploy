@@ -12,7 +12,7 @@ sys.path.insert(0,str(ROOT))
 
 
 def analyze(session):
-    from motion_diffusion.inference.sensors import motor_indices
+    from humanoidverse2.observations.streams import motor_indices
     with gzip.open(session/'telemetry.jsonl.gz','rt') as f:rows=[json.loads(line) for line in f]
     contract=next(r for r in rows if r.get('event')=='session_contract')
     control=[r for r in rows if r.get('event')=='control']

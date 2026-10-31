@@ -34,7 +34,7 @@ from steerable_recovery.settings import sampling_seed, model_settings, hardware_
 
 def run_default_pose(config, model_contract, *, release_controller=None):
     from steerable_recovery.hardware.unitree import UnitreeHG, wait_for_policy_start
-    from motion_diffusion.inference.pd import NativePDContract
+    from humanoidverse2.robots.g1.control import NativePDContract
     contract=dict(model_contract)
     if contract.get('deployment_pd') not in (None,config['pd']['training_pd']):
         raise ValueError('Default-pose PD binding differs from the decoder')
@@ -215,7 +215,7 @@ def main(argv=None):
     receipt['startup_zero_torque']=bool(args.actuate)
     if args.start_pose:
         from motion_diffusion.inference.start_pose import load_start_pose, perturb_start_pose
-        from motion_diffusion.inference.pd import NativePDContract
+        from humanoidverse2.robots.g1.control import NativePDContract
         contract=dict(checkpoint['action_vae']['model_contract'],deployment_pd=config['pd']['training_pd'])
         path=CONFIG_ROOT / 'poses/prone_ground_01.json' if args.start_pose=='prone' else Path(args.start_pose)
         pd=NativePDContract(contract,config['pd'])
@@ -229,7 +229,7 @@ def main(argv=None):
     print(f'Planner seed: {args.seed}; noise policy: {args.noise_policy} ('+
           ('new noise each plan' if args.noise_policy=='fresh' else 'one noise sample reused; replanning stays active')+').',flush=True)
     if not args.default_pose:
-        from motion_diffusion.inference.action_limits import deployment_command_limits, PDTargetLimiter
+        from humanoidverse2.robots.g1.control import deployment_command_limits, PDTargetLimiter
         from omegaconf import OmegaConf
         training=OmegaConf.load(bundle.asset_path(root,row['controller_training_config']))
         parameters=deployment_command_limits(checkpoint['action_vae']['model_contract'],config['pd']['training_pd'],training.robot)

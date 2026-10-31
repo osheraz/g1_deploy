@@ -11,7 +11,7 @@ import threading
 import time
 import numpy as np
 
-from motion_diffusion.inference.sensors import calibrated_depth_image
+from humanoidverse2.observations.streams import calibrated_depth_image
 
 
 class DepthUnavailable(RuntimeError):

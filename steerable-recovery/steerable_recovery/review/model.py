@@ -46,7 +46,7 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
     from motion_diffusion.inference.policy import load_controller
     from motion_diffusion.planner.runtime import load_frozen_planner
     from motion_diffusion.inference.engines import configure_planner
-    from motion_diffusion.inference.action_limits import PDTargetLimiter
+    from humanoidverse2.robots.g1.control import PDTargetLimiter
     root = Path(session).resolve()
     if root.name == 'sensors': root = root.parent
     directory = root/'model_trace'
