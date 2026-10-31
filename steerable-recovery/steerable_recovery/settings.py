@@ -38,7 +38,7 @@ def model_settings(settings, model, *, bundle=None):
         selected['bundle']=str(Path(os.environ['HV2_RECOVERY_BUNDLE']).expanduser().resolve())
     else:
         raise ValueError(f'No bundle configured for {model}. Prepare its matching bundle with '
-                         'scripts/recovery.py deployment-catalog and deploy prepare, then pass '
+                         'scripts/tools/recovery.py deployment-catalog and deploy prepare, then pass '
                          '--bundle PATH or set HV2_RECOVERY_BUNDLE; see docs/guides/deployment.md')
     selected['exports']={name: str(recovery_asset(path))
                          for name, path in selected.get('exports', {}).items()}

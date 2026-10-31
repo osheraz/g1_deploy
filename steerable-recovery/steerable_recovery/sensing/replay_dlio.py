@@ -74,7 +74,7 @@ def main():
     bridge=None
     if a.hardware_capture:
         from steerable_recovery.hardware.pelvis_odometry import G1Body,PelvisBridge
-        from scripts.fall_recovery.validation.replay_motion_state import RecordedStateReader
+        from humanoidverse2.data.recorded_state import RecordedStateReader
         state=RecordedStateReader(a.hardware_capture/'sensors.npz')
         # Subscription order ensures the replay time base exists before odometry.
         node.create_subscription(Imu,'/livox/imu',lambda msg:state.observe_imu(
