@@ -10,16 +10,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from sonic.common.environment import experiment_environment
+
 ROOT = Path(__file__).resolve().parents[3]
 SIM = ROOT / "g1_deploy/sonic/scripts/sim2sim_sonic.py"
 PYTHON = Path("/data/clhsieh/environments/python/venvs/e-skin-4090-verify/bin/python")
-TRT = Path("/data/clhsieh/software/nvidia/tensorrt/10.13.3.9")
 DEFAULT_OUTPUT = Path(
     "/data/clhsieh/logs/e_skin/experiments/"
     "20260816_cross_model_23dof_adaptation"
@@ -126,17 +127,6 @@ SEARCH_CANDIDATES = tuple(CANDIDATES)
 SEARCH_CONDITIONS = ("healthy", "knee_m10", "knee_p10", "mild", "lowfric")
 
 
-def _environment() -> dict[str, str]:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "research/repos/GR00T-WholeBodyControl")
-    env["PYTHONNOUSERSITE"] = "1"
-    env["LD_LIBRARY_PATH"] = ":".join(filter(None, (
-        str(TRT / "lib"),
-        "/usr/local/cuda/lib64",
-        "/usr/local/lib",
-        env.get("LD_LIBRARY_PATH", ""),
-    )))
-    return env
 
 
 def _command(
@@ -281,7 +271,7 @@ def main() -> None:
     if args.dry_run:
         return
 
-    env = _environment()
+    env = experiment_environment(ROOT)
     for index, row in enumerate(records, 1):
         record = Path(row["record"])
         complete = (record / "state.npz").is_file() and (record / "meta.json").is_file()

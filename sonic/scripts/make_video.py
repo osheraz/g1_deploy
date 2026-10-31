@@ -8,7 +8,7 @@ from pathlib import Path
 import imageio.v3 as iio
 import numpy as np
 from PIL import Image
-from humanoidverse.simulator.base_simulator.utlis.video_sink import VideoSink
+from humanoidverse2.visualization.video_io import VideoSink
 
 
 DEPLOY_ROOT = Path(__file__).resolve().parents[2]

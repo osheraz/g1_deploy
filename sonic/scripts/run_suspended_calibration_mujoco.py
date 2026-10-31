@@ -25,6 +25,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sonic.calibration.joint_mapping import JointCalibrationProfile
+from sonic.calibration.mujoco_plant import set_pd
 from sonic.calibration.protocol import MOTOR_NAMES, PRESENT_23, build_plan, load_plan, save_plan
 from sonic.model.robot_profile import MUJOCO_JOINT_NAMES
 
@@ -49,17 +50,6 @@ def _load_faults(path: Path | None) -> dict[int, dict[str, float]]:
     return out
 
 
-def _set_pd(model, actuator: int, kp: float, kd: float, effort: float) -> None:
-    model.actuator_gaintype[actuator] = 0
-    model.actuator_gainprm[actuator, 0] = kp
-    model.actuator_biastype[actuator] = 1
-    model.actuator_biasprm[actuator, 0] = 0.0
-    model.actuator_biasprm[actuator, 1] = -kp
-    model.actuator_biasprm[actuator, 2] = -kd
-    model.actuator_ctrllimited[actuator] = 0
-    if effort > 0:
-        model.actuator_forcerange[actuator] = [-effort, effort]
-        model.actuator_forcelimited[actuator] = 1
 
 
 def main() -> None:
@@ -113,7 +103,7 @@ def main() -> None:
     for motor, joint_id, actuator in zip(PRESENT_23, joint_ids, actuators):
         effort = float(model.jnt_actfrcrange[joint_id, 1]) \
             if model.jnt_actfrclimited[joint_id] else 0.0
-        _set_pd(model, int(actuator), kp_29[motor], kd_29[motor], effort)
+        set_pd(model, int(actuator), kp_29[motor], kd_29[motor], effort)
 
     fixed = np.setdiff1d(np.arange(29), PRESENT_23)
     for motor in fixed:
@@ -122,7 +112,7 @@ def main() -> None:
         if joint_id < 0 or joint_id not in actuator_by_joint:
             continue
         actuator = actuator_by_joint[joint_id]
-        _set_pd(model, actuator, kp_29[motor], kd_29[motor], 0.0)
+        set_pd(model, actuator, kp_29[motor], kd_29[motor], 0.0)
         data.ctrl[actuator] = default_29[motor]
 
     neutral_model = default_29.copy()

@@ -41,7 +41,7 @@ def load_faults(path: Path | None) -> dict[int, dict[str, float]]:
     return faults
 
 
-def _set_pd(model, actuator: int, kp: float, kd: float, effort: float) -> None:
+def set_pd(model, actuator: int, kp: float, kd: float, effort: float) -> None:
     model.actuator_gaintype[actuator] = 0
     model.actuator_gainprm[actuator, 0] = kp
     model.actuator_biastype[actuator] = 1
@@ -117,7 +117,7 @@ class SuspendedMujocoPlant:
                 float(self.model.jnt_actfrcrange[joint, 1])
                 if self.model.jnt_actfrclimited[joint] else 0.0
             )
-            _set_pd(self.model, int(actuator), self.kp[motor], self.kd[motor], effort)
+            set_pd(self.model, int(actuator), self.kp[motor], self.kd[motor], effort)
         self.root_position = np.asarray([0.0, 0.0, 1.20], dtype=np.float64)
         self.root_quat = np.asarray(
             [1.0, 0.0, 0.0, 0.0] if root_quat_wxyz is None else root_quat_wxyz,

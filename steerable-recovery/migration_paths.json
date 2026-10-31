@@ -149,5 +149,21 @@
   "humanoidverse2/agents/action_vae/run_reporting.py": "humanoidverse2/utils/logging.py",
   "humanoidverse2/agents/action_vae/runtime.py": "humanoidverse2/train_tracker.py",
   "humanoidverse2/agents/action_vae/execution.py": "humanoidverse2/agents/action_vae/learning.py",
-  "humanoidverse2/agents/action_vae/cli.py": "scripts/stage2/evaluate.py"
+  "humanoidverse2/agents/action_vae/cli.py": "scripts/stage2/evaluate.py",
+  "humanoidverse2/simulator/base_simulator/utlis/terrain_height_grid.py": "humanoidverse2/simulator/terrain/height_grid.py",
+  "humanoidverse2/simulator/base_simulator/utlis/edge_grid.py": "humanoidverse2/simulator/terrain/edges.py",
+  "humanoidverse2/simulator/base_simulator/utlis/pyramid_geometry.py": "humanoidverse2/simulator/terrain/pyramids.py",
+  "humanoidverse2/simulator/base_simulator/utlis/rubble_geometry.py": "humanoidverse2/simulator/terrain/rubble.py",
+  "humanoidverse2/simulator/base_simulator/utlis/lab_geometry.py": "humanoidverse2/simulator/terrain/lab.py",
+  "humanoidverse2/simulator/base_simulator/utlis/baked_terrain.py": "humanoidverse2/simulator/terrain/baked.py",
+  "humanoidverse2/simulator/base_simulator/utlis/backprojection.py": "humanoidverse2/simulator/sensors/projection.py",
+  "humanoidverse2/simulator/base_simulator/utlis/video_sink.py": "humanoidverse2/visualization/video_io.py",
+  "humanoidverse2/simulator/base_simulator/utlis/viser/viewer.py": "humanoidverse2/visualization/viser/viewer.py",
+  "humanoidverse2/simulator/base_simulator/utlis/viser/recording.py": "humanoidverse2/visualization/viser/recording.py",
+  "humanoidverse2/simulator/base_simulator/utlis/viser/tsne.py": "humanoidverse2/visualization/viser/tsne.py",
+  "humanoidverse2/simulator/base_simulator/utlis/viser/__init__.py": "humanoidverse2/visualization/viser/__init__.py",
+  "humanoidverse2/simulator/base_simulator/utlis/viser/feet.py": "humanoidverse2/visualization/viser/feet.py",
+  "humanoidverse2/simulator/base_simulator/utlis/viser/terrain.py": "humanoidverse2/visualization/viser/terrain.py",
+  "motion_diffusion/features/support_contact.py": "humanoidverse2/observations/support.py",
+  "humanoidverse2/motion/references/factory.py": "humanoidverse2/envs/env_utils/tracker_reference.py"
 }
