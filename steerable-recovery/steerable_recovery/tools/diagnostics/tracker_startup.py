@@ -84,7 +84,7 @@ def compare_episode(run,initial_path,policy,plant,capture,args,output,seed):
                 tracker_startup=selected.tracker_startup,seconds=selected.seconds,
                 planner_execution='live' if arm=='reference' else 'recorded_z_sequence',
                 initial_condition_source=str(initial_path) if initial_path else None,
-                plant_source_sha256=hashlib.sha256((ROOT/'motion_diffusion/inference/mujoco.py').read_bytes()).hexdigest()),indent=2))
+                plant_source_sha256=hashlib.sha256((ROOT/'humanoidverse2/simulator/mujoco/plant.py').read_bytes()).hexdigest()),indent=2))
             print(f'\nTracker history comparison: {arm}',flush=True)
             results[arm]=run(chosen,plant,capture,selected,directory,seed)
     finally:plant.reset=reset

@@ -11,11 +11,14 @@
 | `steerable_recovery/hardware` | Unitree/ROS transports, device lifecycles, hardware sessions |
 | `motion_diffusion/inference` | Portable tracker/planner composition, asynchronous execution, histories and release rules |
 | `motion_diffusion/planner/runtime.py` | Frozen sampling and code scheduling shared with simulation |
+| `humanoidverse2/simulator/mujoco` | Recovery plant, raw simulated sensors, terrain and compiled scene cache |
 
 The robot-side depth server captures at 30 Hz, publishes the latest pending frame
 on a worker and serves clock replies separately. The workstation receiver pairs
 depth with robot state and prepares model observations; a recording worker saves
-full-resolution pixels. The 50 Hz tracker does not encode images.
+full-resolution pixels. A visual tracker consumes delivered depth together with
+measured history; a blind tracker does not receive images. This follows the
+selected model's contract.
 
 The planner runs in a separate process. Tracking consumes the latest accepted
 plan with measured proprioception. LiDAR/DLIO and raw/camera recording run as

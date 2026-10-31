@@ -28,7 +28,7 @@ def main():
     from omegaconf import OmegaConf
     from motion_diffusion.inference.bundle import load_bundle, asset_path
     from motion_diffusion.inference.policy import load_controller
-    from motion_diffusion.inference.mujoco import scene_model, MujocoNativePlant, MujocoDepth
+    from humanoidverse2.simulator.mujoco.plant import scene_model, MujocoNativePlant, MujocoDepth
     from humanoidverse2.simulator.sensors.depth_capture import PlannerDepthRenderer
     from hv2_common.sensors.depth_frames import depth_view
     torch.set_num_threads(1)
@@ -42,7 +42,7 @@ def main():
                            OmegaConf.to_container(training.robot,resolve=True))
     names=[mujoco.mj_id2name(plant.model,mujoco.mjtObj.mjOBJ_BODY,i) for i in range(1,plant.model.nbody)]
     capture=dict(config['camera']);capture['robot_urdf']=str((ROOT/capture['robot_urdf']).resolve())
-    from motion_diffusion.inference.mujoco_terrain import terrain_geometry
+    from humanoidverse2.simulator.mujoco.terrain import terrain_geometry
     vertices,triangles=terrain_geometry(plant.model)
     renderer=PlannerDepthRenderer(vertices=vertices,triangles=triangles,
         body_names=names,config=capture,device=args.device)

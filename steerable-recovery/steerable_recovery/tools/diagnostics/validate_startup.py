@@ -19,7 +19,7 @@ def run(policy,plant,capture,args,output,seed,own):
     import numpy as np
     import torch
     from motion_diffusion.inference.execution import AsyncNativeRecovery, sample_snapshot, _cpu_snapshot
-    from motion_diffusion.inference.mujoco import WarpDepth
+    from humanoidverse2.simulator.mujoco.plant import WarpDepth
     from steerable_recovery.tools.diagnostics.startup_commands import restore_recorded_start, startup_fraction, shape_startup
     planner=policy.planner;model=planner.model;controller=policy.controller
     info=dict(H=model.H,H_z=model.H_z,F=model.F,latent_dim=model.action_dim,

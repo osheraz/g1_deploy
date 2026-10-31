@@ -16,7 +16,7 @@ sys.path.insert(0,str(ROOT))
 
 
 def arguments(argv=None):
-    from motion_diffusion.inference.mujoco_terrain import SIM_TERRAINS, DEFAULT_CACHE
+    from humanoidverse2.simulator.mujoco.terrain import SIM_TERRAINS, DEFAULT_CACHE
     from steerable_recovery.settings import sampling_seed, MODEL_NAMES
     parser=argparse.ArgumentParser(description=__doc__,formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--model',choices=MODEL_NAMES,
@@ -49,7 +49,7 @@ def arguments(argv=None):
     parser.add_argument('--n-xy-m',type=float,default=.1,help='N: pelvis XY offset range in metres')
     parser.add_argument('--n-tilt-deg',type=float,default=5.,help='N: roll/pitch offset range in degrees')
     parser.add_argument('--n-yaw-deg',type=float,default=15.,help='N: yaw offset range in degrees')
-    parser.add_argument('--backend',choices=('pytorch','tensorrt','onnx'),help='Selected model default: P11 PyTorch TF32; legacy models TensorRT FP32')
+    parser.add_argument('--backend',choices=('pytorch','tensorrt','onnx'),help='Default uses the selected model backend')
     parser.add_argument('--planner-precision',choices=('fp32','tf32'),default='fp32',help='TensorRT only; PyTorch uses the saved bundle precision')
     parser.add_argument('--engine-mode',choices=('standard','buffered','cuda_graph'),default='cuda_graph')
     parser.add_argument('--seed',type=sampling_seed,default=42,
@@ -123,7 +123,7 @@ def arguments(argv=None):
         args.noise_only=True
     if args.terrain_geometry:
         if args.terrain!='flat':parser.error('--terrain-geometry replaces flat terrain; do not combine with another terrain')
-        from motion_diffusion.inference.measured_scene import load_geometry
+        from humanoidverse2.simulator.terrain.measured_scene import load_geometry
         args.measured_geometry=load_geometry(args.terrain_geometry)
     import math
     if args.seconds is None:args.seconds=None if args.viewer else 10.
@@ -190,7 +190,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
     import numpy as np
     import torch
     from humanoidverse2.agents.action_vae.heading import initialize_heading,transport_heading
-    from motion_diffusion.inference.mujoco import WarpDepth
+    from humanoidverse2.simulator.mujoco.plant import WarpDepth
     pose_seed=getattr(args,'pose_seed',None)
     sensor_seed=getattr(args,'sensor_seed',None)
     pose_seed=seed if pose_seed is None else pose_seed
@@ -212,7 +212,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                         **getattr(args,'start_offset',{}))
         initial_tracker_history=None
         if getattr(args,'tracker_preroll_s',0.):
-            from motion_diffusion.inference.mujoco import passive_tracker_history
+            from humanoidverse2.simulator.mujoco.plant import passive_tracker_history
             prehistory=passive_tracker_history(plant,args.tracker_preroll_s)
             np.savez_compressed(output/'tracker_prehistory.npz',**{k:v.numpy() for k,v in prehistory.items()})
             if getattr(args,'tracker_startup','repeat')=='measured':initial_tracker_history=prehistory
@@ -302,7 +302,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                                 tilt_deg=getattr(args,'n_tilt_deg',5.),yaw_deg=getattr(args,'n_yaw_deg',15.))
                             args.start_jitter=getattr(args,'n_joint_jitter',.15)
                     if ord('1')<=event<=ord('7'):
-                        from motion_diffusion.inference.mujoco import START_POSTURES
+                        from humanoidverse2.simulator.mujoco.plant import START_POSTURES
                         args.start=START_POSTURES[event-ord('1')]
                     break
                 if viewer and (paused or halted or (end_tick is not None and tick>=end_tick)):
@@ -370,7 +370,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                         if not prefix:
                             availability=depth['available'][0].cpu().numpy()
                             if viewer and getattr(args,'depth_view',True):
-                                from motion_diffusion.inference.mujoco_terrain import depth_panel
+                                from humanoidverse2.simulator.mujoco.terrain import depth_panel
                                 panel=depth_panel(depth['frames'][0].detach().cpu().numpy(),availability,config['max_depth_m'])
                                 viewer.set_images((mujoco.MjrRect(12,12,panel.shape[1],panel.shape[0]),panel))
                 override=None
@@ -571,7 +571,7 @@ def main(argv=None):
     from motion_diffusion.inference.bundle import load_bundle, asset_path, replan_ticks_for_hz
     from motion_diffusion.inference.export_pd import derive_pd
     from motion_diffusion.inference.engines import configure_controller, configure_planner
-    from motion_diffusion.inference.mujoco import DEFAULT_ROBOT, scene_model, MujocoNativePlant
+    from humanoidverse2.simulator.mujoco.plant import DEFAULT_ROBOT, scene_model, MujocoNativePlant
     torch.set_num_threads(1)
     output=(args.output or ROOT/'logs/native_recovery'/f'mujoco_{args.terrain}_{time.time_ns()}').resolve()
     output.mkdir(parents=True,exist_ok=False)
@@ -599,7 +599,8 @@ def main(argv=None):
             if not 0 <= args.blend_ticks <= inference['replan_every_ticks']:
                 raise ValueError('Blend must be between zero and the replan period')
             inference['blend_ticks']=args.blend_ticks
-        planner=load_hardware_planner(planner_path,args.device,seed=args.seed,sampling_rng='paired_episode_v2',**inference)
+        inference.update(seed=args.seed,sampling_rng='paired_episode_v2')
+        planner=load_hardware_planner(planner_path,args.device,**inference)
         if backend!='pytorch':
             def engine(key,precision):
                 if key not in selected['exports']:
@@ -660,7 +661,7 @@ def main(argv=None):
                 seed=args.seed_list[episode%args.episodes] if args.seed_list else args.seed+episode%args.episodes
                 if args.start_pose_jitter_deg:args.start_pose_seed=(initial_start_pose_seed+episode)%(2**63)
             directory=output/f'{name}_{episode:03d}';directory.mkdir()
-            from motion_diffusion.inference.mujoco_terrain import SIM_TERRAINS, sample_terrain_mesh
+            from humanoidverse2.simulator.mujoco.terrain import SIM_TERRAINS, sample_terrain_mesh
             tile_info=sample_terrain_mesh(args.terrain,scene['terrain_seed'],args.terrain_cache)[2] if args.terrain in SIM_TERRAINS else None
             args.terrain_label=(f'{tile_info["family"]} tile {tile_info["tile"]} terrain seed {scene["terrain_seed"]}' if tile_info else args.terrain)
             if args.terrain_geometry:args.terrain_label=args.measured_geometry.get('name','measured lab')

@@ -68,11 +68,11 @@
   "motion_diffusion/behavioral/start_jitter.py": "motion_diffusion/inference/start_jitter.py",
   "motion_diffusion/behavioral/start_state.py": "motion_diffusion/inference/start_state.py",
   "motion_diffusion/behavioral/simulation.py": "motion_diffusion/inference/simulation.py",
-  "motion_diffusion/behavioral/mujoco.py": "motion_diffusion/inference/mujoco.py",
-  "motion_diffusion/behavioral/mujoco_scene_cache.py": "motion_diffusion/inference/mujoco_scene_cache.py",
-  "motion_diffusion/behavioral/mujoco_sensors.py": "motion_diffusion/inference/mujoco_sensors.py",
-  "motion_diffusion/behavioral/mujoco_terrain.py": "motion_diffusion/inference/mujoco_terrain.py",
-  "motion_diffusion/behavioral/measured_scene.py": "motion_diffusion/inference/measured_scene.py",
+  "motion_diffusion/behavioral/mujoco.py": "humanoidverse2/simulator/mujoco/plant.py",
+  "motion_diffusion/behavioral/mujoco_scene_cache.py": "humanoidverse2/simulator/mujoco/scene_cache.py",
+  "motion_diffusion/behavioral/mujoco_sensors.py": "humanoidverse2/simulator/mujoco/sensors.py",
+  "motion_diffusion/behavioral/mujoco_terrain.py": "humanoidverse2/simulator/mujoco/terrain.py",
+  "motion_diffusion/behavioral/measured_scene.py": "humanoidverse2/simulator/terrain/measured_scene.py",
   "motion_diffusion/behavioral/hardware/execution.py": "motion_diffusion/inference/execution.py",
   "motion_diffusion/behavioral/hardware/engines.py": "motion_diffusion/inference/engines.py",
   "motion_diffusion/behavioral/hardware/export.py": "motion_diffusion/inference/export.py",
@@ -108,5 +108,10 @@
   "hv2_contracts/test_executable_condition.py": "tests/motion_diffusion/test_executable_condition.py",
   "configs/recovery/hardware/standing_exclusions.json": "g1_deploy/steerable-recovery/config/analysis/standing_exclusions.json",
   "configs/recovery/hardware/motion_outliers.json": "g1_deploy/steerable-recovery/config/analysis/motion_outliers.json",
-  "configs/recovery/hardware/marked_exclusions.json": "g1_deploy/steerable-recovery/config/analysis/marked_exclusions.json"
+  "configs/recovery/hardware/marked_exclusions.json": "g1_deploy/steerable-recovery/config/analysis/marked_exclusions.json",
+  "motion_diffusion/inference/mujoco.py": "humanoidverse2/simulator/mujoco/plant.py",
+  "motion_diffusion/inference/mujoco_sensors.py": "humanoidverse2/simulator/mujoco/sensors.py",
+  "motion_diffusion/inference/mujoco_terrain.py": "humanoidverse2/simulator/mujoco/terrain.py",
+  "motion_diffusion/inference/mujoco_scene_cache.py": "humanoidverse2/simulator/mujoco/scene_cache.py",
+  "motion_diffusion/inference/measured_scene.py": "humanoidverse2/simulator/terrain/measured_scene.py"
 }

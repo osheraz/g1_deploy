@@ -91,7 +91,7 @@ def compare(run, own, policy, plant, capture, args, output, seed):
     import mujoco
     import numpy as np
     import torch
-    from motion_diffusion.inference import mujoco as plant_module
+    from humanoidverse2.simulator.mujoco import plant as plant_module
     from motion_diffusion.inference import policy as policy_module
 
     base_config = json.loads((output / 'config.json').read_text())
