@@ -27,7 +27,7 @@ def arguments(argv=None):
     parser.add_argument('--goal-json',type=Path,help='Shared Stanley steering cost; simulator pelvis feedback, PyTorch planner and selected tracker backend')
     parser.add_argument('--noise-policy',choices=('fresh','fixed_episode'),
         help='fresh: new noise every plan; fixed_episode: sample once per episode and reuse; default follows model bundle')
-    parser.add_argument('--bundle',type=Path,help='Verified deployment bundle; defaults to the published primary pair')
+    parser.add_argument('--bundle',type=Path,help='Prepared deployment bundle; required unless supplied by the selected model or HV2_RECOVERY_BUNDLE')
     parser.add_argument('--robot',type=Path,help='Robot URDF or MJCF; defaults to the training G1-29 URDF')
     parser.add_argument('--terrain',choices=('flat','step',*SIM_TERRAINS),default='flat')
     parser.add_argument('--terrain-seed',type=int,default=42)

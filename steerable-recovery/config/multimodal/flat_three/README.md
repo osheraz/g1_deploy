@@ -68,7 +68,7 @@ For **diffusion in either posture**, add `--model r8_s25_diffusion` (default
 new draws. This keeps the posture's same joint preset; it does not reproduce
 the selected catalog paths. Explicit `--replan-hz` overrides the model default.
 These runs include the model name in their output folder.
-See [all four robot commands](../../../docs/deploy.md#terminal-2-recovery).
+See [all four robot commands](../../../docs/deploy.md#sensor-session-and-operator-controls).
 
 Wait for saving to finish, then open the recording with:
 

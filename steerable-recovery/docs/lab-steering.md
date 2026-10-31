@@ -16,8 +16,10 @@ these historical checks do not qualify the integrated runtime on hardware.
 
 ## Setup and controls
 
-1. Keep [Terminal 1: depth](deploy.md#terminal-1-depth) running. The commands below
-   use the existing `vigor_legacy` processing; server and client must agree.
+1. Start [Terminal 1: depth](deploy.md#terminal-1-depth), replacing
+   `--processing raw` with `--processing vigor_legacy` for these retained lab
+   recipes. Keep the selected transport encoding unchanged. The gallery commands
+   request `vigor_legacy`; server and client must agree. Leave the terminal running.
    Close any standalone external-camera preview before launch so the recorder
    can use the same USB camera.
 2. Match the **body placement and support** in the start image. Keep them the same

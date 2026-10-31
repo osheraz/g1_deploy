@@ -6,8 +6,12 @@ initial pelvis origin with causal heading; physical time does not restart when
 the planner replans. `--guidance-scale` overrides strength without modifying the
 target, gains or checkpoint.
 
+Prepare the selected pair with the [deployment guide](../../../docs/guides/deployment.md)
+and keep its `HV2_RECOVERY_BUNDLE` setting.
+
 ```bash
-python g1_deploy/steerable-recovery/sim.py --model ours --backend pytorch \
+python g1_deploy/steerable-recovery/sim.py \
+  --bundle "$HV2_RECOVERY_BUNDLE" --model ours --backend pytorch \
   --recorded-start "$START_JSON" --goal-json "$GOAL_JSON" --seed 42 --seconds 15
 ```
 

@@ -4,8 +4,9 @@ Run from the hv2 checkout with its pinned `g1_deploy` submodule. The supported
 published models are `ours`, `joint`, `depth_blind`, and `blind_blind`; the default is `ours`.
 [Retained Osher consumers](docs/retained-consumers.md) keep their exact S25/S50/R8
 pairs, same-start presets, and measured-lab progress/Y recipes.
-The [release guide](../../docs/recovery/deployment.md) identifies the verified
-bundle and explains how to package another published pair. Joint uses 8 DDIM steps.
+The [release guide](../../docs/guides/deployment.md) explains how to prepare a
+bundle and set `HV2_RECOVERY_BUNDLE` before running the commands below.
+Joint uses 8 DDIM steps.
 
 | Task | Guide | Entry point |
 | --- | --- | --- |
@@ -22,7 +23,8 @@ Install the package from the hv2 root:
 
 ```bash
 python -m pip install --no-deps --no-build-isolation -e ./g1_deploy
-python g1_deploy/steerable-recovery/deploy.py --model ours --check --max-plan-age-ticks 10
+python g1_deploy/steerable-recovery/deploy.py \
+  --bundle "$HV2_RECOVERY_BUNDLE" --model ours --check
 ```
 
 Configuration lives in `config/models.yaml`. Sensor transport, recording, replay,
