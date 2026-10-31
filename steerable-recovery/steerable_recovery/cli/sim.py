@@ -522,7 +522,7 @@ def run_episode(policy,plant,capture,args,output,seed,viewer=None,controls=None)
                 physics_warnings={str(mujoco.mjtWarning(i)):int(w.number) for i,w in enumerate(plant.data.warning) if w.number})
             if frames and getattr(args,'goal_json',None):
                 from motion_diffusion.planner.pose_waypoints import waypoint_tracking_metrics
-                from motion_diffusion.features.rotation import quat_to_matrix
+                from hv2_common.geometry.rotation6d import quat_to_matrix
                 from humanoidverse2.agents.action_vae.heading import heading_matrix
                 goal=policy.planner.guidance_contract['goal']
                 h0=heading_matrix(torch.tensor(frames[0]['causal_heading_rad']))

@@ -162,7 +162,7 @@ def run_checks(config, env, algo, planner_path, device):
             dof_pos = env.simulator.dof_pos[e:e + 1]
             dof_vel = env.simulator.dof_vel[e:e + 1]
             body_rot = env.simulator._rigid_body_rot[e:e + 1]
-            from motion_diffusion.features.rotation import quat_apply, quat_conjugate
+            from hv2_common.geometry.rotation6d import quat_apply, quat_conjugate
 
             anchor_rot = body_rot[:, anchor]
             base_ang_vel_body = quat_apply(

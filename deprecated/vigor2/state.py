@@ -30,7 +30,7 @@ class DeployStateHistory:
 
     @torch.no_grad()
     def push(self, dof_pos, dof_vel, base_quat_xyzw, base_ang_vel) -> None:
-        from motion_diffusion.features.rotation import quat_apply, quat_mul
+        from hv2_common.geometry.rotation6d import quat_apply, quat_mul
 
         pos_l, rot_l = self.fk.forward_link_pos_rot_xyzw(dof_pos)
         pos_l = torch.as_tensor(pos_l, device=self.device)[:, self.fk_index]
