@@ -1,8 +1,6 @@
 from __future__ import annotations
 from typing import List, Dict, Optional
 import numpy as np
-import viser
-from viser.extras import ViserUrdf
 
 fixed_joint2motor_idx = []
 
@@ -47,6 +45,9 @@ class DeployViser:
         replay_layout: bool = False,
         robot_visible: bool = True,
     ) -> None:
+        import viser
+        from viser.extras import ViserUrdf
+
         self.server = viser.ViserServer(port=port)
         self.joint_names_by_motor_index = list(
             JOINT_NAMES_BY_MOTOR_INDEX if joint_names is None else joint_names

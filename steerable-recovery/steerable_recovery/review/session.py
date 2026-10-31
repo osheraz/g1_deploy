@@ -345,7 +345,7 @@ def cached_viewer_spec(a,session,*,policy_trials_only=False):
     exports, validation and reconstruction still go through the full review path.
     """
     if any(getattr(a,key,False) for key in ('prepare_only','export_video','export_depth',
-            'export_frames','export_overlay','full_validation','offline_xyz',
+            'export_frames','export_overlay','export_strip','full_validation','offline_xyz',
             'mount_calibration','capture_only')):
         return None
     if a.live_estimates and a.pose_only:return None
