@@ -55,7 +55,7 @@ class DeployTracker:
 
 
 def _training_config(ckpt_path: Path):
-    import humanoidverse2.utils.config_utils  # noqa: F401  registers ${eval:}
+    import humanoidverse2.config.resolvers  # noqa: F401  registers ${eval:}
 
     for name in ("config.yaml", ".hydra/config.yaml"):
         candidate = ckpt_path.parent / name
