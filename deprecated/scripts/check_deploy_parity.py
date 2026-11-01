@@ -27,7 +27,8 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "g1_deploy"))
 
-from humanoidverse2.config import resolvers  # noqa: F403
+from hv2_common.configuration import register_resolvers
+register_resolvers()
 
 
 @hydra.main(config_path=str(ROOT / "humanoidverse2/config"), config_name="base_eval",
@@ -75,7 +76,7 @@ def main(override_config: OmegaConf) -> None:
     import torch
     from hydra.utils import instantiate
     from hydra.core.hydra_config import HydraConfig
-    from humanoidverse2.config.prepare import prepare_config
+    from humanoidverse2.utils.configuration import prepare_config
 
     prepare_config(config)
     device = config.get("device") or "cuda:0"

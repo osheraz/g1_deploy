@@ -63,7 +63,7 @@ def wait_for_policy_start(
     if not robot.enabled and activate is None:
         raise ValueError("Operator motor controls require explicit actuation")
     if start_pose is not None:
-        from motion_diffusion.inference.start_pose import validate_start_pose
+        from humanoidverse2.robots.g1.start_pose import validate_start_pose
 
         validate_start_pose(start_pose, pd)
         if pose_only:
@@ -167,7 +167,7 @@ def prepare_default_pose(
     path = default_pose_path
     label = "default"
     if start_pose is not None:
-        from motion_diffusion.inference.start_pose import validate_start_pose, start_pose_path
+        from humanoidverse2.robots.g1.start_pose import validate_start_pose, start_pose_path
 
         goal = validate_start_pose(start_pose, pd)
         path = start_pose_path

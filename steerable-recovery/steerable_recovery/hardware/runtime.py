@@ -626,7 +626,7 @@ def run(
                     raise ValueError("Command shaping differs from the frozen PD contract")
         remote_start = config["robot"].get("require_remote_start", False)
         if config.get("start_pose") is not None:
-            from motion_diffusion.inference.start_pose import validate_start_pose
+            from humanoidverse2.robots.g1.start_pose import validate_start_pose
 
             if not enable_actuation or not remote_start or pd is None:
                 raise ValueError(

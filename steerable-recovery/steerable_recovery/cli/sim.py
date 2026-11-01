@@ -436,11 +436,11 @@ def run_episode(policy, plant, capture, args, output, seed, viewer=None, control
     sensor_seed = seed if sensor_seed is None else sensor_seed
     with viewer.lock() if viewer else nullcontext():
         if getattr(args, "recorded_snapshot", None) is not None:
-            from motion_diffusion.inference.start_state import restore_recorded_start
+            from humanoidverse2.simulator.mujoco.starts import restore_recorded_start
 
             restore_recorded_start(plant, args.recorded_snapshot)
         elif getattr(args, "start_snapshot", None) is not None:
-            from motion_diffusion.inference.start_state import restore_start, prepare_jittered_start
+            from humanoidverse2.simulator.mujoco.starts import restore_start, prepare_jittered_start
 
             if getattr(args, "start_pose_jitter_deg", 0.0):
                 prepared = prepare_jittered_start(
@@ -1162,7 +1162,7 @@ def main(argv=None):
     from motion_diffusion.inference.policy import load_controller
     from motion_diffusion.inference.steering import load_hardware_planner
     from motion_diffusion.inference.bundle import load_bundle, asset_path, replan_ticks_for_hz
-    from motion_diffusion.inference.export_pd import derive_pd
+    from humanoidverse2.robots.g1.pd import derive_pd
     from motion_diffusion.inference.engines import configure_controller, configure_planner
     from humanoidverse2.simulator.mujoco.plant import DEFAULT_ROBOT, scene_model, MujocoNativePlant
 

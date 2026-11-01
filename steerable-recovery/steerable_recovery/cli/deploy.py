@@ -444,7 +444,7 @@ def main(argv=None):
     receipt["standing_hold"] = config["standing_hold"]
     receipt["startup_zero_torque"] = bool(args.actuate)
     if args.start_pose:
-        from motion_diffusion.inference.start_pose import load_start_pose, perturb_start_pose
+        from humanoidverse2.robots.g1.start_pose import load_start_pose, perturb_start_pose
         from humanoidverse2.robots.g1.control import NativePDContract
 
         contract = dict(
@@ -520,7 +520,7 @@ def main(argv=None):
             row["objective"],
             sample=True,
         )
-        from motion_diffusion.inference.export_pd import derive_pd
+        from humanoidverse2.robots.g1.pd import derive_pd
         from omegaconf import OmegaConf
 
         training = OmegaConf.load(bundle.asset_path(root, row["controller_training_config"]))
