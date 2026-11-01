@@ -23,6 +23,7 @@ class TriggeredCameraWriter:
         self.directory=Path(directory);self.log=log
         self.start_s=None;self.pending=deque(maxlen=16)
         self.stream=None;self.frames=0
+        self.writing=False
 
     def start(self,monotonic_s):
         if self.start_s is None:self.start_s=float(monotonic_s)
@@ -34,9 +35,13 @@ class TriggeredCameraWriter:
             seq,ts,data=self.pending.popleft()
             if ts<self.start_s:continue
             if self.stream is None:self.stream=(self.directory/'frames.mjpg').open('xb')
-            self.stream.write(data)
-            self.log.write(f'cap dqbuf: 0 seq: {seq} bytesused: {len(data)} ts: {ts:.6f}\n')
-            self.log.flush();self.frames+=1
+            self.writing=True
+            try:
+                self.stream.write(data)
+                self.log.write(f'cap dqbuf: 0 seq: {seq} bytesused: {len(data)} ts: {ts:.6f}\n')
+                self.log.flush();self.frames+=1
+            finally:
+                self.writing=False
 
     def close(self):
         if self.stream is not None:self.stream.close()
@@ -50,6 +55,13 @@ def main():
     args=p.parse_args()
     args.output.mkdir(parents=True,exist_ok=True)
     writer=TriggeredCameraWriter(args.output,sys.stdout)
+    stop_requested=False
+    def interrupt(*_):
+        nonlocal stop_requested
+        stop_requested=True
+        # Finish a frame and its timestamp together; otherwise wake a blocked read.
+        if not writer.writing:raise KeyboardInterrupt
+    signal.signal(signal.SIGINT,interrupt)
     def control():
         for line in sys.stdin:
             command=json.loads(line)
@@ -67,6 +79,7 @@ def main():
             if capture.rate_set is not None and not reported_rate:
                 print(f'Frame rate set to {capture.rate_set:g} fps',flush=True);reported_rate=True
             writer.offer(seq,ts,frame)
+            if stop_requested:break
             if now-last_status>=.5:
                 status=dict(arrival_monotonic_s=now,capture_monotonic_s=ts,
                     ready=True,recording=writer.start_s is not None,frames=writer.frames)
