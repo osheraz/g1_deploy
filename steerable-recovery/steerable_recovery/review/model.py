@@ -6,24 +6,28 @@ import json
 from pathlib import Path
 import sys
 
-from steerable_recovery.paths import ROOT, PROJECT
+from steerable_recovery.paths import ROOT
 sys.path.insert(0, str(ROOT))
 
 
-def source_changes(sources):
-    """Resolve moved source paths, retaining the original byte checks."""
+def source_changes(manifest):
+    """Compare against the captured checkout; never translate historical paths."""
+    from hv2_common.artifacts import git_metadata
     from motion_diffusion.inference.bundle import sha256
-    from hv2_common.provenance import SOURCE_MOVES
-    mapping = {**SOURCE_MOVES, **json.loads((PROJECT/'migration_paths.json').read_text())}
-    changed, relocated = [], {}
-    for name, digest in sources.items():
+    changed = []
+    if manifest['schema'] == 'hv2.model_trace.v3':
+        for name, root in (('hv2', ROOT), ('g1_deploy', ROOT/'g1_deploy')):
+            saved = manifest['code'][name]
+            current = git_metadata(root)
+            if (not saved['commit'] or saved['commit'] != current['commit']
+                    or saved['dirty'] is not False or current['dirty'] is not False):
+                changed.append(name)
+        return changed
+    for name, digest in manifest['sources'].items():
         path = ROOT/name
-        if not path.is_file() and name in mapping:
-            path = ROOT/mapping[name]
-            relocated[name] = mapping[name]
         if not path.is_file() or sha256(path) != digest:
             changed.append(name)
-    return changed, relocated
+    return changed
 
 
 def compare(actual, expected, *, atol, rtol):
@@ -40,7 +44,7 @@ def compare(actual, expected, *, atol, rtol):
 def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, allow_code_changes=False):
     import numpy as np
     import torch
-    from motion_diffusion.inference.model_trace import read_trace, engine_identity
+    from motion_diffusion.inference.model_trace import read_trace, engine_identity, load_trace_manifest
     from motion_diffusion.inference.bundle import sha256
     from motion_diffusion.inference.execution import sample_snapshot, _ipc_tensors
     from motion_diffusion.inference.policy import load_controller
@@ -50,16 +54,13 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
     root = Path(session).resolve()
     if root.name == 'sensors': root = root.parent
     directory = root/'model_trace'
-    manifest = json.loads((directory/'manifest.json').read_text())
-    if manifest['schema'] not in ('hv2.model_trace.v1','hv2.model_trace.v2'): raise ValueError('Unknown model trace schema')
+    manifest = load_trace_manifest(directory)
     summary = json.loads((directory/'summary.json').read_text())
     if not summary['complete']: raise ValueError('Trace recording is incomplete; see model_trace/summary.json')
-    if sha256(directory/'source.tar.gz') != manifest['source_archive_sha256']:
-        raise ValueError('Recorded source archive checksum mismatch')
-    changed, relocated = source_changes(manifest['sources'])
+    changed = source_changes(manifest)
     if changed and not allow_code_changes:
-        raise ValueError(f'{len(changed)} source files differ from capture; use --allow-code-changes for an intentional comparison. '
-                         f'Original source is saved in {directory}/source.tar.gz. First differences: {changed[:5]}')
+        raise ValueError('Source differs from capture. Use the recorded Git checkout for exact reproduction, '
+                         f'or --allow-code-changes to compare current code. Differences: {changed[:5]}')
     config = deepcopy(manifest['config'])
     for key, spec in manifest['weights'].items():
         if sha256(spec['path']) != spec['sha256']: raise ValueError(f'Changed model weights: {spec["path"]}')
@@ -78,7 +79,7 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
     torch.set_num_threads(1)
     report = dict(schema='hv2.model_replay.v1', session=str(root), component=component,
         atol=atol, rtol=rtol, max_calls=max_calls, source_changes=changed,
-        relocated_sources=relocated, records=totals,
+        records=totals,
         scope='Recorded-input neural replay and issued-target checks; no physical dynamics or translation accuracy claim',
         tracker=[], planner=[])
 

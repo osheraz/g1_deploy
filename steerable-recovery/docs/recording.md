@@ -9,7 +9,7 @@ A again / SELECT / Ctrl+C stops the policy; wait for sensor and model-trace save
 | --- | --- |
 | `logs/real_world/RUN/` | Real trials: config, telemetry, stop/save status |
 | `RUN/sensors/` | Raw LiDAR, IMUs, joints, live XYZ, original-resolution depth, external camera |
-| `RUN/model_trace/` | Model inputs, sampled noise, outputs, issued actions, source/weight provenance |
+| `RUN/model_trace/` | Model inputs, sampled noise, outputs, issued actions, configuration, Git revision and weight identities |
 | `RUN/review/` | Derived videos, frames, recovery marks and review checks |
 | `logs/deployment_validation/` | Sensor-only / offline checks |
 | `logs/aborted_deployments/` | Archived launches with no policy episode |
@@ -66,6 +66,8 @@ Picked images remain under `logs/real_world_hightlight/` (historical spelling).
 
 Uses saved observations/noise and verified model weights/engines; run after
 stopping deployment because it uses the GPU. This checks inference and issued
-commands, not physical dynamics. Moved files use the migration map; content
-changes still fail provenance checks. Add `--allow-code-changes` only for an
-intentional comparison; differences are listed in `review/model_replay.json`.
+commands, not physical dynamics. New recordings save Git revisions and modified-tree
+status; they do not copy the source tree. Exact reproduction requires the recorded
+checkout. Add `--allow-code-changes` for a comparison against current code;
+differences are listed in `review/model_replay.json`. Existing recordings retain
+their original archive and weight checksums. Old filenames are not translated.

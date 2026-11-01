@@ -20,7 +20,7 @@ from humanoidverse2.agents.action_vae.modules import ReconstructionHead
 from motion_diffusion.inference.bundle import sha256
 from motion_diffusion.inference.policy import load_controller
 from steerable_recovery.hardware.depth_recording import RecordedModelDepth
-from motion_diffusion.inference.model_trace import read_trace
+from motion_diffusion.inference.model_trace import read_trace, load_trace_manifest
 from motion_diffusion.inference.standing import StandingReference
 
 
@@ -60,9 +60,7 @@ def summarize_targets(targets):
 def investigate(session, events, interval, output, device='cuda'):
     root = Path(session).resolve()
     directory = root/'model_trace'
-    manifest = json.loads((directory/'manifest.json').read_text())
-    if sha256(directory/'source.tar.gz') != manifest['source_archive_sha256']:
-        raise ValueError('Captured source archive checksum mismatch')
+    manifest = load_trace_manifest(directory)
     config = dict(manifest['config'])
     for key, spec in manifest['weights'].items():
         if sha256(spec['path']) != spec['sha256']:
