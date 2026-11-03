@@ -16,15 +16,15 @@ def run(mode, argv=None):
             ((selected.preset or selected.gallery) and '--robot' in remaining)):
         parser.error('The sim entry point cannot enable robot deployment')
     if selected.preset:
-        from .presets.flat import main
+        from steerable_recovery.presets.flat import main
         return main(['--start', selected.preset, *(['--robot'] if mode == 'deploy' else []), *remaining])
     if selected.gallery:
-        from .presets.gallery import main
+        from steerable_recovery.presets.gallery import main
         return main(['--example', selected.gallery, *(['--robot'] if mode == 'deploy' else []), *remaining])
     if '-h' in argv or '--help' in argv:
         print('Retained commands: --preset prone|supine; --gallery NAME|list.\n')
     if mode == 'sim':
-        from .cli.sim import main
+        from steerable_recovery.cli.sim import main
         return main(remaining)
-    from .cli.deploy import main
+    from steerable_recovery.cli.deploy import main
     return main(remaining)

@@ -242,7 +242,7 @@ class LiveStartupPreview:
         self.odom = odom
         runtime.preview = True
         self.buffer, self.camera, self.telemetry = buffer, camera, telemetry
-        from steerable_recovery.hardware.camera import DepthHealth
+        from steerable_recovery.sensing.camera import DepthHealth
 
         self.depth_health = depth_health or (
             DepthHealth(camera, buffer, telemetry) if camera else None
@@ -490,12 +490,12 @@ def run(
     from humanoidverse2.robots.g1.control import NativePDContract
     from steerable_recovery.hardware.unitree import UnitreeHG, wait_for_policy_start
     from motion_diffusion.inference.execution import PlannerProcess, AsyncNativeRecovery
-    from steerable_recovery.hardware.camera import (
+    from steerable_recovery.sensing.camera import (
         RealSenseDepth,
         DepthHealth,
         deployment_capture_config,
     )
-    from steerable_recovery.hardware.telemetry import DeploymentTelemetry, latency_summary
+    from steerable_recovery.recording.telemetry import DeploymentTelemetry, latency_summary
 
     if not np.isfinite(duration_s) or duration_s <= 0:
         raise ValueError("Positive finite deployment duration required")
@@ -563,7 +563,7 @@ def run(
         odom_required = False
         episode_pose = None
         if config.get("pelvis_odometry_port"):
-            from steerable_recovery.hardware.measured_pose import EpisodePose
+            from steerable_recovery.sensing.measured_pose import EpisodePose
 
             odom = PelvisOdometryReceiver(config["pelvis_odometry_port"], background=True)
             episode_pose = EpisodePose()
@@ -706,7 +706,7 @@ def run(
             camera_class = RealSenseDepth
             extra = {}
             if config.get("depth_recording_directory"):
-                from steerable_recovery.hardware.depth_recording import DepthFrameRecorder
+                from steerable_recovery.recording.depth import DepthFrameRecorder
 
                 depth_recorder = DepthFrameRecorder(
                     config["depth_recording_directory"],
@@ -716,7 +716,7 @@ def run(
                 )
                 extra["frame_recorder"] = depth_recorder
             if source == "network":
-                from steerable_recovery.hardware.network_depth import NetworkDepth
+                from steerable_recovery.sensing.network_depth import NetworkDepth
 
                 camera_class = NetworkDepth
                 extra["endpoint"] = camera_config["endpoint"]

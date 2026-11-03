@@ -1,22 +1,9 @@
-"""SONIC low-level tracker on the real robot.
-
-SONIC is not the single-``actor_obs`` architecture ``PolicyRunner`` handles. It
-is a pair of ONNX models:
+"""SONIC tracker shared by robot deployment and MuJoCo.
 
     encoder(reference window, variant-specific) -> token (64)
     decoder(token + 10-step proprio history, 994) -> joint action (29, IsaacLab order)
 
-This is the real-robot counterpart of ``sonic/tracker.py`` in the tactile repo:
-same observation builders and joint ordering, but fed from ``RobotInterface``
-instead of a simulator, and with ``num_envs == 1``.
-
-The observation builders, joint tables and the released ONNX all live in
-``sonic/model/``, vendored so this deploy is standalone.
-
-The **reference window** (what the operator wants the robot to do) is supplied
-by a provider, not by this class. See ``ReferenceWindowProvider`` below for the
-contract; live PICO teleop needs a planner or a distilled student to produce it,
-whereas clip replay works today.
+Reference providers supply motion clips, joystick commands or PICO input.
 """
 from __future__ import annotations
 
@@ -30,7 +17,7 @@ import numpy as np
 class ReferenceWindowProvider(Protocol):
     """Supplies the encoder's reference window for the current tick.
 
-    Must return the keys ``sonic.policy.obs.build_encoder_obs`` expects, each
+    Must return the keys ``sonic.model.obs.build_encoder_obs`` expects, each
     with a leading batch dimension of 1:
 
         dof_fut       (1,10,29)   future joint targets, IsaacLab order
@@ -57,17 +44,12 @@ class SonicRunner:
         self,
         config,
         reference: ReferenceWindowProvider,
-        *,
-        allow_legacy_adaptation: bool = False,
     ):
         from sonic.model import obs as sonic_obs, robot_g1
         from sonic.model.inference_backend import create_session
         from sonic.model.action_adaptation import MotorActionAdapter
         from sonic.model.model_profile import get_model_profile
-        from sonic.model.reference_adaptation import (
-            GaitReferenceAdapter,
-            LandingHoldAdapter,
-        )
+        from sonic.model.reference_adaptation import GaitReferenceAdapter
         from sonic.model.reduced_adaptation import ReducedProprioceptionAdapter
         from sonic.model.robot_profile import get_robot_profile
         self.robot_g1 = robot_g1
@@ -255,10 +237,6 @@ class SonicRunner:
                 )
             ),
         )
-        self.landing_hold_adapter = LandingHoldAdapter(
-            enabled=bool(getattr(config, "sonic_landing_hold", False)),
-            mode=str(getattr(config, "sonic_landing_hold_mode", "pose")),
-        )  # legacy attempt; default off
         self.action_history_source = str(
             getattr(config, "sonic_action_history_source", "raw")
         ).strip().lower()
@@ -293,23 +271,8 @@ class SonicRunner:
         self.adaptation_profile = str(
             getattr(config, "sonic_adaptation_profile", "official-parity")
         ).strip().lower()
-        if self.adaptation_profile not in (
-            "official-parity", "stable-slow-23", "robust-small-gait-23",
-            "forward-stable-23",
-        ):
-            raise ValueError(
-                "sonic_adaptation_profile must be official-parity, "
-                "stable-slow-23, robust-small-gait-23, or forward-stable-23"
-            )
-        if (
-            self.adaptation_profile in ("stable-slow-23", "robust-small-gait-23")
-            and not allow_legacy_adaptation
-        ):
-            raise ValueError(
-                f"{self.adaptation_profile} is a withdrawn legacy attempt and "
-                "is blocked from live use. Current recipe: forward-stable-23 "
-                "--slow-gait. Reproduction only: pass --legacy-reproduction"
-            )
+        if self.adaptation_profile not in ("official-parity", "forward-stable-23"):
+            raise ValueError("sonic_adaptation_profile must be official-parity or forward-stable-23")
         if self.adaptation_profile == "forward-stable-23":
             release_profile = getattr(config, "sonic_release_profile", None)
             reference_joint_scale = np.asarray(
@@ -364,99 +327,6 @@ class SonicRunner:
                     "[0.28, 1.00] with every other reference channel unscaled, "
                     "raw action history, and fully direct output"
                 )
-        if self.adaptation_profile == "stable-slow-23":
-            release_profile = getattr(config, "sonic_release_profile", None)
-            expected_scale = np.ones(self.robot_profile.physical_dof)
-            expected_ema = np.ones(self.robot_profile.physical_dof)
-            expected_scale[[5, 11]] = 0.95
-            expected_ema[[4, 10]] = 0.95
-            contract_ok = (
-                self.robot_profile.name == "g1_23dof"
-                and release_profile == "original-release"
-                and self.missing_adaptation_scope == "all"
-                and self.encoder_hold_idx is not None
-                and self.action_history_hold_idx is not None
-                and self.reduced_proprioception.strategy == "zero"
-                and float(config.action_ema) == 1.0
-                and np.array_equal(
-                    self.motor_action_adapter.scale, expected_scale
-                )
-                and np.array_equal(
-                    self.motor_action_adapter.ema, expected_ema
-                )
-                and np.all(np.isinf(self.motor_action_adapter.abs_limit))
-                and np.all(np.isinf(
-                    self.motor_action_adapter.target_rate_limit
-                ))
-                and self.action_history_source == "raw"
-            )
-            if not contract_ok:
-                raise ValueError(
-                    "stable-slow-23 is qualified only for Original Release + "
-                    "g1_23dof with both absent-axis masks, zero missing-axis "
-                    "proprioception, all-axis scope, ankle-pitch EMA=0.95, "
-                    "ankle-roll action scale=0.95, raw action history, and no "
-                    "clipping or slew limit"
-                )
-        if self.adaptation_profile == "robust-small-gait-23":
-            release_profile = getattr(config, "sonic_release_profile", None)
-            contracts = {
-                "low-latency": {
-                    "scope": "wrist", "mask_reference": True,
-                    "mask_history": False, "hip_scale": 0.80,
-                },
-                "original-release": {
-                    "scope": "wrist", "mask_reference": True,
-                    "mask_history": True, "hip_scale": 0.80,
-                },
-                "sonic-v1.1": {
-                    "scope": "wrist", "mask_reference": True,
-                    "mask_history": True, "hip_scale": 0.90,
-                },
-            }
-            selected_contract = contracts.get(release_profile)
-            expected_reference_scale = np.ones(self.robot_profile.physical_dof)
-            if self.robot_profile.physical_dof >= 7:
-                expected_reference_scale[[0, 6]] = (
-                    selected_contract["hip_scale"]
-                    if selected_contract is not None else np.nan
-                )
-            direct_output = (
-                np.all(self.motor_action_adapter.scale == 1.0)
-                and np.all(self.motor_action_adapter.ema == 1.0)
-                and np.all(np.isinf(self.motor_action_adapter.abs_limit))
-                and np.all(np.isinf(
-                    self.motor_action_adapter.target_rate_limit
-                ))
-            )
-            contract_ok = (
-                self.robot_profile.name == "g1_23dof"
-                and selected_contract is not None
-                and self.missing_adaptation_scope == selected_contract["scope"]
-                and (self.encoder_hold_idx is not None)
-                    == selected_contract["mask_reference"]
-                and (self.action_history_hold_idx is not None)
-                    == selected_contract["mask_history"]
-                and self.reduced_proprioception.strategy == "zero"
-                and float(config.action_ema) == 1.0
-                and float(config.sonic_reference_leg_scale) == 1.0
-                and float(config.sonic_reference_root_height_scale) == 1.0
-                and np.array_equal(
-                    np.asarray(config.sonic_reference_joint_scale),
-                    expected_reference_scale,
-                )
-                and direct_output
-                and self.action_history_source == "raw"
-            )
-            if not contract_ok:
-                raise ValueError(
-                    "robust-small-gait-23 requires its model-specific g1_23dof "
-                    "contract: wrist-only absent-reference masking, the "
-                    "qualified wrist action-history setting and bilateral "
-                    "hip-pitch reference scale, zero missing proprioception, "
-                    "raw 29-D action history, and fully direct motor output"
-                )
-
         self._last_act_il = np.zeros((1, n_dof))
 
         self._h_angvel = np.zeros((1, self.HISTORY, 3))
@@ -515,7 +385,6 @@ class SonicRunner:
         self.action.fill(0.0)
         self.reduced_proprioception.reset()
         self.motor_action_adapter.reset()
-        self.landing_hold_adapter.reset()
 
     def _encode(self, x):
         name_in, name_out = self._enc_io
@@ -539,30 +408,14 @@ class SonicRunner:
 
     def compute_action(self, dof_pos, dof_vel, base_quat_wxyz, base_ang_vel_body,
                        **_ignored) -> np.ndarray:
-        """One control step. ``dof_pos``/``dof_vel`` are physical robot order.
+        """Track one step from physical joint order and body-frame angular velocity.
 
-        ``base_ang_vel_body`` is angular velocity in the BODY frame, which is
-        what both the robot IMU gyroscope and MuJoCo's freejoint qvel[3:6]
-        report. sonic/tracker.py receives IsaacLab's world-frame value and
-        rotates it into the body frame; that rotation is already done for us,
-        so doing it again would corrupt the observation.
-
-        Extra keyword arguments are accepted and ignored so this is a drop-in
-        for ``PolicyRunner.compute_action`` where the caller passes depth etc.
+        Robot IMU and MuJoCo free-joint rates already use the body frame; do not
+        rotate them again. Extra sensor arguments share the policy-runner interface.
         """
         policy_start = time.perf_counter()
         raw = self.reference.window()
         g = self.gait_reference_adapter.apply(raw)
-        measured_il = self.robot_profile.physical_to_isaaclab(
-            np.asarray(dof_pos, np.float64).reshape(-1), fill=0.0
-        )
-        g = self.landing_hold_adapter.apply(
-            g,
-            measured_q_il=measured_il,
-            raw_dof_fut=g.get("dof_fut"),
-            foot_z=_ignored.get("foot_z"),
-            foot_contact=_ignored.get("foot_contact"),
-        )
         self.last_reference_q_il_adapted = np.asarray(
             g["dof_fut"][0, 0], np.float32
         ).copy()
@@ -615,7 +468,7 @@ class SonicRunner:
             action_il[0]
         ).astype(np.float32)
         act = self.motor_action_adapter.apply(raw_act)
-        # The legacy scalar EMA remains for backwards-compatible ablations.
+        # Smoothing is applied only to motor output; history uses the selected source.
         self.action = self.action_ema * act + (1.0 - self.action_ema) * self.action
 
         # Official SONIC feeds the raw decoder vector back as last_action.
@@ -670,5 +523,4 @@ class SonicRunner:
             "sonic_reference_gait_active": np.bool_(
                 self.gait_reference_adapter.last_active
             ),
-            "sonic_landing_hold": self.landing_hold_adapter.last_holding.copy(),
         }

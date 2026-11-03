@@ -324,7 +324,7 @@ class UnitreeHG:
         self.dof_names = dof_names
         self.clock = capture_clock
         self.tick_period = float(tick_period_s)
-        from steerable_recovery.hardware.clocks import RobotTickClock
+        from steerable_recovery.sensing.clocks import RobotTickClock
 
         self.tick_alignment = RobotTickClock() if capture_clock is None else None
         self.buttons = 0

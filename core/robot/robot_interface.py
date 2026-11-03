@@ -25,14 +25,14 @@ from unitree_sdk2py.idl.unitree_hg.msg.dds_ import IMUState_ as IMUStateHG
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowState_ as LowStateGo
 from unitree_sdk2py.utils.crc import CRC
 
-from core.common.command_helper import (
+from core.robot.commands import (
     create_zero_cmd,
     init_cmd_hg,
     init_cmd_go,
     MotorMode,
 )
-from core.common.rotation_helper import get_gravity_orientation, transform_imu_data
-from core.common.remote_controller import RemoteController, KeyMap
+from core.robot.imu import get_gravity_orientation, transform_imu_data
+from core.robot.remote import RemoteController, KeyMap
 from core.config import Config
 from sonic.model.robot_profile import get_robot_profile
 
@@ -81,7 +81,6 @@ class RobotInterface:
             )
         self._init_low_cmd()
 
-    # -------- init / I/O --------
 
     def _init_hg(self):
         self.low_cmd = unitree_hg_msg_dds__LowCmd_()
@@ -217,7 +216,6 @@ class RobotInterface:
     def torso_imu_nearest(self, target_monotonic: float):
         return self._nearest_history_sample(self._torso_imu_history, target_monotonic)
 
-    # -------- modes (same as before) --------
 
     def zero_torque_state(self):
         print("Enter zero torque state.")
@@ -308,11 +306,9 @@ class RobotInterface:
                 cmd.kd = self.config.kds[i]
                 cmd.tau = 0.0
 
-            # create_zero_cmd(self.low_cmd)
             self.send_cmd()
             time.sleep(self.config.control_dt)
 
-    # -------- state / features --------
 
     def update_joint_state(self, state=None):
         state = self.low_state_snapshot() if state is None else state
@@ -388,7 +384,7 @@ class RobotInterface:
                 )
             if self.config.require_torso_imu:
                 raise RuntimeError(f"Torso IMU stale for {age:.3f} s")
-            # Legacy 23-DoF approximation retained only for old configs.
+            # The 23-DoF configuration estimates pelvis IMU from waist yaw alone.
             waist_idx = 12  # waist yaw; fixed[0] is waist roll on the 23-DoF profile
             waist_yaw = state.motor_state[waist_idx].q
             waist_yaw_omega = state.motor_state[waist_idx].dq

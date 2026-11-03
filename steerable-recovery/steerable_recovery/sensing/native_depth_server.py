@@ -15,11 +15,11 @@ import time
 import numpy as np
 
 if __package__:
-    from core.common.depth_wire import encode_depth
+    from core.sensing.depth_wire import encode_depth
 elif __name__ == '__main__':  # Standalone copy on the camera computer.
     from depth_wire import encode_depth
 else:  # Direct file loading in deployment contract checks.
-    from g1_deploy.core.common.depth_wire import encode_depth
+    from g1_deploy.core.sensing.depth_wire import encode_depth
 
 
 PROCESSING = {'raw': 'raw_depth_no_filters_no_alignment',

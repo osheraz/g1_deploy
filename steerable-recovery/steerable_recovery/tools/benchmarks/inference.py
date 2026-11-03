@@ -74,7 +74,7 @@ def concurrent(checkpoint,options,engine,controller,features,requests,seconds):
     import numpy as np
     import torch
     from motion_diffusion.inference.execution import PlannerProcess
-    from steerable_recovery.hardware.telemetry import latency_summary
+    from steerable_recovery.recording.telemetry import latency_summary
     # Fixed fixtures isolate scheduling/compute; no fictitious robot latency.
     with_worker=PlannerProcess(checkpoint,device=str(controller.device),options=options,
                               engine_config=engine,startup_timeout_s=600.)
@@ -140,7 +140,7 @@ def main():
     from motion_diffusion.inference.engines import configure_controller, configure_planner
     from motion_diffusion.inference.execution import sample_snapshot
     from motion_diffusion.inference.export import graph_examples
-    from steerable_recovery.hardware.telemetry import latency_summary
+    from steerable_recovery.recording.telemetry import latency_summary
     from motion_diffusion.planner.runtime import load_frozen_planner
     torch.set_num_threads(1)
     torch.backends.cuda.matmul.allow_tf32=False;torch.backends.cudnn.allow_tf32=False

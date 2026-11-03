@@ -23,7 +23,7 @@ from typing import Optional
 
 import numpy as np
 
-from core.common.remote_controller import KeyMap
+from core.robot.remote import KeyMap
 
 # frames.bin record: two length-prefixed blobs per frame.
 HDR = struct.Struct("<II")  # len(color_jpg), len(depth_png); 0 means absent

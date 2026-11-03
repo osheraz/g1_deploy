@@ -1,15 +1,17 @@
 # G1 deployment
 
-Temporary handoff: [current deployment status](DEPLOYMENT_STATUS.md).
+Run commands from the parent HV2 checkout. Use its pinned deployment revision
+and install once with `python -m pip install --no-deps -e ./g1_deploy`.
 
-| Project | Start here |
-| --- | --- |
-| **Steerable Recovery** — diffusion, MuJoCo, steering, recording | [Project guide](steerable-recovery/README.md) |
-| SONIC teleoperation | [Workflows](sonic/workflows/README.md) |
-| Original VIGOR deployment | `deploy_vigor.py`, `vigor/` |
-| Older deployment code | [Deprecated](deprecated/README.md) |
-| Shared robot I/O, Viser and recording | `core/` |
-| New workstation / network | [Setup](tutorials/GETTING_STARTED.md) |
+| Task | Guide | Entry point |
+| --- | --- | --- |
+| RISE recovery, steering and recording | [Recovery](docs/recovery/deploy.md) | `steerable-recovery/deploy.py` |
+| Recovery in MuJoCo | [Simulation](docs/recovery/sim.md) | `steerable-recovery/sim.py` |
+| Replay a recording | [Replay](docs/recovery/recording.md) | `steerable-recovery/replay.py` |
+| SONIC tracking and teleoperation | [SONIC](docs/sonic/joystick.md) | `sonic/deploy.py`, `sonic/sim.py` |
+| VIGOR reactive policy | [VIGOR](docs/vigor.md) | `vigor/deploy.py` |
+| Network, cameras and installation | [Setup](docs/setup/README.md) | — |
 
-Use this submodule at the revision pinned by hv2. Recovery models and runtime
-remain in the parent repository; model bundles and recordings are not in Git.
+Shared robot I/O, sensors, recording and viewers live in `core/`.
+[Code ownership](docs/architecture.md) · [All guides](docs/README.md).
+Model weights and recordings remain outside Git.

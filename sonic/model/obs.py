@@ -7,8 +7,8 @@ mask supplied by :mod:`robot_profile`.
 
 import numpy as np
 
-from . import robot_g1
-from .model_profile import get_model_profile
+from sonic.model import robot_g1
+from sonic.model.model_profile import get_model_profile
 
 # fixed index sets (IsaacLab order)
 LOWER_JOINT_IL_IDX = robot_g1.ISAACLAB_TO_MUJOCO_DOF[:12]  # legs: mujoco 0..11 -> isaaclab
@@ -50,16 +50,7 @@ DEC_TERM_DIMS = [64, 30, 290, 290, 290, 30]
 
 
 # numpy quat/rotation primitives live in the shared rotation lib (wxyz, torch-free deploy mirror)
-from .rotation_np import (  # noqa: E402
-    heading_quat,
-    matrix_from_quat,
-    quat_apply,
-    quat_conjugate,
-    quat_inv,
-    quat_mul,
-    quat_rotate,
-    subtract_frame_transforms,
-)
+from sonic.model.rotation_np import heading_quat, matrix_from_quat, quat_apply, quat_conjugate, quat_inv, quat_mul, quat_rotate, subtract_frame_transforms
 
 
 def quat_to_rot6d(q):

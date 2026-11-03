@@ -56,7 +56,7 @@ def replay(session,output,workspace):
     if not (raw/'sensors.npz').is_file():raise ValueError(f'Missing {raw}/sensors.npz')
     receiver=PelvisOdometryReceiver(0,background=True)
     port=receiver.socket.getsockname()[1]
-    command=['/usr/bin/python3',str(PACKAGE_ROOT / 'sensing/replay_dlio.py'),
+    command=['/usr/bin/python3',str(PACKAGE_ROOT / 'tools/sensors/replay_dlio.py'),
         str(raw/'bag'),'--config',str(CONFIG_ROOT / 'lidar/dlio.yaml'),
         '--output',str(output/'dlio'),'--imu-unit','g','--scan-packets','3','--timeout-s','360',
         '--hardware-capture',str(raw),'--mount-calibration',

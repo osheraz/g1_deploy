@@ -1,38 +1,17 @@
 # Steerable Recovery
 
-Run from the hv2 checkout with its pinned `g1_deploy` submodule. The supported
-published models are `ours`, `joint`, `depth_blind`, and `blind_blind`; the default is `ours`.
-[Retained Osher consumers](docs/retained-consumers.md) keep their exact S25/S50/R8
-pairs, same-start presets, and measured-lab progress/Y recipes.
-The [release guide](../../docs/guides/deployment.md) explains how to prepare a
-bundle and set `HV2_RECOVERY_BUNDLE` before running the commands below.
-Joint uses 8 DDIM steps.
+| Command | Guide |
+| --- | --- |
+| `python g1_deploy/steerable-recovery/deploy.py` | [Robot deployment](../docs/recovery/deploy.md) |
+| `python g1_deploy/steerable-recovery/sim.py` | [MuJoCo](../docs/recovery/sim.md) |
+| `python g1_deploy/steerable-recovery/replay.py RUN_NAME` | [Recording/replay](../docs/recovery/recording.md) |
 
-| Task | Guide | Entry point |
-| --- | --- | --- |
-| Robot setup and model checks | [Deploy](docs/deploy.md) | `deploy.py` |
-| MuJoCo and recorded starts | [Simulation](docs/sim.md) | `sim.py` |
-| Goal inputs and feedback | [Steering](docs/steering.md) | `--goal-json` |
-| Encoded standing reference | [Standing mode](docs/standing-hold.md) | `--standing-hold` |
-| Sensor/model replay and video | [Recording](docs/recording.md) | `replay.py` |
-| Runtime ownership | [Architecture](docs/architecture.md) | — |
-| Timing measurements | [Performance](docs/performance.md) | — |
-| Sensor troubleshooting | [Status](docs/status.md) | — |
+[Models and starts](../docs/recovery/models.md) ·
+[Lab steering](../docs/recovery/lab-steering.md) ·
+[Y standing](../docs/recovery/standing-hold.md) ·
+[Code ownership](../docs/architecture.md).
 
-Install the package from the hv2 root:
-
-```bash
-python -m pip install --no-deps --no-build-isolation -e ./g1_deploy
-python g1_deploy/steerable-recovery/deploy.py \
-  --bundle "$HV2_RECOVERY_BUNDLE" --model ours --check
-```
-
-Configuration lives in `config/models.yaml`. Sensor transport, recording, replay,
-and diagnostics live in `steerable_recovery/`; learned inference lives in
-`motion_diffusion/inference/` and `motion_diffusion/planner/`. The checkpoint determines inference, gains and
-joint ordering. Compiled engines require their own export validation.
-
-[Environment/network setup](../tutorials/GETTING_STARTED.md) covers a new machine.
-The current model bundle is not hardware-qualified. The direct runtime requires `--actuate` for motor output. Retained `deploy.py
---preset` and `--gallery` commands select actuated deployment; inspect them first
-with `--print-command`, or use gallery `--sensor-only` for a sensor session.
+Run from the HV2 checkout. Prepare a paired model bundle with the
+[release guide](../../docs/guides/deployment.md).
+Direct deployment requires `--actuate` for motor output; named robot presets
+already enable it. Use `--print-command` to inspect a preset without launching.

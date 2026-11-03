@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from .protocol import MOTOR_NAMES, PRESENT_23
+from sonic.calibration.protocol import MOTOR_NAMES, PRESENT_23
 
 
 SCHEMA = "e_skin.joint_calibration.v1"

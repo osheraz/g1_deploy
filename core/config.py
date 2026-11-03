@@ -5,12 +5,11 @@ import yaml
 from omegaconf import OmegaConf
 
 
-REMOTE_ROOT = Path(__file__).resolve().parents[1]  # repo root; this file lives in core/
+REMOTE_ROOT = Path(__file__).resolve().parents[1]
 CONFIGS_DIR = REMOTE_ROOT / "configs"
 
-# Home-relative so it resolves for any user; override with `urdf_path:` in the config yaml.
-DEFAULT_URDF_PATH = (
-    "~/HumanoidVerse2/humanoidverse/data/robots/g1/g1_23dof_rev_1_0.urdf"
+DEFAULT_URDF_PATH = str(
+    REMOTE_ROOT.parent / "humanoidverse2/data/robots/g1/g1_23dof_rev_1_0.urdf"
 )
 
 if not OmegaConf.has_resolver("eval"):
@@ -314,14 +313,6 @@ class Config:
             None if flex_scale is None
             else np.asarray(flex_scale, dtype=np.float64)
         )
-        # Legacy landing-hold attempt (2026-08-19). Default off. Not the
-        # current slow-walk method; keep only for reproduction.
-        self.sonic_landing_hold = bool(config.get("sonic_landing_hold", False))
-        self.sonic_landing_hold_mode = str(
-            config.get("sonic_landing_hold_mode", "pose")
-        ).strip().lower()
-        if self.sonic_landing_hold_mode not in ("pose", "dvel"):
-            raise ValueError("sonic_landing_hold_mode must be pose or dvel")
         # Compatibility only; embodiment selection is now explicit above.
         self.phantom_23dof = self.sonic_robot_profile == "g1_23dof"
         self.phantom_hold_ref_dof = self.sonic_mask_missing_reference

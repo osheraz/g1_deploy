@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 def startup_fraction(tick, mode, seconds, dt=.02):
     """Scale target error about the measured pose; retain the original damping."""
     if mode == 'vigor':
-        # deploy_vigor.py increments act_count before testing act_count < 50.
+        # vigor/deploy.py increments act_count before testing act_count < 50.
         return .5 if tick + 1 < 50 else 1.
     if mode == 'smooth':
         u = min(1., (tick + 1) * dt / seconds)

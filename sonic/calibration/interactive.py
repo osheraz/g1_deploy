@@ -12,12 +12,7 @@ from enum import Enum
 
 import numpy as np
 
-from .protocol import (
-    FULL_AMPLITUDE,
-    MOTOR_NAMES,
-    PRESENT_23,
-    SCREENING_AMPLITUDE,
-)
+from sonic.calibration.protocol import FULL_AMPLITUDE, MOTOR_NAMES, PRESENT_23, SCREENING_AMPLITUDE
 
 
 class InteractiveCommand(str, Enum):

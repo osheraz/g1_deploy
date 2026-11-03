@@ -831,7 +831,7 @@ def commands(args, output):
                     "camera",
                     [
                         "/usr/bin/python3",
-                        str(PACKAGE_ROOT / "sensing/record_camera.py"),
+                        str(PACKAGE_ROOT / "tools/sensors/record_camera.py"),
                         "--device",
                         args.camera_device,
                         "--size",

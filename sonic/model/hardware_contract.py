@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .inference_backend import DIRECT_TENSORRT_PROVIDER
+from sonic.model.inference_backend import DIRECT_TENSORRT_PROVIDER
 
 
 _TRT_NAMES = {"trt", "tensorrt", "tensor_rt"}

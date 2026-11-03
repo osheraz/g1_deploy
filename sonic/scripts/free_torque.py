@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-from core.common.command_helper import create_damping_cmd, create_zero_cmd
+from core.robot.commands import create_damping_cmd, create_zero_cmd
 from core.config import Config
 from core.robot.robot_interface import RobotInterface
 
@@ -34,12 +34,12 @@ def main() -> None:
     args = ap.parse_args()
 
     config = Config(args.config)
-    ChannelFactoryInitialize(0)      # same as deploy_eskin
+    ChannelFactoryInitialize(0)      # same as sonic.deploy
     robot = RobotInterface(config)
 
     viser_display = None
     if args.viser:
-        from core.common.viser_display import DeployViser
+        from core.review.display import DeployViser
 
         viser_display = DeployViser(Path(config.urdf_path), with_depth=False,
                                     depth_min=0, depth_max=1, depth_scale=1)

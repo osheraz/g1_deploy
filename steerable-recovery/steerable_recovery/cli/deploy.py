@@ -345,7 +345,7 @@ def main(argv=None):
         if not args.odometry_mount.is_file():
             parser.error("Missing odometry mount calibration")
         if args.odometry_clock is not None:
-            from steerable_recovery.hardware.pelvis_odometry import load_clock_calibration
+            from steerable_recovery.sensing.pelvis_odometry import load_clock_calibration
 
             load_clock_calibration(args.odometry_clock)
     if args.goal_json:

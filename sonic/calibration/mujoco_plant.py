@@ -14,8 +14,8 @@ import mujoco
 import numpy as np
 import yaml
 
-from .joint_mapping import JointCalibrationProfile
-from .protocol import MOTOR_NAMES, PRESENT_23
+from sonic.calibration.joint_mapping import JointCalibrationProfile
+from sonic.calibration.protocol import MOTOR_NAMES, PRESENT_23
 from sonic.model.robot_profile import MUJOCO_JOINT_NAMES
 
 

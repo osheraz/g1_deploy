@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from . import robot_g1
+from sonic.model import robot_g1
 
 
 WRIST_IL = np.array([23, 24, 25, 26, 27, 28], dtype=np.int64)

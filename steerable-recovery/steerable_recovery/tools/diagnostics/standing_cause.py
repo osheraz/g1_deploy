@@ -19,7 +19,7 @@ import torch
 from humanoidverse2.agents.action_vae.modules import ReconstructionHead
 from motion_diffusion.inference.bundle import sha256
 from motion_diffusion.inference.policy import load_controller
-from steerable_recovery.hardware.depth_recording import RecordedModelDepth
+from steerable_recovery.recording.depth import RecordedModelDepth
 from motion_diffusion.inference.model_trace import read_trace, load_trace_manifest
 from motion_diffusion.inference.standing import StandingReference
 

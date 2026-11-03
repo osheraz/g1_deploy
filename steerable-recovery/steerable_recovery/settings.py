@@ -2,7 +2,7 @@
 import argparse
 import os
 from pathlib import Path
-from .paths import recovery_asset
+from steerable_recovery.paths import recovery_asset
 
 PUBLISHED_MODELS = ('ours', 'joint', 'depth_blind', 'blind_blind')
 RETAINED_MODELS = ('s25r_diffusion', 's50r_diffusion', 'r8_s50r_diffusion', 'r8_s25_diffusion', 'r2_f50r_flow')

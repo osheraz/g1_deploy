@@ -852,7 +852,7 @@ class PicoReferenceWindow:
             self.replan_count += 1
         except Exception as exc:
             # Official C++ disables the planner after an inference/update
-            # failure. Surface it to the 50 Hz loop so deploy_eskin's finally
+            # failure. Surface it to the 50 Hz loop so sonic.deploy's finally
             # path sends damping instead of silently walking a stale plan.
             self._fatal_error = RuntimeError(f"SONIC planner update failed: {exc}")
             print(f"[PICO] fatal planner error: {exc}")

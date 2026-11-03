@@ -221,7 +221,7 @@ def export_depth_video(session, recording, review):
     """review/depth_aligned.mp4: one frame per external camera frame, showing the
     latest depth capture at that exposure, so it plays in step with external.mp4."""
     import numpy as np
-    from steerable_recovery.hardware.depth_recording import RecordedDepth
+    from steerable_recovery.recording.depth import RecordedDepth
 
     camera = recording / "camera"
     depth_dir = recording / "depth"
@@ -358,7 +358,7 @@ def export_frames(session, recording, review):
         import cv2, torch
 
         torch.set_num_threads(1)
-        from steerable_recovery.hardware.depth_recording import RecordedDepth
+        from steerable_recovery.recording.depth import RecordedDepth
 
         depth_out = root / "depth"
         depth_out.mkdir(exist_ok=True)
@@ -455,7 +455,7 @@ def prepare_xyz(session, raw, telemetry, calibration, *, capture_only=False):
                 "replay-env",
                 str(setup),
                 "/usr/bin/python3",
-                str(PACKAGE_ROOT / "sensing/replay_dlio.py"),
+                str(PACKAGE_ROOT / "tools/sensors/replay_dlio.py"),
                 str(raw / "bag"),
                 "--config",
                 str(CONFIG_ROOT / "lidar/dlio.yaml"),
@@ -484,7 +484,7 @@ def prepare_xyz(session, raw, telemetry, calibration, *, capture_only=False):
         preserve_attempt(pose)
         command = [
             sys.executable,
-            str(PACKAGE_ROOT / "sensing/evaluate_measured_motion.py"),
+            str(PACKAGE_ROOT / "tools/sensors/evaluate_measured_motion.py"),
             str(odom / "odometry.npz"),
             "--capture",
             str(raw),

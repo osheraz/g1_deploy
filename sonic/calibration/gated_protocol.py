@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .protocol import MOTOR_NAMES, PRESENT_23, SCREENING_AMPLITUDE
+from sonic.calibration.protocol import MOTOR_NAMES, PRESENT_23, SCREENING_AMPLITUDE
 
 
 SCHEMA = "e_skin.review_gated_calibration.v1"

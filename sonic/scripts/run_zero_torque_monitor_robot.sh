@@ -2,7 +2,7 @@
 # True-passive G1 joint monitor: tau=kp=kd=0. Physical robot only.
 set -euo pipefail
 
-ROOT="/home/clhsieh/e_skin"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 INTERFACE="enp132s0"
 TARGET="zero"
 RATE_HZ="2"

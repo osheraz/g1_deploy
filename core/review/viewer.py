@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Replay a recorded episode in viser: robot pose, camera, tactile.
 
-Counterpart to replay_rollout.py, which reads deploy_vigor's flat .npz. This one
-reads the episode directories deploy_eskin.py writes:
+Counterpart to vigor/replay.py, which reads VIGOR's flat .npz logs. This one
+reads the episode directories sonic/deploy.py writes:
 
     episodes/episode_001/
         state.npz     one row per control step
@@ -33,7 +33,7 @@ sys.path.insert(0,str(DEPLOY_ROOT.parent))
 
 from core.recording.episode import load_episode, load_native_recovery, load_raw_motion, attach_measured_translation, NoControlObservations
 from core.recording.annotations import RecoveryInterval, validate_interval, session_directory
-from core.common.viser_display import DeployViser  # noqa: E402
+from core.review.display import DeployViser  # noqa: E402
 from core.config import DEFAULT_URDF_PATH  # noqa: E402
 
 
@@ -94,7 +94,7 @@ def load_session(spec):
     recorded_depth=depth_indices=depth_error=None;depth_summary={}
     if spec.get('depth_recording'):
         import torch
-        from steerable_recovery.hardware.depth_recording import RecordedDepth
+        from steerable_recovery.recording.depth import RecordedDepth
         torch.set_num_threads(1)
         directory=Path(spec['depth_recording'])
         try:
@@ -116,7 +116,7 @@ def load_session(spec):
     err = state[err_key].astype(np.float32) if err_key in state else None
     joint_names = list(meta.get("physical_joint_names", []))
     if not joint_names and qj is not None:
-        from core.common.viser_display import JOINT_NAMES_BY_MOTOR_INDEX
+        from core.review.display import JOINT_NAMES_BY_MOTOR_INDEX
         if qj.shape[1]!=len(JOINT_NAMES_BY_MOTOR_INDEX):
             raise ValueError('Episode needs physical_joint_names for this joint count')
         joint_names=list(JOINT_NAMES_BY_MOTOR_INDEX)
@@ -270,7 +270,7 @@ def main():
         return
 
     if cur['sensors']:
-        from sonic.common.tactile_render import render_sensor_panels
+        from sonic.sensing.tactile_render import render_sensor_panels
     depth_min, depth_max = cur['depth_limits']
     dv = DeployViser(
         urdf_path=Path(args.urdf).expanduser(),

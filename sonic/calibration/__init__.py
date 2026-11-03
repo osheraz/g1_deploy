@@ -6,8 +6,8 @@ profile; it never changes a released encoder, decoder, planner, action history,
 or reference trajectory.
 """
 
-from .joint_mapping import JointCalibrationProfile
-from .protocol import CalibrationPlan, build_plan, load_plan, save_plan
+from sonic.calibration.joint_mapping import JointCalibrationProfile
+from sonic.calibration.protocol import CalibrationPlan, build_plan, load_plan, save_plan
 
 __all__ = [
     "CalibrationPlan",

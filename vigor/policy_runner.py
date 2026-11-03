@@ -8,8 +8,8 @@ import math
 import torch
 import onnxruntime as ort
 
-from core.common.depth_client import depth_to_obs_vector_match_sim
-from core.common.history import HistoryHandler
+from core.sensing.depth_client import depth_to_obs_vector_match_sim
+from core.history import HistoryHandler
 from core.config import Config
 
 

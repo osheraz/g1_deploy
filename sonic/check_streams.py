@@ -16,10 +16,10 @@ from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscri
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowState_ as LowStateGo
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_ as LowStateHG
 
-from core.common.depth_client import SimpleDepthClient
-from core.common.remote_controller import KeyMap, RemoteController
-from sonic.common.tactile_client import TactileClient
-from core.common.viser_display import DeployViser
+from core.sensing.depth_client import SimpleDepthClient
+from core.robot.remote import KeyMap, RemoteController
+from sonic.sensing.tactile_client import TactileClient
+from core.review.display import DeployViser
 from core.config import CONFIGS_DIR, DEFAULT_URDF_PATH, _load_config, _resolve_path
 from sonic.model.robot_profile import MUJOCO_JOINT_NAMES
 
@@ -258,7 +258,7 @@ class TactileMonitor:
         return ("ON" if overall_on else "OFF"), parts
 
     def render_panels(self) -> dict[str, object]:
-        from sonic.common.tactile_render import render_sensor_panels
+        from sonic.sensing.tactile_render import render_sensor_panels
 
         snapshot = self.client.snapshot()
         panels = {}
@@ -372,7 +372,7 @@ def main():
     low_state_monitor = LowStateMonitor(config)
     lidar_client=None;lidar_view=None
     if args.lidar_endpoint:
-        from core.common.lidar_stream import LidarClient
+        from core.sensing.lidar_stream import LidarClient
         lidar_client=LidarClient(args.lidar_endpoint);lidar_client.start()
 
     viser_display = None
@@ -387,7 +387,7 @@ def main():
             joint_names=[MUJOCO_JOINT_NAMES[i] for i in config.action_joint2motor_idx],
         )
         if lidar_client is not None:
-            from core.common.lidar_view import LidarView
+            from core.review.lidar import LidarView
             lidar_view=LidarView(viser_display,urdf_path)
 
     print(f"Loaded config: {args.config}")

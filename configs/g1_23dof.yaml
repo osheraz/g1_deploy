@@ -5,8 +5,8 @@
 # TODO: all of this from the trained actor cfg
 
 use_depth_obs: true
-# Legacy VIGOR recovery only, run with deploy_vigor.py. Tactile + teleop data collection
-# is deploy_eskin.py with configs/g1_23dof_sonic.yaml.
+# Legacy VIGOR recovery only, run with vigor/deploy.py. Tactile + teleop data collection
+# is sonic/deploy.py with configs/g1_23dof_sonic.yaml.
 use_tactile: false
 
 # from ego_camera.clipping_range in sim

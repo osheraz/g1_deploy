@@ -69,7 +69,7 @@ def replay(session, *, component='all', max_calls=0, atol=1.e-4, rtol=1.e-4, all
     totals = {name: sum(1 for _ in read_trace(directory/name)) for name in ('control', 'planner')}
     depth_archive=None
     if manifest.get('depth_storage')=='metric_capture_refs_v1':
-        from steerable_recovery.hardware.depth_recording import RecordedModelDepth
+        from steerable_recovery.recording.depth import RecordedModelDepth
         depth_archive=RecordedModelDepth(root/'sensors/depth')
     def restore_depth(view,view_config):
         if view is not None and view.get('storage')=='metric_capture_refs_v1':

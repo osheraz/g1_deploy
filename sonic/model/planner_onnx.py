@@ -19,8 +19,8 @@ import time
 
 import numpy as np
 
-from . import robot_g1
-from .inference_backend import create_session
+from sonic.model import robot_g1
+from sonic.model.inference_backend import create_session
 
 
 PLANNER_FPS = 30.0

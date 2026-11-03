@@ -7,7 +7,7 @@ matching the two deploy modes:
     MotionReferenceWindow             replay an exported clip (standalone)
     policy/pico_reference.py          live 3-point VR teleop
 
-Both return the dict ``sonic.policy.obs.build_encoder_obs`` expects, batched
+Both return the dict ``sonic.model.obs.build_encoder_obs`` expects, batched
 with a leading dimension of 1. Term shapes and the future stride are taken from
 ``sonic/motion/bank.py`` in the research repo and must stay identical.
 """
@@ -37,7 +37,7 @@ class MotionReferenceWindow:
         body_pos_il         (T,14,3)
         body_quat_wxyz_il   (T,14,4)
 
-    Export one with ``scripts/export_sonic_motion.py`` -- that step needs the
+    Export one with ``scripts/motion/export_sonic_motion.py`` -- that step needs the
     research repo's training stack, which is why it is offline and this class
     is not.
     """
@@ -52,7 +52,7 @@ class MotionReferenceWindow:
         if not path.exists():
             raise SystemExit(
                 f"sonic motion clip not found: {path}\n"
-                "Export one first:  python scripts/export_sonic_motion.py "
+                "Export one first:  python scripts/motion/export_sonic_motion.py "
                 "--pack <pack.pt> --out <clip.npz>"
             )
         d = np.load(path)
@@ -223,7 +223,7 @@ def build_reference(config, mode: str, *, gated: bool = True, idle_hold: bool = 
             robot_profile=config.sonic_robot_profile,
         )
     if mode in ("pico", "planner", "smpl"):
-        from sonic.common.pico_client import PicoClient
+        from sonic.inputs.pico_client import PicoClient
         from sonic.pico_reference import PicoReferenceWindow
 
         client = PicoClient(

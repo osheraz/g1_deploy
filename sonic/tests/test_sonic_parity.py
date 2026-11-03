@@ -31,11 +31,11 @@ from sonic.model.inference_backend import (  # noqa: E402
     _apply_builder_math_flags,
     _engine_cache_signature,
 )
-from sonic.common.unitree_crc import _lfs_object  # noqa: E402
-from sonic.common.unitree_dds import configure_process_local_cyclonedds_log  # noqa: E402
+from core.robot.unitree_crc import _lfs_object  # noqa: E402
+from core.robot.unitree_dds import configure_process_local_cyclonedds_log  # noqa: E402
 from core.robot.mode import release_active_motion_mode
 from sonic.pico_reference import LOWER_BODY_IL_IDX, PicoReferenceWindow  # noqa: E402
-from sonic.scripts.sim2sim_sonic import (  # noqa: E402
+from sonic.sim import (  # noqa: E402
     _KEYPAD_TELEOP_KEYS,
     _MUJOCO_DOCUMENTED_VIEWER_KEYS,
 )
@@ -51,7 +51,7 @@ class MujocoKeyboardBindingTest(unittest.TestCase):
 class RecorderButtonOwnershipTest(unittest.TestCase):
     def test_automatic_only_recorder_does_not_consume_gamepad_x(self):
         from core.recording.episode import Recorder
-        from core.common.remote_controller import KeyMap
+        from core.robot.remote import KeyMap
 
         with tempfile.TemporaryDirectory() as tmp:
             recorder = Recorder(tmp, {"test": True}, button=None)
@@ -139,7 +139,7 @@ class UnitreeMotionModeHandoffTest(unittest.TestCase):
 class DefaultPoseHoldTelemetryTest(unittest.TestCase):
     @staticmethod
     def _robot(age_s):
-        from core.common.remote_controller import KeyMap
+        from core.robot.remote import KeyMap
         from core.robot.robot_interface import RobotInterface
 
         robot = object.__new__(RobotInterface)
@@ -165,14 +165,14 @@ class DefaultPoseHoldTelemetryTest(unittest.TestCase):
         return robot
 
     def test_brief_gap_keeps_unchanged_default_hold_alive(self):
-        from core.common.remote_controller import KeyMap
+        from core.robot.remote import KeyMap
 
         robot = self._robot(0.112)
         robot.default_pos_state(KeyMap.start, "Start")
         self.assertEqual(robot.remote_controller.button[KeyMap.start], 1)
 
     def test_sustained_gap_still_fails_closed(self):
-        from core.common.remote_controller import KeyMap
+        from core.robot.remote import KeyMap
 
         robot = self._robot(0.501)
         with self.assertRaisesRegex(RuntimeError, "continuously unavailable"):
@@ -767,8 +767,8 @@ class PicoSemanticsTest(unittest.TestCase):
 
     def test_unitree_joystick_standin_matches_planner_g1_semantics(self):
         try:
-            from sonic.common.joystick_teleop import JoystickTeleop
-            from sonic.common.pico_client import LocomotionMode
+            from sonic.inputs.joystick_teleop import JoystickTeleop
+            from sonic.inputs.pico_client import LocomotionMode
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
         joystick = JoystickTeleop(locomotion_mode=LocomotionMode.RUN)
@@ -786,8 +786,8 @@ class PicoSemanticsTest(unittest.TestCase):
 
     def test_unitree_joystick_yaw_rate_follows_gait_scale(self):
         try:
-            from sonic.common.joystick_teleop import JoystickTeleop, YAW_GAIN
-            from sonic.common.pico_client import LocomotionMode
+            from sonic.inputs.joystick_teleop import JoystickTeleop, YAW_GAIN
+            from sonic.inputs.pico_client import LocomotionMode
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
         joystick = JoystickTeleop(
@@ -803,7 +803,7 @@ class PicoSemanticsTest(unittest.TestCase):
 
     def test_native_gamepad_yaw_rate_follows_gait_scale(self):
         try:
-            from sonic.common.joystick_teleop import GamepadManagerTeleop
+            from sonic.inputs.joystick_teleop import GamepadManagerTeleop
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
         joystick = GamepadManagerTeleop()
@@ -820,7 +820,7 @@ class PicoSemanticsTest(unittest.TestCase):
 
     def test_native_gamepad_inplace_yaw_can_exceed_walk_turn_scale(self):
         try:
-            from sonic.common.joystick_teleop import GamepadManagerTeleop
+            from sonic.inputs.joystick_teleop import GamepadManagerTeleop
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
         joystick = GamepadManagerTeleop()
@@ -847,9 +847,9 @@ class PicoSemanticsTest(unittest.TestCase):
 
     def test_unitree_joystick_dpad_selects_modes_on_rising_edges(self):
         try:
-            from sonic.common.joystick_teleop import JoystickTeleop
-            from sonic.common.pico_client import LocomotionMode
-            from core.common.remote_controller import KeyMap
+            from sonic.inputs.joystick_teleop import JoystickTeleop
+            from sonic.inputs.pico_client import LocomotionMode
+            from core.robot.remote import KeyMap
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
         remote = SimpleNamespace(lx=0.0, ly=0.0, rx=0.0, button=[0] * 16)
@@ -870,9 +870,9 @@ class PicoSemanticsTest(unittest.TestCase):
 
     def test_native_gamepad_manager_standing_fsm_and_system_buttons(self):
         try:
-            from sonic.common.joystick_teleop import GamepadManagerTeleop
-            from sonic.common.pico_client import LocomotionMode
-            from core.common.remote_controller import KeyMap
+            from sonic.inputs.joystick_teleop import GamepadManagerTeleop
+            from sonic.inputs.pico_client import LocomotionMode
+            from core.robot.remote import KeyMap
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
 
@@ -941,9 +941,9 @@ class PicoSemanticsTest(unittest.TestCase):
 
     def test_native_gamepad_manager_motion_set_selection_and_cycle(self):
         try:
-            from sonic.common.joystick_teleop import GamepadManagerTeleop
-            from sonic.common.pico_client import LocomotionMode
-            from core.common.remote_controller import KeyMap
+            from sonic.inputs.joystick_teleop import GamepadManagerTeleop
+            from sonic.inputs.pico_client import LocomotionMode
+            from core.robot.remote import KeyMap
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
 
@@ -1008,7 +1008,7 @@ class ReleasedModelSelectionTest(unittest.TestCase):
 
     def test_official_planner_wire_message_and_orientation_fallback(self):
         try:
-            from sonic.common.pico_client import (
+            from sonic.inputs.pico_client import (
                 DEFAULT_VR_ORIENTATION,
                 HEADER_SIZE,
                 PicoClient,
@@ -1113,7 +1113,7 @@ class PreparedClipTest(unittest.TestCase):
 
     def test_feedback_expands_23_joints_into_official_mujoco_slots(self):
         try:
-            from sonic.common.robot_feedback import RobotFeedbackPublisher
+            from sonic.sensing.robot_feedback import RobotFeedbackPublisher
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
         q23 = np.arange(23, dtype=np.float64)
@@ -1131,7 +1131,7 @@ class PreparedClipTest(unittest.TestCase):
 
 class EpisodeAnalysisTest(unittest.TestCase):
     def test_diagnostic_report_accepts_recorded_schema(self):
-        from sonic.scripts.analyze_sonic_episode import report
+        from sonic.scripts.analysis.analyze_sonic_episode import report
 
         with tempfile.TemporaryDirectory() as tmp:
             ep = Path(tmp)

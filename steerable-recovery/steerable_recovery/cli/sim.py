@@ -1006,7 +1006,7 @@ def run_episode(policy, plant, capture, args, output, seed, viewer=None, control
                 arrays["final_qpos"] = plant.data.qpos.copy()
                 np.savez_compressed(output / "trajectory.npz", **arrays)
                 # Sensor-only archive; consumes no goals and changes no planner behavior.
-                from steerable_recovery.hardware.measured_pose import simulation_packet
+                from steerable_recovery.sensing.measured_pose import simulation_packet
 
                 with (output / "measured_pose.jsonl").open("w") as stream:
                     for frame in frames:
