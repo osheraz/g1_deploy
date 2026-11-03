@@ -64,9 +64,7 @@ def load_stream_config(file_path: str | Path) -> StreamConfig:
         depth_raw_height=data.get("depth_raw_height", 480),
         depth_raw_width=data.get("depth_raw_width", 640),
         use_tactile=data.get("use_tactile", False),
-        tactile_sensor_order=data.get(
-            "tactile_sensor_order", ["LF", "RF", "WB", "LH", "RH"]
-        ),
+        tactile_sensor_order=data.get("tactile_sensor_order", ["LF", "RF", "WB", "LH", "RH"]),
         tactile_server_ip=data.get(
             "tactile_server_ip", data.get("depth_server_ip", "192.168.123.164")
         ),
@@ -75,9 +73,7 @@ def load_stream_config(file_path: str | Path) -> StreamConfig:
         min_d=data.get("min_d", 0.1),
         max_d=data.get("max_d", 2.0),
         depth_scale=data.get("depth_scale", 0.001),
-        urdf_path=_resolve_path(
-            data.get("urdf_path", DEFAULT_URDF_PATH), config_dir=path.parent
-        ),
+        urdf_path=_resolve_path(data.get("urdf_path", DEFAULT_URDF_PATH), config_dir=path.parent),
     )
 
 
@@ -166,34 +162,35 @@ class ViserUpdateThread(threading.Thread):
         self.tactile_client = tactile_client
         self.hz = hz
         self.running = True
-        self.lidar_client=lidar_client
-        self.lidar_view=lidar_view
+        self.lidar_client = lidar_client
+        self.lidar_view = lidar_view
 
     def run(self):
         dt = 1.0 / self.hz
-        last_depth=None;last_color=None
+        last_depth = None
+        last_color = None
         while self.running:
-            started=time.monotonic()
+            started = time.monotonic()
             msg = self.low_state_monitor.latest_msg
             qj = self.low_state_monitor.get_qj()
             if msg is not None and qj is not None:
-                depth=self.depth_client.latest_depth_full if self.depth_client else None
-                color=self.depth_client.latest_color if self.depth_client else None
+                depth = self.depth_client.latest_depth_full if self.depth_client else None
+                color = self.depth_client.latest_color if self.depth_client else None
                 self.viser_display.update(
                     low_state=msg,
                     qj=qj,
                     depth_raw=depth if depth is not last_depth else None,
                     rgb_bgr=color if color is not last_color else None,
                 )
-                last_depth=depth;last_color=color
+                last_depth = depth
+                last_color = color
             if self.tactile_client is not None:
                 overall, sensor_status = self.tactile_client.sensor_status_text()
                 self.viser_display.update_tactile(overall, sensor_status)
-                self.viser_display.update_tactile_images(
-                    self.tactile_client.render_panels()
-                )
-            if self.lidar_view is not None:self.lidar_view.update(self.lidar_client)
-            time.sleep(max(0.,dt-(time.monotonic()-started)))
+                self.viser_display.update_tactile_images(self.tactile_client.render_panels())
+            if self.lidar_view is not None:
+                self.lidar_view.update(self.lidar_client)
+            time.sleep(max(0.0, dt - (time.monotonic() - started)))
 
 
 class TactileMonitor:
@@ -212,9 +209,7 @@ class TactileMonitor:
         self.calibration_window = 30
         self.calibration_counts = {s: 0 for s in self.sensor_names}
         self.calibration_sums = {s: [0.0] * 256 for s in self.sensor_names}
-        self.baselines: dict[str, list[int] | None] = {
-            s: None for s in self.sensor_names
-        }
+        self.baselines: dict[str, list[int] | None] = {s: None for s in self.sensor_names}
         self.deadzone = 12
 
     @property
@@ -287,9 +282,7 @@ def summarize_depth(
     # measured over the real elapsed time, so --period does not skew it
     fps = new_frames / dt if dt > 0 else 0.0
     if depth is None:
-        return (
-            f"depth: OFF frames={client.frame_count} fps={fps:.1f}"
-        ), client.frame_count
+        return (f"depth: OFF frames={client.frame_count} fps={fps:.1f}"), client.frame_count
 
     return (
         "depth: ON "
@@ -298,9 +291,7 @@ def summarize_depth(
     ), client.frame_count
 
 
-def summarize_tactile(
-    client: Optional[TactileMonitor], last_count: int
-) -> tuple[str, int]:
+def summarize_tactile(client: Optional[TactileMonitor], last_count: int) -> tuple[str, int]:
     if client is None:
         return "tactile: disabled", last_count
 
@@ -309,8 +300,7 @@ def summarize_tactile(
     parts = [f"{sensor}:{sensor_parts[sensor]}" for sensor in client.sensor_names]
 
     return (
-        f"tactile: {overall} frames={client.frame_count} (+{new_frames}) "
-        + " ".join(parts)
+        f"tactile: {overall} frames={client.frame_count} (+{new_frames}) " + " ".join(parts)
     ), client.frame_count
 
 
@@ -321,11 +311,15 @@ def main():
     parser.add_argument("--config", type=str, default="g1_23dof.yaml")
     parser.add_argument("--period", type=float, default=1.0)
     parser.add_argument("--net", help="DDS network interface, e.g. enp132s0")
-    parser.add_argument("--viser", action="store_true", help="Show the read-only robot/depth viewer")
+    parser.add_argument(
+        "--viser", action="store_true", help="Show the read-only robot/depth viewer"
+    )
     parser.add_argument("--depth-server", help="Enable depth from this IP or hostname")
     parser.add_argument("--depth-port", type=int, help="Override the depth server port")
     parser.add_argument("--no-tactile", action="store_true")
-    parser.add_argument("--lidar-endpoint", help="LiDAR preview ZMQ endpoint, e.g. tcp://127.0.0.1:15560")
+    parser.add_argument(
+        "--lidar-endpoint", help="LiDAR preview ZMQ endpoint, e.g. tcp://127.0.0.1:15560"
+    )
     parser.add_argument(
         "--urdf",
         type=str,
@@ -370,10 +364,13 @@ def main():
 
     ChannelFactoryInitialize(0, args.net)
     low_state_monitor = LowStateMonitor(config)
-    lidar_client=None;lidar_view=None
+    lidar_client = None
+    lidar_view = None
     if args.lidar_endpoint:
         from core.sensing.lidar_stream import LidarClient
-        lidar_client=LidarClient(args.lidar_endpoint);lidar_client.start()
+
+        lidar_client = LidarClient(args.lidar_endpoint)
+        lidar_client.start()
 
     viser_display = None
     if config.viser_display:
@@ -388,7 +385,8 @@ def main():
         )
         if lidar_client is not None:
             from core.review.lidar import LidarView
-            lidar_view=LidarView(viser_display,urdf_path)
+
+            lidar_view = LidarView(viser_display, urdf_path)
 
     print(f"Loaded config: {args.config}")
     print(f"Low-state topic: {config.lowstate_topic} ({config.msg_type})")
@@ -414,7 +412,8 @@ def main():
             depth_client=depth_client,
             tactile_client=tactile_client,
             hz=60.0 if lidar_client is not None else 30.0,
-            lidar_client=lidar_client,lidar_view=lidar_view,
+            lidar_client=lidar_client,
+            lidar_view=lidar_view,
         )
         viser_thread.start()
 
@@ -428,11 +427,10 @@ def main():
             last_time = now
 
             print(low_state_monitor.summary())
-            if lidar_client is not None:print(lidar_client.summary())
+            if lidar_client is not None:
+                print(lidar_client.summary())
 
-            depth_summary, last_depth_count = summarize_depth(
-                depth_client, last_depth_count, dt
-            )
+            depth_summary, last_depth_count = summarize_depth(depth_client, last_depth_count, dt)
             print(depth_summary)
 
             tactile_summary, last_tactile_count = summarize_tactile(
@@ -451,7 +449,8 @@ def main():
             depth_client.join(timeout=2.0)
         if tactile_client is not None:
             tactile_client.stop()
-        if lidar_client is not None:lidar_client.close()
+        if lidar_client is not None:
+            lidar_client.close()
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ inertia, actuator force limits, official SONIC Kp/Kd, and joint dynamics remain
 active.  Optional deterministic actuator faults let the inverse-calibration
 path be tested before a physical robot is involved.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -50,8 +51,6 @@ def _load_faults(path: Path | None) -> dict[int, dict[str, float]]:
     return out
 
 
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--plan", type=Path)
@@ -61,24 +60,25 @@ def main() -> None:
     parser.add_argument("--calibration-profile", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
-        "--mjcf", type=Path,
+        "--mjcf",
+        type=Path,
         default=REPO / "sonic_cpp/g1/scene_23dof.xml",
     )
     parser.add_argument(
-        "--config", type=Path,
+        "--config",
+        type=Path,
         default=ROOT / "configs/g1_23dof_sonic.yaml",
     )
     args = parser.parse_args()
 
     args.output = args.output.expanduser().absolute()
     args.output.mkdir(parents=True, exist_ok=True)
-    plan = load_plan(args.plan) if args.plan else build_plan(
-        protocol=args.protocol, scope=args.scope
+    plan = (
+        load_plan(args.plan) if args.plan else build_plan(protocol=args.protocol, scope=args.scope)
     )
     save_plan(plan, args.output / "plan.csv")
     profile = (
-        JointCalibrationProfile.load(args.calibration_profile)
-        if args.calibration_profile else None
+        JointCalibrationProfile.load(args.calibration_profile) if args.calibration_profile else None
     )
     faults = _load_faults(args.fault_profile)
 
@@ -90,10 +90,9 @@ def main() -> None:
     model = mujoco.MjModel.from_xml_path(str(args.mjcf.expanduser()))
     data = mujoco.MjData(model)
     joint_names = [MUJOCO_JOINT_NAMES[i] for i in PRESENT_23]
-    joint_ids = np.array([
-        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
-        for name in joint_names
-    ])
+    joint_ids = np.array(
+        [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name) for name in joint_names]
+    )
     if np.any(joint_ids < 0):
         raise RuntimeError("23-DoF MJCF is missing a physical joint")
     qadr = model.jnt_qposadr[joint_ids]
@@ -101,8 +100,9 @@ def main() -> None:
     actuator_by_joint = {int(model.actuator_trnid[a, 0]): a for a in range(model.nu)}
     actuators = np.array([actuator_by_joint[int(j)] for j in joint_ids])
     for motor, joint_id, actuator in zip(PRESENT_23, joint_ids, actuators):
-        effort = float(model.jnt_actfrcrange[joint_id, 1]) \
-            if model.jnt_actfrclimited[joint_id] else 0.0
+        effort = (
+            float(model.jnt_actfrcrange[joint_id, 1]) if model.jnt_actfrclimited[joint_id] else 0.0
+        )
         set_pd(model, int(actuator), kp_29[motor], kd_29[motor], effort)
 
     fixed = np.setdiff1d(np.arange(29), PRESENT_23)
@@ -124,13 +124,19 @@ def main() -> None:
     data.qvel[:] = 0.0
     mujoco.mj_forward(model, data)
 
-    decimation = max(1, round(.02 / model.opt.timestep))
+    decimation = max(1, round(0.02 / model.opt.timestep))
     filtered_effective = neutral_model.copy()
     previous_desired = neutral_model.copy()
     rows: list[list[object]] = []
     header = ["schema", "sample", "time_s", "phase", "active_motor", "direction"]
-    for prefix in ("target_model", "command_hardware", "effective_model_target",
-                   "q_measured", "dq_measured", "tau_est"):
+    for prefix in (
+        "target_model",
+        "command_hardware",
+        "effective_model_target",
+        "q_measured",
+        "dq_measured",
+        "tau_est",
+    ):
         header.extend(f"{prefix}_{i}" for i in range(29))
 
     for sample in range(len(plan.time_s)):
@@ -141,14 +147,14 @@ def main() -> None:
         for motor, fault in faults.items():
             delta = command[motor] - neutral_model[motor]
             effective[motor] = (
-                neutral_model[motor] + fault["gain"] * delta + fault["bias_rad"]
+                neutral_model[motor]
+                + fault["gain"] * delta
+                + fault["bias_rad"]
                 + np.sign(direction[motor]) * fault["direction_bias_rad"]
             )
             tau = fault["lag_s"]
-            alpha = 1.0 if tau <= 0 else .02 / (tau + .02)
-            filtered_effective[motor] += alpha * (
-                effective[motor] - filtered_effective[motor]
-            )
+            alpha = 1.0 if tau <= 0 else 0.02 / (tau + 0.02)
+            filtered_effective[motor] += alpha * (effective[motor] - filtered_effective[motor])
             effective[motor] = filtered_effective[motor]
         for motor, actuator in zip(PRESENT_23, actuators):
             data.ctrl[actuator] = effective[motor]
@@ -165,12 +171,22 @@ def main() -> None:
         q29[PRESENT_23] = data.qpos[qadr]
         dq29[PRESENT_23] = data.qvel[vadr]
         tau29[PRESENT_23] = data.actuator_force[actuators]
-        rows.append([
-            "e_skin.suspended_calibration_log.v1", sample,
-            f"{plan.time_s[sample]:.9f}", plan.phase[sample],
-            int(plan.active_motor[sample]), int(plan.direction[sample]),
-            *desired, *command, *effective, *q29, *dq29, *tau29,
-        ])
+        rows.append(
+            [
+                "e_skin.suspended_calibration_log.v1",
+                sample,
+                f"{plan.time_s[sample]:.9f}",
+                plan.phase[sample],
+                int(plan.active_motor[sample]),
+                int(plan.direction[sample]),
+                *desired,
+                *command,
+                *effective,
+                *q29,
+                *dq29,
+                *tau29,
+            ]
+        )
         previous_desired = desired
 
     with (args.output / "state.csv").open("w", newline="") as handle:
@@ -182,11 +198,13 @@ def main() -> None:
     # gravity errors in unrelated joints from diluting the identification.
     state = np.asarray([[float(value) for value in row[6:]] for row in rows])
     target = state[:, :29]
-    measured = state[:, 29 * 3:29 * 4]
+    measured = state[:, 29 * 3 : 29 * 4]
     active = plan.active_motor
     valid = active >= 0
-    error = measured[np.arange(len(active))[valid], active[valid]] \
+    error = (
+        measured[np.arange(len(active))[valid], active[valid]]
         - target[np.arange(len(active))[valid], active[valid]]
+    )
     phases = plan.phase[valid]
     summary = {
         "schema": "e_skin.suspended_calibration_mujoco_summary.v1",
@@ -197,11 +215,19 @@ def main() -> None:
         "scope": plan.scope,
         "samples": len(plan.time_s),
         "duration_s": plan.duration_s,
-        "fault_profile": str(args.fault_profile.expanduser().absolute()) if args.fault_profile else None,
-        "calibration_profile": str(args.calibration_profile.expanduser().absolute()) if args.calibration_profile else None,
+        "fault_profile": (
+            str(args.fault_profile.expanduser().absolute()) if args.fault_profile else None
+        ),
+        "calibration_profile": (
+            str(args.calibration_profile.expanduser().absolute())
+            if args.calibration_profile
+            else None
+        ),
         "active_rmse_rad": float(np.sqrt(np.mean(error**2))),
-        "dwell_rmse_rad": float(np.sqrt(np.mean(error[phases == "dwell"]**2))),
-        "dynamic_rmse_rad": float(np.sqrt(np.mean(error[np.char.startswith(phases, "sine_")]**2))),
+        "dwell_rmse_rad": float(np.sqrt(np.mean(error[phases == "dwell"] ** 2))),
+        "dynamic_rmse_rad": float(
+            np.sqrt(np.mean(error[np.char.startswith(phases, "sine_")] ** 2))
+        ),
     }
     (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2))

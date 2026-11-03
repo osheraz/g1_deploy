@@ -1,6 +1,7 @@
+"""Load a VIGOR checkpoint with the shared PPO actor implementation."""
+
 import torch
-from omegaconf import OmegaConf
-from humanoidverse.agents.modules.ppo_modules import PPOActor
+from humanoidverse2.agents.ppo.modules import PPOActor
 
 
 class DeployStudentPolicy:
@@ -24,16 +25,12 @@ class DeployStudentPolicy:
 
         self.algo_obs_dim_dict = {
             "actor_obs": sum(obs_dim[k] for k in actor_obs_keys if k in obs_dim),
-            "student_hist_obs_long": sum(
-                obs_dim[k] * T for k in hist_cfg if k in obs_dim
-            ),
+            "student_hist_obs_long": sum(obs_dim[k] * T for k in hist_cfg if k in obs_dim),
         }
         if deploy_config.use_depth_obs:
             self.algo_obs_dim_dict["perception_obs"] = depth_flat
             if depth_T > 0:
-                self.algo_obs_dim_dict["perception_obs_history_obs"] = (
-                    depth_flat * depth_T
-                )
+                self.algo_obs_dim_dict["perception_obs_history_obs"] = depth_flat * depth_T
 
         student_actor_cfg = deploy_config.student_actor_cfg
 
@@ -44,24 +41,9 @@ class DeployStudentPolicy:
             init_noise_std=0.01,
         ).to(self.device)
 
-        ckpt = torch.load(ckpt_path, map_location=self.device)
-        self.student.load_state_dict(ckpt["student_model_state_dict"])
-
-        missing, unexpected = self.student.load_state_dict(
-            ckpt["student_model_state_dict"], strict=False
-        )
-        print("\nmissing:", missing)
-        print("unexpected:", unexpected)
+        checkpoint = torch.load(ckpt_path, map_location=self.device, weights_only=False)
+        self.student.load_state_dict(checkpoint["student_model_state_dict"], strict=True)
         self.student.eval()
-
-        def print_layers(m):
-            print("\n\n\n---------------------------------------------")
-            for n, mod in m.named_modules():
-                if n:  # skip root
-                    print(f"{n}: {mod.__class__.__name__}")
-            print("---------------------------------------------\n\n\n")
-
-        print_layers(self.student)
 
     @torch.no_grad()
     def act(self, obs_dict):

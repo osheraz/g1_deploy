@@ -4,6 +4,7 @@ The motion service must be released before constructing any ``LowCmd``
 publisher.  This mirrors NVIDIA's C++ deployment and Unitree's Python
 low-level examples while keeping the transition independently testable.
 """
+
 from __future__ import annotations
 
 import time

@@ -1,0 +1,50 @@
+low-latency:
+  aliases:
+  - low_latency
+  - lowlatency
+  variant: low_latency
+  directory: sonic/assets/low_latency
+  tensor_contract:
+    encoder_input: 1247
+    token: 64
+    decoder_input: 994
+    decoder_output: 29
+  sha256:
+    encoder: 60be43157f57d812f38bdbb740a5de5d5d070e8840d9edc16f02a91a6d06255b
+    decoder: c4ac2e74045e7cbfb568f15e6bf47ea7ce023df7a94322af50be223e0a628bab
+    observation: 582b9a273a3d69fbf49ae59b39295a3be2b4a295e195ef4cf674b5e2571c90ab
+original-release:
+  aliases:
+  - original_release
+  - official-release
+  - default
+  - release
+  - sonic-release
+  variant: default
+  directory: sonic/assets/release
+  tensor_contract:
+    encoder_input: 1762
+    token: 64
+    decoder_input: 994
+    decoder_output: 29
+  sha256:
+    encoder: 013ab0287236aa2721e13f1e936d699db982302d0de0bfcdae76d5c3245362d3
+    decoder: c7241a123eaa36b5d64bad19540efde93cac1ad443bd4572fd12ca99898118ed
+    observation: 466d05947c78af6c76388adfb86e3a2a77b2a1d921a64883ed3d085ebf58de1b
+sonic-v1.1:
+  aliases:
+  - sonic_v1_1
+  - sonic-v1-1
+  - v1.1
+  - v1_1
+  variant: sonic_v1_1
+  directory: ../.cache/sonic/sonic-v1.1
+  tensor_contract:
+    encoder_input: 1751
+    token: 64
+    decoder_input: 994
+    decoder_output: 29
+  sha256:
+    encoder: fb97de22819b2057b41459802128d91723d91a25f0ad73e7bfc41a9cf8365bae
+    decoder: 34bae8570d4a4421a5391a5c2befd745d4a02d182ec539e5f9da44c091c67509
+    observation: 4a67713b310932e50aca81f19188c8d76013148e98b15c8b5bbea995f12e59f0

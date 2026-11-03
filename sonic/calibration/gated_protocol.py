@@ -17,7 +17,6 @@ import numpy as np
 
 from sonic.calibration.protocol import MOTOR_NAMES, PRESENT_23, SCREENING_AMPLITUDE
 
-
 SCHEMA = "e_skin.review_gated_calibration.v1"
 DT = 0.02
 MAX_TARGET_RATE_RAD_S = 0.35
@@ -34,15 +33,33 @@ FULL_SCREENING_AMPLITUDE: dict[int, float] = {
     # Full screening therefore uses a genuinely identification-scale leg
     # envelope while retaining 0.04 rad modeled-limit margin around the
     # measured post-startup pose.
-    0: .45, 1: .30, 2: .30, 3: .60, 4: .35, 5: .18,
-    6: .45, 7: .30, 8: .30, 9: .60, 10: .35, 11: .18,
-    12: .18,
+    0: 0.45,
+    1: 0.30,
+    2: 0.30,
+    3: 0.60,
+    4: 0.35,
+    5: 0.18,
+    6: 0.45,
+    7: 0.30,
+    8: 0.30,
+    9: 0.60,
+    10: 0.35,
+    11: 0.18,
+    12: 0.18,
     # Upper-body excursions stay at the collision-free screening envelope.
     # The requested expansion targets the leg/waist dynamics that affect
     # balance and slow walking; larger isolated arm motion caused torso/arm
     # self-contact in the 23-DoF MuJoCo model.
-    15: .10, 16: .08, 17: .08, 18: .10, 19: .08,
-    22: .10, 23: .08, 24: .08, 25: .10, 26: .08,
+    15: 0.10,
+    16: 0.08,
+    17: 0.08,
+    18: 0.10,
+    19: 0.08,
+    22: 0.10,
+    23: 0.08,
+    24: 0.08,
+    25: 0.10,
+    26: 0.08,
 }
 
 
@@ -81,8 +98,7 @@ class ReviewBlock:
         rate = np.max(np.abs(np.diff(self.offsets, axis=0))) / DT
         if rate > rate_limit + 1e-8:
             raise ValueError(
-                f"{self.name}: target rate {rate:.4f} exceeds "
-                f"{rate_limit:.2f} rad/s"
+                f"{self.name}: target rate {rate:.4f} exceeds " f"{rate_limit:.2f} rad/s"
             )
 
     @property
@@ -97,8 +113,7 @@ class ReviewBlock:
     @property
     def peak_offsets(self) -> dict[int, float]:
         return {
-            motor: float(np.max(np.abs(self.offsets[:, motor])))
-            for motor in self.active_motors
+            motor: float(np.max(np.abs(self.offsets[:, motor]))) for motor in self.active_motors
         }
 
 
@@ -189,16 +204,10 @@ class _BlockBuilder:
             row[6] = -scale * envelope[6] * 0.55 * wave
             row[3] = scale * envelope[3] * 0.80 * left_swing
             row[9] = scale * envelope[9] * 0.80 * right_swing
-            row[4] = scale * envelope[4] * (
-                -0.35 * wave + 0.30 * left_swing
-            )
-            row[10] = scale * envelope[10] * (
-                0.35 * wave + 0.30 * right_swing
-            )
+            row[4] = scale * envelope[4] * (-0.35 * wave + 0.30 * left_swing)
+            row[10] = scale * envelope[10] * (0.35 * wave + 0.30 * right_swing)
             self.rows.append(row)
-            self.phases.append(
-                phase or f"gait_signature_scale_{scale:.2f}_hz_{frequency_hz:.2f}"
-            )
+            self.phases.append(phase or f"gait_signature_scale_{scale:.2f}_hz_{frequency_hz:.2f}")
         self.current[:] = 0.0
         self.rows[-1][:] = 0.0
 
@@ -215,7 +224,9 @@ def _envelope(protocol: str) -> dict[int, float]:
 
 
 def _amplitude(
-    motors: dict[int, float], scale: float, protocol: str,
+    motors: dict[int, float],
+    scale: float,
+    protocol: str,
 ) -> np.ndarray:
     result = np.zeros(29, dtype=np.float64)
     envelope = _envelope(protocol)
@@ -234,8 +245,9 @@ def _single_block(block_id: int, motor: int, protocol: str) -> ReviewBlock:
     # full-screening transition so its largest endpoint remains under the
     # static 0.35-rad/s target-rate contract.
     transition_s = (
-        0.75 if protocol == "pilot" else
-        max(2.0, 1.90 * FULL_SCREENING_AMPLITUDE[motor] / MAX_TARGET_RATE_RAD_S)
+        0.75
+        if protocol == "pilot"
+        else max(2.0, 1.90 * FULL_SCREENING_AMPLITUDE[motor] / MAX_TARGET_RATE_RAD_S)
     )
     dwell_s = 0.30 if protocol == "pilot" else 1.20
     neutral_dwell_s = 0.20 if protocol == "pilot" else 0.30
@@ -276,8 +288,18 @@ def _single_block(block_id: int, motor: int, protocol: str) -> ReviewBlock:
 
 
 DYNAMIC_RATE_LIMIT: dict[int, float] = {
-    0: 1.60, 1: 1.25, 2: 1.25, 3: 2.00, 4: 1.60, 5: 0.80,
-    6: 1.60, 7: 1.25, 8: 1.25, 9: 2.00, 10: 1.60, 11: 0.80,
+    0: 1.60,
+    1: 1.25,
+    2: 1.25,
+    3: 2.00,
+    4: 1.60,
+    5: 0.80,
+    6: 1.60,
+    7: 1.25,
+    8: 1.25,
+    9: 2.00,
+    10: 1.60,
+    11: 0.80,
 }
 
 
@@ -325,18 +347,24 @@ GROUPS: tuple[tuple[str, str, dict[int, float]], ...] = (
     ("bilateral_knee", "bilateral knee flexion", {3: 0.7, 9: 0.7}),
     ("bilateral_ankle_pitch", "bilateral ankle pitch", {4: 0.7, 10: 0.7}),
     (
-        "bilateral_leg_flexion", "hip-knee-ankle flexion resembling a shallow squat",
+        "bilateral_leg_flexion",
+        "hip-knee-ankle flexion resembling a shallow squat",
         {0: -0.35, 3: 0.70, 4: 0.35, 6: -0.35, 9: 0.70, 10: 0.35},
     ),
     (
-        "alternating_leg_clearance", "opposed sagittal leg articulation",
+        "alternating_leg_clearance",
+        "opposed sagittal leg articulation",
         {0: -0.35, 3: 0.70, 4: 0.35, 6: 0.35, 9: -0.70, 10: -0.35},
     ),
 )
 
 
 def _group_block(
-    block_id: int, name: str, description: str, weights: dict[int, float], protocol: str,
+    block_id: int,
+    name: str,
+    description: str,
+    weights: dict[int, float],
+    protocol: str,
 ) -> ReviewBlock:
     # The small pilot retains its original schedule and validated hash.  With
     # the enlarged full envelope, however, ±0.176 rad inward bilateral hip roll
@@ -349,8 +377,7 @@ def _group_block(
     scales = (0.35,) if protocol == "pilot" else (0.33, 0.67, 1.00)
     maximum_goal = max(abs(value) for value in _amplitude(weights, 1.0, protocol))
     transition_s = (
-        1.0 if protocol == "pilot" else
-        max(2.0, 1.90 * maximum_goal / MAX_TARGET_RATE_RAD_S)
+        1.0 if protocol == "pilot" else max(2.0, 1.90 * maximum_goal / MAX_TARGET_RATE_RAD_S)
     )
     dwell_s = 0.4 if protocol == "pilot" else 1.20
     neutral_dwell_s = 0.25 if protocol == "pilot" else 0.5
@@ -375,8 +402,13 @@ def _group_block(
     builder.hold(0.5 if protocol == "pilot" else 1.0, "neutral_end")
     offsets, phase, time_s = builder.finish()
     block = ReviewBlock(
-        block_id, f"group_{name}", "combined_joint", description,
-        phase, offsets, time_s,
+        block_id,
+        f"group_{name}",
+        "combined_joint",
+        description,
+        phase,
+        offsets,
+        time_s,
     )
     block.validate()
     return block
@@ -404,9 +436,13 @@ def _gait_block(block_id: int, protocol: str) -> ReviewBlock:
     builder.hold(0.5 if protocol == "pilot" else 1.0, "neutral_end")
     offsets, phase, time_s = builder.finish()
     block = ReviewBlock(
-        block_id, "group_walking_signature", "walking_signature",
+        block_id,
+        "group_walking_signature",
+        "walking_signature",
         "staged-frequency alternating hip/knee/ankle signature; suspended, not locomotion",
-        phase, offsets, time_s,
+        phase,
+        offsets,
+        time_s,
     )
     block.validate()
     return block
@@ -456,8 +492,12 @@ def _dynamic_reversal_block(block_id: int) -> ReviewBlock:
     builder.hold(0.5, "dynamic_neutral_observe")
     pose = _amplitude(
         {
-            0: -0.35, 3: 0.70, 4: 0.35,
-            6: 0.35, 9: -0.35, 10: -0.25,
+            0: -0.35,
+            3: 0.70,
+            4: 0.35,
+            6: 0.35,
+            9: -0.35,
+            10: -0.25,
         },
         0.50,
         "screening",
@@ -496,9 +536,13 @@ def _neutral_block(block_id: int, protocol: str) -> ReviewBlock:
     builder.hold(2.0 if protocol == "pilot" else 5.0, "pd_neutral_observe")
     offsets, phase, time_s = builder.finish()
     block = ReviewBlock(
-        block_id, "neutral_pd_hold", "neutral_hold",
+        block_id,
+        "neutral_pd_hold",
+        "neutral_hold",
         "hold the captured pose to measure gravity/preload and suspension settling",
-        phase, offsets, time_s,
+        phase,
+        offsets,
+        time_s,
     )
     block.validate()
     return block
@@ -534,19 +578,33 @@ def save_review_protocol(protocol: ReviewProtocol, directory: Path | str) -> Pat
     directory.mkdir(parents=True, exist_ok=True)
     samples_path = directory / "protocol.csv"
     header = [
-        "schema", "protocol", "block_id", "block_name", "block_kind",
-        "sample", "local_time_s", "phase",
+        "schema",
+        "protocol",
+        "block_id",
+        "block_name",
+        "block_kind",
+        "sample",
+        "local_time_s",
+        "phase",
     ] + [f"offset_{i}" for i in range(29)]
     with samples_path.open("w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(header)
         for block in protocol.blocks:
             for sample in range(len(block.local_time_s)):
-                writer.writerow([
-                    SCHEMA, protocol.name, block.block_id, block.name, block.kind,
-                    sample, f"{block.local_time_s[sample]:.9f}", block.phase[sample],
-                    *[f"{value:.12g}" for value in block.offsets[sample]],
-                ])
+                writer.writerow(
+                    [
+                        SCHEMA,
+                        protocol.name,
+                        block.block_id,
+                        block.name,
+                        block.kind,
+                        sample,
+                        f"{block.local_time_s[sample]:.9f}",
+                        block.phase[sample],
+                        *[f"{value:.12g}" for value in block.offsets[sample]],
+                    ]
+                )
     manifest = {
         "schema": SCHEMA,
         "embodiment": "g1_23dof",
@@ -556,7 +614,9 @@ def save_review_protocol(protocol: ReviewProtocol, directory: Path | str) -> Pat
         "maximum_static_target_rate_rad_s": MAX_TARGET_RATE_RAD_S,
         "maximum_dynamic_target_rate_rad_s": DYNAMIC_MAX_TARGET_RATE_RAD_S,
         "dynamic_excitation": (
-            None if protocol.name == "pilot" else {
+            None
+            if protocol.name == "pilot"
+            else {
                 "single_leg_joint_frequencies_hz": [0.35, 0.75, 1.25, 2.20],
                 "coupled_gait_frequencies_hz": [0.45, 0.85, 1.25, 1.80, 2.20],
                 "includes_nonperiodic_direction_reversal": True,
@@ -567,7 +627,8 @@ def save_review_protocol(protocol: ReviewProtocol, directory: Path | str) -> Pat
         ),
         "full_range_enabled": protocol.name == "screening",
         "range_semantics": (
-            "fast small-range workflow pilot" if protocol.name == "pilot"
+            "fast small-range workflow pilot"
+            if protocol.name == "pilot"
             else "expanded suspended diagnostic envelope; not mechanical joint limits"
         ),
         "amplitude_envelope_rad": {
@@ -580,21 +641,39 @@ def save_review_protocol(protocol: ReviewProtocol, directory: Path | str) -> Pat
         },
         "physical_sensor_log": {
             "timing_and_transport": [
-                "actual_time", "LowState age", "LowState tick", "mode_pr",
-                "mode_machine", "remote buttons and analog axes",
+                "actual_time",
+                "LowState age",
+                "LowState tick",
+                "mode_pr",
+                "mode_machine",
+                "remote buttons and analog axes",
             ],
             "imu": [
-                "quaternion", "gyroscope", "accelerometer", "roll/pitch/yaw",
-                "temperature", "captured steady quaternion and roll/pitch/yaw",
+                "quaternion",
+                "gyroscope",
+                "accelerometer",
+                "roll/pitch/yaw",
+                "temperature",
+                "captured steady quaternion and roll/pitch/yaw",
                 "captured gyroscope, accelerometer, and temperature medians",
             ],
             "each_of_23_physical_motors": [
-                "mode", "q", "dq", "ddq", "tau_est", "winding temperature",
-                "driver temperature", "voltage", "raw sensor words", "fault code",
+                "mode",
+                "q",
+                "dq",
+                "ddq",
+                "tau_est",
+                "winding temperature",
+                "driver temperature",
+                "voltage",
+                "raw sensor words",
+                "fault code",
                 "captured steady q/dq/ddq/torque/temperatures/voltage medians",
             ],
             "not_available_in_hg_lowstate": [
-                "foot contact force", "external link/foot pose", "strap tension",
+                "foot contact force",
+                "external link/foot pose",
+                "strap tension",
             ],
         },
         "motion_duration_s_excluding_approval_wait": protocol.motion_duration_s,
@@ -607,16 +686,12 @@ def save_review_protocol(protocol: ReviewProtocol, directory: Path | str) -> Pat
                 "duration_s": block.duration_s,
                 "active_motors": list(block.active_motors),
                 "active_joint_names": [MOTOR_NAMES[i] for i in block.active_motors],
-                "peak_offsets_rad": {
-                    str(i): value for i, value in block.peak_offsets.items()
-                },
+                "peak_offsets_rad": {str(i): value for i, value in block.peak_offsets.items()},
             }
             for block in protocol.blocks
         ],
     }
-    (directory / "protocol_manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n"
-    )
+    (directory / "protocol_manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     return samples_path
 
 
@@ -640,13 +715,14 @@ def load_review_protocol(path: Path | str) -> ReviewProtocol:
             for row in selected
         ):
             raise ValueError(f"block {block_id} metadata changes within the block")
-        offsets = np.asarray([
-            [float(row[f"offset_{i}"]) for i in range(29)] for row in selected
-        ])
+        offsets = np.asarray([[float(row[f"offset_{i}"]) for i in range(29)] for row in selected])
         block = ReviewBlock(
-            block_id, first["block_name"], first["block_kind"],
+            block_id,
+            first["block_name"],
+            first["block_kind"],
             first["block_name"].replace("_", " "),
-            np.asarray([row["phase"] for row in selected]), offsets,
+            np.asarray([row["phase"] for row in selected]),
+            offsets,
             np.asarray([float(row["local_time_s"]) for row in selected]),
         )
         block.validate()

@@ -1,1 +1,1 @@
-policy/low_latency/*.onnx filter=lfs diff=lfs merge=lfs -text
+sonic/assets/low_latency/*.onnx filter=lfs diff=lfs merge=lfs -text

@@ -63,11 +63,9 @@ class AdaptationConfigTest(unittest.TestCase):
         self.assertEqual(cfg.action_ema, 1.0)
         self.assertEqual(cfg.sonic_planner_random_seed, 1234)
 
-
     def test_forward_stable_profile_is_all_six_masks_and_direct(self):
         profile = (
-            Path(__file__).resolve().parents[2]
-            / "configs/adaptations/g1_23dof_forward_stable.yaml"
+            Path(__file__).resolve().parents[2] / "configs/adaptations/g1_23dof_forward_stable.yaml"
         )
         cfg = Config(profile)
         self.assertEqual(cfg.sonic_adaptation_profile, "forward-stable-23")

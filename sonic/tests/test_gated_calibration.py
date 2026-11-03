@@ -9,7 +9,9 @@ import unittest
 import numpy as np
 
 from sonic.calibration.gated_protocol import (
-    DT, DYNAMIC_MAX_TARGET_RATE_RAD_S, FULL_SCREENING_AMPLITUDE,
+    DT,
+    DYNAMIC_MAX_TARGET_RATE_RAD_S,
+    FULL_SCREENING_AMPLITUDE,
     MAX_TARGET_RATE_RAD_S,
     build_review_protocol,
     load_review_protocol,
@@ -17,7 +19,6 @@ from sonic.calibration.gated_protocol import (
 )
 from sonic.calibration.mujoco_plant import SuspendedMujocoPlant
 from sonic.calibration.protocol import PRESENT_23
-
 
 REPO = Path(__file__).resolve().parents[3]
 DEPLOY = REPO / "g1_deploy"
@@ -33,20 +34,24 @@ class ReviewGatedProtocolTest(unittest.TestCase):
         self.assertEqual(
             [block.name for block in protocol.blocks[1:13]],
             [
-                "single_right_hip_pitch", "single_left_hip_pitch",
-                "single_right_hip_roll", "single_left_hip_roll",
-                "single_right_hip_yaw", "single_left_hip_yaw",
-                "single_right_knee", "single_left_knee",
-                "single_right_ankle_pitch", "single_left_ankle_pitch",
-                "single_right_ankle_roll", "single_left_ankle_roll",
+                "single_right_hip_pitch",
+                "single_left_hip_pitch",
+                "single_right_hip_roll",
+                "single_left_hip_roll",
+                "single_right_hip_yaw",
+                "single_left_hip_yaw",
+                "single_right_knee",
+                "single_left_knee",
+                "single_right_ankle_pitch",
+                "single_left_ankle_pitch",
+                "single_right_ankle_roll",
+                "single_left_ankle_roll",
             ],
         )
         with tempfile.TemporaryDirectory() as directory:
             path = save_review_protocol(protocol, directory)
             loaded = load_review_protocol(path)
-            manifest = json.loads(
-                (Path(directory) / "protocol_manifest.json").read_text()
-            )
+            manifest = json.loads((Path(directory) / "protocol_manifest.json").read_text())
         self.assertEqual(loaded.name, protocol.name)
         self.assertEqual(len(loaded.blocks), len(protocol.blocks))
         for expected, actual in zip(protocol.blocks, loaded.blocks):
@@ -93,25 +98,23 @@ class ReviewGatedProtocolTest(unittest.TestCase):
             blocks["single_right_ankle_pitch"].peak_offsets[10],
             FULL_SCREENING_AMPLITUDE[10],
         )
-        self.assertAlmostEqual(
-            blocks["group_bilateral_hip_roll"].peak_offsets[1], 0.144
-        )
+        self.assertAlmostEqual(blocks["group_bilateral_hip_roll"].peak_offsets[1], 0.144)
         dynamic = [block for block in protocol.blocks if block.kind.startswith("dynamic_")]
         self.assertEqual(len(dynamic), 14)
         self.assertGreater(
             max(np.max(np.abs(np.diff(block.offsets, axis=0))) / DT for block in dynamic),
             1.9,
         )
-        self.assertTrue(any("hz_2.20" in phase for phase in blocks[
-            "dynamic_left_knee"
-        ].phase))
+        self.assertTrue(any("hz_2.20" in phase for phase in blocks["dynamic_left_knee"].phase))
 
     def test_v3_review_log_fitter_uses_captured_neutral(self):
         fields = ["schema", "phase", "active_motor", "direction", "block_kind"]
         fields += [
             f"{prefix}_{motor}"
             for prefix in (
-                "target_model", "command_hardware", "q_measured",
+                "target_model",
+                "command_hardware",
+                "q_measured",
                 "captured_neutral",
             )
             for motor in range(29)
@@ -146,8 +149,10 @@ class ReviewGatedProtocolTest(unittest.TestCase):
                     sys.executable,
                     str(DEPLOY / "sonic/scripts/calibration/fit_suspended_calibration.py"),
                     str(state),
-                    "--coordinate-basis", "encoder_only",
-                    "--output", str(output),
+                    "--coordinate-basis",
+                    "encoder_only",
+                    "--output",
+                    str(output),
                 ],
                 check=True,
                 text=True,
@@ -179,9 +184,16 @@ class TwoShoulderFixtureTest(unittest.TestCase):
             self.assertEqual(int(state["contact_count"]), 0)
         assert state is not None
         for key in (
-            "q_measured", "dq_measured", "tau_est", "root_position",
-            "root_quaternion", "root_linear_velocity", "root_angular_velocity",
-            "imu_quaternion", "imu_gyroscope", "suspension_forces",
+            "q_measured",
+            "dq_measured",
+            "tau_est",
+            "root_position",
+            "root_quaternion",
+            "root_linear_velocity",
+            "root_angular_velocity",
+            "imu_quaternion",
+            "imu_gyroscope",
+            "suspension_forces",
             "foot_link_height",
         ):
             self.assertTrue(np.isfinite(state[key]).all(), key)

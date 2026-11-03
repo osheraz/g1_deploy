@@ -14,6 +14,7 @@ The G1 encoder consumes joint positions/velocities and pelvis orientation. The
 other copied body transforms remain present for schema compatibility but are
 masked out in G1 mode by the official observation configuration.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,11 +22,40 @@ from pathlib import Path
 
 import numpy as np
 import yaml
-
+from hv2_common.geometry.quaternion_numpy import heading_quat
 
 MJ_TO_IL = np.array(
-    [0, 6, 12, 1, 7, 13, 2, 8, 14, 3, 9, 15, 22, 4, 10,
-     16, 23, 5, 11, 17, 24, 18, 25, 19, 26, 20, 27, 21, 28]
+    [
+        0,
+        6,
+        12,
+        1,
+        7,
+        13,
+        2,
+        8,
+        14,
+        3,
+        9,
+        15,
+        22,
+        4,
+        10,
+        16,
+        23,
+        5,
+        11,
+        17,
+        24,
+        18,
+        25,
+        19,
+        26,
+        20,
+        27,
+        21,
+        28,
+    ]
 )
 FPS = 50.0
 
@@ -33,12 +63,6 @@ FPS = 50.0
 def normalize_quat(q):
     q = np.asarray(q, np.float64)
     return q / np.maximum(np.linalg.norm(q, axis=-1, keepdims=True), 1e-8)
-
-
-def heading_quat(q):
-    w, x, y, z = np.asarray(q, np.float64)
-    yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-    return np.array([np.cos(yaw / 2), 0.0, 0.0, np.sin(yaw / 2)])
 
 
 def slerp(q0, q1, amount):
@@ -94,10 +118,10 @@ def save_clip(path, *, q, body_pos, body_quat, default_il, source, preparation):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default="configs/g1_23dof_sonic.yaml")
-    ap.add_argument("--seed", default="sonic/model/motion_stand.npz")
-    ap.add_argument("--walk-source", default="sonic/model/walk11.npz")
-    ap.add_argument("--neutral-out", default="sonic/model/motion_neutral_default.npz")
-    ap.add_argument("--walk-out", default="sonic/model/motion_walk11_neutral_start.npz")
+    ap.add_argument("--seed", default="sonic/assets/motions/motion_stand.npz")
+    ap.add_argument("--walk-source", default="sonic/assets/motions/walk11.npz")
+    ap.add_argument("--neutral-out", default="sonic/assets/motions/motion_neutral_default.npz")
+    ap.add_argument("--walk-out", default="sonic/assets/motions/motion_walk11_neutral_start.npz")
     ap.add_argument("--neutral-seconds", type=float, default=6.0)
     ap.add_argument("--transition-seconds", type=float, default=3.0)
     ap.add_argument("--max-walk-tilt-deg", type=float, default=10.0)
@@ -137,13 +161,10 @@ def main():
     n = max(2, int(round(args.transition_seconds * FPS)))
     u = np.linspace(0.0, 1.0, n + 1)
     smooth = 10 * u**3 - 15 * u**4 + 6 * u**5
-    q_prefix = (
-        (1 - smooth[:, None]) * default_il[None]
-        + smooth[:, None] * src["dof_il"][0][None]
-    )
+    q_prefix = (1 - smooth[:, None]) * default_il[None] + smooth[:, None] * src["dof_il"][0][None]
     pos_prefix = np.repeat(src["body_pos_il"][:1], n + 1, axis=0).astype(np.float64)
-    pos_prefix[:, 0, 2] = (
-        (1 - smooth) * default_height + smooth * float(src["body_pos_il"][0, 0, 2])
+    pos_prefix[:, 0, 2] = (1 - smooth) * default_height + smooth * float(
+        src["body_pos_il"][0, 0, 2]
     )
     quat_prefix = np.repeat(src["body_quat_wxyz_il"][:1], n + 1, axis=0).astype(np.float64)
     q0_root = heading_quat(src["body_quat_wxyz_il"][0, 0])

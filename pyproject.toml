@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "g1-deploy"
 version = "0.1.0"
-description = "G1 deployment tools: diffusion recovery, SONIC, and sensor viewing"
+description = "G1 deployment tools: RISE, VIGOR, SONIC, and sensor viewing"
 requires-python = ">=3.11"
 dependencies = [
     "imageio>=2.37.0",
@@ -44,5 +44,9 @@ managed = true
 py-modules = ["zero_torque"]
 
 [tool.setuptools.packages.find]
-where = [".", "steerable-recovery"]
-include = ["core*", "vigor*", "sonic*", "steerable_recovery*"]
+where = ["."]
+include = ["core*", "vigor*", "sonic*", "rise*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]

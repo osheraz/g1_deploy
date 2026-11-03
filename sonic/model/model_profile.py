@@ -4,6 +4,7 @@ The encoder, decoder, and observation profile are an atomic set.  This module
 keeps that choice separate from the physical G1 embodiment profile in
 ``robot_profile.py``: every released decoder still predicts 29 IsaacLab joints.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -30,8 +31,7 @@ class SonicModelProfile:
             "multi_then_single",
         }:
             raise ValueError(
-                "encoder_anchor_order must be single_then_multi or "
-                "multi_then_single"
+                "encoder_anchor_order must be single_then_multi or " "multi_then_single"
             )
 
     @property
@@ -45,9 +45,7 @@ class SonicModelProfile:
 
 
 MODEL_PROFILES = {
-    "default": SonicModelProfile(
-        "default", 1762, encoder_anchor_order="single_then_multi"
-    ),
+    "default": SonicModelProfile("default", 1762, encoder_anchor_order="single_then_multi"),
     "low_latency": SonicModelProfile(
         "low_latency",
         1247,
@@ -81,6 +79,5 @@ def get_model_profile(name: str) -> SonicModelProfile:
         return MODEL_PROFILES[key]
     except KeyError as exc:
         raise ValueError(
-            f"unknown SONIC model profile {name!r}; choose "
-            f"{sorted(MODEL_PROFILES)}"
+            f"unknown SONIC model profile {name!r}; choose " f"{sorted(MODEL_PROFILES)}"
         ) from exc

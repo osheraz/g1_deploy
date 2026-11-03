@@ -1,4 +1,5 @@
 """Replay a VIGOR joint, IMU and camera log in Viser."""
+
 from __future__ import annotations
 
 import argparse
@@ -7,7 +8,6 @@ import time
 from pathlib import Path
 
 import numpy as np
-
 
 DEPLOY_ROOT = Path(__file__).resolve().parents[1]
 if str(DEPLOY_ROOT) not in sys.path:
@@ -20,7 +20,10 @@ from core.config import DEFAULT_URDF_PATH
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "--log", type=str, required=True, help="NPZ file, absolute or relative to g1_deploy/logs/real_rollouts"
+        "--log",
+        type=str,
+        required=True,
+        help="NPZ file, absolute or relative to g1_deploy/logs/real_rollouts",
     )
     ap.add_argument("--fps", type=float, default=50.0)
     ap.add_argument("--urdf", type=str, default=DEFAULT_URDF_PATH)
@@ -34,9 +37,7 @@ def main():
     imu_quat_wxyz = z["imu_quat_wxyz"].astype(np.float32)
     depth_vis_u8 = z["depth_vis_u8"].astype(np.uint8)
     depth_obs_u8 = z["depth_obs_u8"].astype(np.uint8)
-    ext_rgb = (
-        z["ext_cam_bgr_u8"].astype(np.uint8) if "ext_cam_bgr_u8" in z.files else None
-    )
+    ext_rgb = z["ext_cam_bgr_u8"].astype(np.uint8) if "ext_cam_bgr_u8" in z.files else None
 
     n_frames = int(qj.shape[0])
 
@@ -52,9 +53,7 @@ def main():
 
     replay_folder = dv.server.gui.add_folder("Replay")
     with replay_folder:
-        idx = dv.server.gui.add_slider(
-            "Index", min=0, max=n_frames - 1, step=1, initial_value=0
-        )
+        idx = dv.server.gui.add_slider("Index", min=0, max=n_frames - 1, step=1, initial_value=0)
         play = dv.server.gui.add_checkbox("Play", False)
         fps = dv.server.gui.add_number("FPS", float(args.fps))
 

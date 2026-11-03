@@ -13,7 +13,6 @@ from sonic.calibration.interactive import (
 from sonic.calibration.mujoco_plant import SuspendedMujocoPlant
 from sonic.calibration.protocol import PRESENT_23, SCREENING_AMPLITUDE
 
-
 REPO = Path(__file__).resolve().parents[3]
 DEPLOY = REPO / "g1_deploy"
 

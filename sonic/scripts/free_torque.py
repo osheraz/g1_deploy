@@ -6,6 +6,7 @@
 
 HANG THE ROBOT FIRST. It will drop.  Ctrl-C to stop.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,15 +35,16 @@ def main() -> None:
     args = ap.parse_args()
 
     config = Config(args.config)
-    ChannelFactoryInitialize(0)      # same as sonic.deploy
+    ChannelFactoryInitialize(0)  # same as sonic.deploy
     robot = RobotInterface(config)
 
     viser_display = None
     if args.viser:
         from core.review.display import DeployViser
 
-        viser_display = DeployViser(Path(config.urdf_path), with_depth=False,
-                                    depth_min=0, depth_max=1, depth_scale=1)
+        viser_display = DeployViser(
+            Path(config.urdf_path), with_depth=False, depth_min=0, depth_max=1, depth_scale=1
+        )
 
     fill = create_zero_cmd if args.zero else create_damping_cmd
     print(f"{'zero torque' if args.zero else 'damping'} -- Ctrl-C to stop")
@@ -51,11 +53,10 @@ def main() -> None:
         while True:
             fill(robot.low_cmd)
             robot.send_cmd()
-            if viser_display is not None and counter % 5 == 0:   # 10 Hz
+            if viser_display is not None and counter % 5 == 0:  # 10 Hz
                 robot.update_joint_state()
                 viser_display.update(robot.low_state, robot.qj)
-                print(f"\rwaist yaw {np.degrees(robot.qj[12]):+7.2f} deg   ",
-                      end="", flush=True)
+                print(f"\rwaist yaw {np.degrees(robot.qj[12]):+7.2f} deg   ", end="", flush=True)
             counter += 1
             time.sleep(config.control_dt)
     except KeyboardInterrupt:

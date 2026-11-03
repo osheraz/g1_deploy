@@ -16,6 +16,7 @@ Examples:
     python tools/replay/replay_robot_diagnostics.py latest --start policy
     python tools/replay/replay_robot_diagnostics.py /path/to/session --port 8081
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,20 +26,18 @@ import time
 from pathlib import Path
 
 import numpy as np
+from hv2_common.geometry.quaternion_numpy import quat_conjugate, quat_mul
 import viser
 from viser.extras import ViserUrdf
-
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_LOG_ROOT = Path(f"/data/{getpass.getuser()}/logs/e_skin/teleop")
 DEFAULT_URDF = (
-    REPO_ROOT
-    / "research/repos/GR00T-WholeBodyControl/gear_sonic/data/robots/g1/old/g1_23dof.urdf"
+    REPO_ROOT / "research/repos/GR00T-WholeBodyControl/gear_sonic/data/robots/g1/old/g1_23dof.urdf"
 )
 
 PHYSICAL_MOTOR_INDICES = np.array(
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-     15, 16, 17, 18, 19, 22, 23, 24, 25, 26],
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19, 22, 23, 24, 25, 26],
     dtype=np.int64,
 )
 JOINT_NAMES = (
@@ -72,9 +71,7 @@ SHORT_NAMES = tuple(name.removesuffix("_joint") for name in JOINT_NAMES)
 def resolve_csv(value: str) -> Path:
     if value == "latest":
         candidates = list(
-            DEFAULT_LOG_ROOT.glob(
-                "*/terminal1_robot_diagnostics/robot_diagnostics.csv"
-            )
+            DEFAULT_LOG_ROOT.glob("*/terminal1_robot_diagnostics/robot_diagnostics.csv")
         )
         if not candidates:
             raise FileNotFoundError(f"no physical diagnostic CSV below {DEFAULT_LOG_ROOT}")
@@ -107,8 +104,14 @@ def load_csv(path: Path) -> dict[str, np.ndarray]:
         raise ValueError(f"empty diagnostic CSV: {path}")
 
     required = {
-        "time_ms", "encoder_mode", "playing", "motion_name",
-        "imu_qw", "imu_qx", "imu_qy", "imu_qz",
+        "time_ms",
+        "encoder_mode",
+        "playing",
+        "motion_name",
+        "imu_qw",
+        "imu_qx",
+        "imu_qy",
+        "imu_qz",
         *(f"q_{i}" for i in range(29)),
         *(f"q_cmd_{i}" for i in range(29)),
         *(f"q_error_{i}" for i in range(29)),
@@ -148,33 +151,11 @@ def load_csv(path: Path) -> dict[str, np.ndarray]:
     }
 
 
-def quat_conjugate(q: np.ndarray) -> np.ndarray:
-    result = np.asarray(q, dtype=np.float64).copy()
-    result[1:] *= -1.0
-    return result
-
-
-def quat_multiply(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    aw, ax, ay, az = a
-    bw, bx, by, bz = b
-    return np.asarray(
-        (
-            aw * bw - ax * bx - ay * by - az * bz,
-            aw * bx + ax * bw + ay * bz - az * by,
-            aw * by - ax * bz + ay * bw + az * bx,
-            aw * bz + ax * by - ay * bx + az * bw,
-        ),
-        dtype=np.float64,
-    )
-
-
 def relative_quaternions(quaternions: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(quaternions, axis=1, keepdims=True)
     normalized = quaternions / np.maximum(norms, 1.0e-12)
     inverse_initial = quat_conjugate(normalized[0])
-    result = np.asarray(
-        [quat_multiply(inverse_initial, q) for q in normalized], dtype=np.float64
-    )
+    result = np.asarray([quat_mul(inverse_initial, q) for q in normalized], dtype=np.float64)
     # Quaternion signs are equivalent, but choosing a continuous sign prevents
     # a browser interpolation from taking a visually distracting long route.
     for index in range(1, len(result)):
@@ -204,27 +185,30 @@ def first_index(data: dict[str, np.ndarray], start: str) -> int:
     if start == "policy":
         hits = np.flatnonzero(data["motion_name"] != "")
     else:
-        hits = np.flatnonzero(
-            (data["encoder_mode"] == 2) | (data["motion_name"] == "streamed")
-        )
+        hits = np.flatnonzero((data["encoder_mode"] == 2) | (data["motion_name"] == "streamed"))
     return int(hits[0]) if len(hits) else 0
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "path", nargs="?", default="latest",
+        "path",
+        nargs="?",
+        default="latest",
         help="CSV/session directory, or 'latest' (default)",
     )
     parser.add_argument("--fps", type=float, default=50.0)
     parser.add_argument(
-        "--host", default="127.0.0.1",
+        "--host",
+        default="127.0.0.1",
         help="Viser bind address (default: localhost only)",
     )
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--urdf", type=Path, default=DEFAULT_URDF)
     parser.add_argument(
-        "--start", choices=("beginning", "policy", "pose"), default="policy",
+        "--start",
+        choices=("beginning", "policy", "pose"),
+        default="policy",
         help="initial replay position (default: first policy-transition row)",
     )
     args = parser.parse_args()
@@ -240,18 +224,12 @@ def main() -> None:
     server = viser.ViserServer(
         host=args.host, port=args.port, label="G1 command vs measured replay"
     )
-    server.scene.add_grid(
-        "/ground", width=3.0, height=3.0, position=(0.0, 0.0, -0.78)
-    )
+    server.scene.add_grid("/ground", width=3.0, height=3.0, position=(0.0, 0.0, -0.78))
     measured_frame = server.scene.add_frame(
         "/measured", position=(0.0, -0.65, 0.0), show_axes=False
     )
-    command_frame = server.scene.add_frame(
-        "/commanded", position=(0.0, 0.65, 0.0), show_axes=False
-    )
-    server.scene.add_label(
-        "/measured_label", "MEASURED (LowState)", position=(0.0, -0.65, 0.72)
-    )
+    command_frame = server.scene.add_frame("/commanded", position=(0.0, 0.65, 0.0), show_axes=False)
+    server.scene.add_label("/measured_label", "MEASURED (LowState)", position=(0.0, -0.65, 0.72))
     server.scene.add_label(
         "/commanded_label", "COMMANDED (LowCmd target)", position=(0.0, 0.65, 0.72)
     )
@@ -294,10 +272,7 @@ def main() -> None:
             {name: float(value) for name, value in zip(JOINT_NAMES, data["q"][index])}
         )
         command_vis.update_cfg(
-            {
-                name: float(value)
-                for name, value in zip(JOINT_NAMES, data["q_cmd"][index])
-            }
+            {name: float(value) for name, value in zip(JOINT_NAMES, data["q_cmd"][index])}
         )
         measured_frame.wxyz = tuple(float(value) for value in relative_imu[index])
         command_frame.wxyz = (1.0, 0.0, 0.0, 0.0)
@@ -314,8 +289,7 @@ def main() -> None:
             f"{np.degrees(data['q_error'][index, right_pitch]):+.1f} deg"
         )
         torque_handle.value = (
-            f"{data['tau'][index, left_pitch]:+.1f} / "
-            f"{data['tau'][index, right_pitch]:+.1f} Nm"
+            f"{data['tau'][index, left_pitch]:+.1f} / " f"{data['tau'][index, right_pitch]:+.1f} Nm"
         )
         left_temp = max(
             data["temp_winding"][index, left_pitch],

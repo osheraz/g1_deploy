@@ -15,3 +15,8 @@
 The model always has 29 joint slots. A 23-DoF robot omits missing motors at the
 output boundary. Its measured missing-joint values follow the selected profile.
 Encoder/decoder binaries and observation YAMLs must come from the same release.
+
+Model file bindings are tracked in `configs/sonic_models.yaml`. Binaries and
+observation YAMLs live together under `sonic/assets/release` and
+`sonic/assets/low_latency`; motion clips live under `sonic/assets/motions`.
+The optional SONIC v1.1 profile points to the separate local asset cache.

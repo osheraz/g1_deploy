@@ -53,16 +53,13 @@ def main() -> None:
     ext_time += args.time_offset_s
     if len(ext_time) < 2 or not np.all(np.diff(ext_time) > 0):
         raise SystemExit("external time_s must be strictly increasing with at least two rows")
-    external = np.asarray([
-        [float(row[f"q_external_{i}"]) for i in range(29)]
-        for row in external_rows
-    ])
+    external = np.asarray(
+        [[float(row[f"q_external_{i}"]) for i in range(29)] for row in external_rows]
+    )
     nearest_right = np.searchsorted(ext_time, log_time, side="left")
     right = np.clip(nearest_right, 0, len(ext_time) - 1)
     left = np.clip(nearest_right - 1, 0, len(ext_time) - 1)
-    nearest_gap = np.minimum(
-        np.abs(log_time - ext_time[left]), np.abs(log_time - ext_time[right])
-    )
+    nearest_gap = np.minimum(np.abs(log_time - ext_time[left]), np.abs(log_time - ext_time[right]))
     close = nearest_gap <= args.max_gap_s
 
     merged = np.full((len(log_rows), 29), np.nan)
@@ -89,9 +86,10 @@ def main() -> None:
     coverage = 100.0 * np.mean(np.isfinite(merged), axis=0)
     print(f"MERGED: {output}")
     print(f"log time source: {log_time_field}")
-    print("external coverage by motor (%): " + ", ".join(
-        f"{motor}={coverage[motor]:.1f}" for motor in range(29) if coverage[motor] > 0
-    ))
+    print(
+        "external coverage by motor (%): "
+        + ", ".join(f"{motor}={coverage[motor]:.1f}" for motor in range(29) if coverage[motor] > 0)
+    )
 
 
 if __name__ == "__main__":

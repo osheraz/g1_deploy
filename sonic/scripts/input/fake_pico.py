@@ -10,6 +10,7 @@ Same wire format the real PICO publisher uses, so the whole path downstream
 
 Leave it running; start sonic.deploy --mode pico (or sim2sim_pico) alongside.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,12 +29,17 @@ IDLE, SLOW_WALK = 0, 1
 # Official endpoint order is [left wrist, right wrist, virtual head], all in
 # the pelvis frame. These are the same neutral values used by scripted_teleop.
 LEFT_WRIST, RIGHT_WRIST, HEAD = 0, 1, 2
-REST_POS = np.array([[0.0903, 0.1615, -0.2411],
-                     [0.1280, -0.1522, -0.2461],
-                     [0.0241, -0.0081, 0.4028]], np.float32)
-REST_QUAT = np.array([[0.7295, 0.3145, 0.5533, -0.2506],
-                      [0.7320, -0.2639, 0.5395, 0.3217],
-                      [0.9991, 0.0110, 0.0402, -0.0002]], np.float32)
+REST_POS = np.array(
+    [[0.0903, 0.1615, -0.2411], [0.1280, -0.1522, -0.2461], [0.0241, -0.0081, 0.4028]], np.float32
+)
+REST_QUAT = np.array(
+    [
+        [0.7295, 0.3145, 0.5533, -0.2506],
+        [0.7320, -0.2639, 0.5395, 0.3217],
+        [0.9991, 0.0110, 0.0402, -0.0002],
+    ],
+    np.float32,
+)
 
 
 def build(mode, movement, facing, speed, height, vr_pos=None, vr_quat=None):
@@ -44,11 +50,13 @@ def build(mode, movement, facing, speed, height, vr_pos=None, vr_quat=None):
         {"name": "speed", "dtype": "f32", "shape": [1]},
         {"name": "height", "dtype": "f32", "shape": [1]},
     ]
-    payload = (struct.pack("<i", int(mode))
-               + struct.pack("<fff", *map(float, movement))
-               + struct.pack("<fff", *map(float, facing))
-               + struct.pack("<f", float(speed))
-               + struct.pack("<f", float(height)))
+    payload = (
+        struct.pack("<i", int(mode))
+        + struct.pack("<fff", *map(float, movement))
+        + struct.pack("<fff", *map(float, facing))
+        + struct.pack("<f", float(speed))
+        + struct.pack("<f", float(height))
+    )
     if vr_pos is not None:
         flat = np.asarray(vr_pos, np.float32).reshape(-1)
         fields.append({"name": "vr_position", "dtype": "f32", "shape": [flat.size]})
@@ -56,14 +64,16 @@ def build(mode, movement, facing, speed, height, vr_pos=None, vr_quat=None):
         flatq = np.asarray(vr_quat, np.float32).reshape(-1)
         fields.append({"name": "vr_orientation", "dtype": "f32", "shape": [flatq.size]})
         payload += flatq.tobytes()
-    header = json.dumps({"v": 1, "endian": "le", "count": 1, "fields": fields},
-                        separators=(",", ":")).encode()
+    header = json.dumps(
+        {"v": 1, "endian": "le", "count": 1, "fields": fields}, separators=(",", ":")
+    ).encode()
     return TOPIC + header.ljust(HEADER_SIZE, b"\x00") + payload
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--test", choices=["nav", "vr3", "both", "idle"], default="idle")
     ap.add_argument("--port", type=int, default=5556)
     ap.add_argument("--rate", type=float, default=10.0)
@@ -74,7 +84,7 @@ def main():
     sock = ctx.socket(zmq.PUB)
     sock.bind(f"tcp://*:{args.port}")
     print(f"publishing '{args.test}' on tcp://*:{args.port} at {args.rate:g} Hz")
-    time.sleep(0.5)                      # let subscribers connect
+    time.sleep(0.5)  # let subscribers connect
 
     t0 = time.time()
     try:
@@ -93,14 +103,15 @@ def main():
                 vr_pos = REST_POS.copy()
                 vr_quat = REST_QUAT.copy()
                 # raise and lower the right wrist, 0.2 m, 0.25 Hz
-                vr_pos[RIGHT_WRIST, 2] += 0.20 * (
-                    0.5 - 0.5 * np.cos(2 * np.pi * 0.25 * t)
-                )
+                vr_pos[RIGHT_WRIST, 2] += 0.20 * (0.5 - 0.5 * np.cos(2 * np.pi * 0.25 * t))
 
             sock.send(build(mode, movement, facing, speed, -1.0, vr_pos, vr_quat))
-            print(f"\r t={t:5.1f}s mode={mode} speed={speed:+.2f} "
-                  f"move={movement.round(2)} vr={'yes' if vr_pos is not None else 'no'}   ",
-                  end="", flush=True)
+            print(
+                f"\r t={t:5.1f}s mode={mode} speed={speed:+.2f} "
+                f"move={movement.round(2)} vr={'yes' if vr_pos is not None else 'no'}   ",
+                end="",
+                flush=True,
+            )
             time.sleep(1.0 / args.rate)
     except KeyboardInterrupt:
         print("\nstopped")

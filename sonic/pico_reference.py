@@ -6,6 +6,7 @@ targets. Encoder mode follows fresh ``vr_position`` presence exactly as the
 official ZMQ manager does; orientation is optional and uses the official
 comfort-quaternion fallback.
 """
+
 from __future__ import annotations
 
 import atexit
@@ -20,26 +21,23 @@ from sonic.model import robot_g1
 from sonic.model.model_profile import get_model_profile
 from sonic.model.planner_onnx import SonicKinematicPlanner
 from sonic.model.robot_profile import get_robot_profile
-from sonic.model.rotation_np import heading_quat, quat_inv, quat_mul
-
+from hv2_common.geometry.quaternion_numpy import heading_quat, quat_inv, quat_mul
 
 NUM_BODIES = len(robot_g1.BODY_NAMES)
 CONTROL_FPS = 50.0
-PLANNER_TICK_CONTROL_STEPS = 5       # 10 Hz planner on a 50 Hz control loop
+PLANNER_TICK_CONTROL_STEPS = 5  # 10 Hz planner on a 50 Hz control loop
 PLANNER_TIMEOUT_S = 1.0
 
 STATIC_MODES = frozenset((0, 4, 5, 6, 7, 9))
 BOXING_MODES = frozenset((11, 12, 13, 15, 16))
 RUN_MODE = 3
 CRAWLING_MODE = 8
-LOWER_BODY_IL_IDX = np.array(
-    [0, 1, 3, 4, 6, 7, 9, 10, 13, 14, 17, 18], dtype=np.int64
-)
+LOWER_BODY_IL_IDX = np.array([0, 1, 3, 4, 6, 7, 9, 10, 13, 14, 17, 18], dtype=np.int64)
 IDLE_ADAPT_TRIGGER = 0.10
 IDLE_ADAPT_STOP = 0.05
 IDLE_RECOVER_TRIGGER = 0.045
 IDLE_CENTERING_STEPS = 75  # 1.5 s at the 50 Hz tracker rate
-STAND_CAPTURE_STEPS = 50   # one continuous second at the 50 Hz tracker rate
+STAND_CAPTURE_STEPS = 50  # one continuous second at the 50 Hz tracker rate
 STAND_CAPTURE_MAX_QD_RMS = 0.05
 STAND_CAPTURE_MAX_JOINT_RANGE = 0.05
 STAND_CAPTURE_MAX_TILT_DEG = 8.0
@@ -151,7 +149,8 @@ class PicoReferenceWindow:
         self.gated = bool(gated)
         self.default_replan_period_s = float(
             getattr(config, "sonic_planner_replan_interval_s", 0.1)
-            if replan_period_s is None else replan_period_s
+            if replan_period_s is None
+            else replan_period_s
         )
         if not 0.1 <= self.default_replan_period_s <= 10.0:
             raise ValueError("planner replan period must be in [0.1, 10.0] seconds")
@@ -169,9 +168,9 @@ class PicoReferenceWindow:
         self.replan_count = 0
         atexit.register(self.stop)
         profile = (
-            "PLANNER/G1-only" if self.force_g1
-            else "STREAMED-MOTION/SMPL-only" if self.force_smpl
-            else "dynamic PICO"
+            "PLANNER/G1-only"
+            if self.force_g1
+            else "STREAMED-MOTION/SMPL-only" if self.force_smpl else "dynamic PICO"
         )
         print(
             f"SONIC reference: official-style PICO planner {self.planner.model_path} "
@@ -195,12 +194,8 @@ class PicoReferenceWindow:
         # "best" stand. Use the configured default as a deterministic bootstrap
         # and let the stability-gated capture command replace it with a robust
         # one-second median when the operator judges the robot ready.
-        nominal_physical = np.asarray(
-            self.config.physical_default_angles, dtype=np.float32
-        )
-        nominal_il = self.robot_profile.physical_to_isaaclab(
-            nominal_physical, fill=0.0
-        )
+        nominal_physical = np.asarray(self.config.physical_default_angles, dtype=np.float32)
+        nominal_il = self.robot_profile.physical_to_isaaclab(nominal_physical, fill=0.0)
         self._stable_stand_q_il = np.asarray(nominal_il, np.float64).copy()
         self._stable_stand_rootz = float(self.planner.current_motion.root_pos[0, 2])
 
@@ -252,9 +247,7 @@ class PicoReferenceWindow:
     def step(self) -> None:
         """Advance the installed 50 Hz trajectory after one policy command."""
         if self.initialized:
-            consume_capture = getattr(
-                self.client, "consume_idle_capture_request", None
-            )
+            consume_capture = getattr(self.client, "consume_idle_capture_request", None)
             if callable(consume_capture) and consume_capture():
                 self.request_stable_stand_capture("F1+F3")
             self._ticks += 1
@@ -270,9 +263,7 @@ class PicoReferenceWindow:
     def request_stable_stand_capture(self, source: str = "operator") -> bool:
         """Request a stable measured-joint posture for future IDLE returns."""
         if not self.idle_hold:
-            print(
-                f"[IDLE CAPTURE] Ignored {source} request: IDLE hold is disabled"
-            )
+            print(f"[IDLE CAPTURE] Ignored {source} request: IDLE hold is disabled")
             return False
         self._stand_capture_requested = True
         self._stand_capture_samples.clear()
@@ -299,15 +290,11 @@ class PicoReferenceWindow:
     def _robot_capture_sample(self):
         if self.robot is None or not hasattr(self.robot, "qj"):
             return None
-        q = np.asarray(self.robot.qj, np.float64).reshape(
-            self.robot_profile.physical_dof
-        )
+        q = np.asarray(self.robot.qj, np.float64).reshape(self.robot_profile.physical_dof)
         dq_value = getattr(self.robot, "dqj", None)
         if dq_value is None:
             return None
-        dq = np.asarray(dq_value, np.float64).reshape(
-            self.robot_profile.physical_dof
-        )
+        dq = np.asarray(dq_value, np.float64).reshape(self.robot_profile.physical_dof)
         base_quat = getattr(self.robot, "base_quat_wxyz", None)
         if base_quat is None:
             get_imu = getattr(self.robot, "get_imu", None)
@@ -325,9 +312,7 @@ class PicoReferenceWindow:
         up_z = 1.0 - 2.0 * (quat[1] ** 2 + quat[2] ** 2)
         tilt_deg = float(np.degrees(np.arccos(np.clip(up_z, -1.0, 1.0))))
         root_z = getattr(self.robot, "root_z", np.nan)
-        support_diagnostics = getattr(
-            self.robot, "stand_support_diagnostics", None
-        )
+        support_diagnostics = getattr(self.robot, "stand_support_diagnostics", None)
         support = support_diagnostics() if callable(support_diagnostics) else None
         return {
             "q": q.copy(),
@@ -360,10 +345,8 @@ class PicoReferenceWindow:
 
         q = np.stack([sample["q"] for sample in self._stand_capture_samples])
         dq = np.stack([sample["dq"] for sample in self._stand_capture_samples])
-        tilt = np.asarray(
-            [sample["tilt_deg"] for sample in self._stand_capture_samples]
-        )
-        qd_rms = float(np.sqrt(np.mean(dq ** 2)))
+        tilt = np.asarray([sample["tilt_deg"] for sample in self._stand_capture_samples])
+        qd_rms = float(np.sqrt(np.mean(dq**2)))
         joint_range = float(np.max(np.ptp(q, axis=0)))
         tilt_max = float(np.max(tilt))
         motion_stable = (
@@ -376,21 +359,14 @@ class PicoReferenceWindow:
         support_partially_observed = any(item is not None for item in support)
         if support_observable:
             full_support = all(
-                item["left_supported"] and item["right_supported"]
-                for item in support
+                item["left_supported"] and item["right_supported"] for item in support
             )
-            base_speed_max = float(max(
-                item["base_planar_speed_mps"] for item in support
-            ))
+            base_speed_max = float(max(item["base_planar_speed_mps"] for item in support))
             base_xy = np.stack([item["base_xy"] for item in support])
             base_drift = float(np.linalg.norm(np.ptp(base_xy, axis=0)))
             corner_z_max = float(max(item["max_corner_z_m"] for item in support))
-            foot_corner_range_max = float(max(
-                item["max_foot_corner_range_m"] for item in support
-            ))
-            com_margin_min = float(min(
-                item["com_support_margin_m"] for item in support
-            ))
+            foot_corner_range_max = float(max(item["max_foot_corner_range_m"] for item in support))
+            com_margin_min = float(min(item["com_support_margin_m"] for item in support))
             support_stable = (
                 full_support
                 and base_speed_max <= STAND_CAPTURE_MAX_BASE_SPEED_MPS
@@ -442,9 +418,7 @@ class PicoReferenceWindow:
         # 29-DoF planner trajectory and action history remain untouched, and
         # unavailable physical joints retain their neutral zero slots.
         measured_q = np.median(q, axis=0)
-        measured_q_il = self.robot_profile.physical_to_isaaclab(
-            measured_q, fill=0.0
-        )
+        measured_q_il = self.robot_profile.physical_to_isaaclab(measured_q, fill=0.0)
         self._stable_stand_q_il = np.asarray(measured_q_il, np.float64).copy()
         self._idle_hold_q_il = self._stable_stand_q_il.copy()
         measured_root_z = np.asarray(
@@ -502,9 +476,9 @@ class PicoReferenceWindow:
             self._idle_readapt_stored = True
             self._idle_readapt_state = "idle"
 
-        avg_error = float(np.mean(np.abs(
-            target[LOWER_BODY_IL_IDX] - measured_il[LOWER_BODY_IL_IDX]
-        )))
+        avg_error = float(
+            np.mean(np.abs(target[LOWER_BODY_IL_IDX] - measured_il[LOWER_BODY_IL_IDX]))
+        )
         if self._idle_readapt_state == "idle":
             if avg_error > IDLE_ADAPT_TRIGGER:
                 self._idle_readapt_state = "adapting"
@@ -519,8 +493,7 @@ class PicoReferenceWindow:
 
         if self._idle_readapt_state == "adapting":
             target[LOWER_BODY_IL_IDX] = (
-                0.98 * target[LOWER_BODY_IL_IDX]
-                + 0.02 * measured_il[LOWER_BODY_IL_IDX]
+                0.98 * target[LOWER_BODY_IL_IDX] + 0.02 * measured_il[LOWER_BODY_IL_IDX]
             )
         elif self._idle_readapt_state == "recovering":
             target[LOWER_BODY_IL_IDX] = (
@@ -570,9 +543,7 @@ class PicoReferenceWindow:
         else:
             start = m.joint_pos_il[cur].copy()
         self._idle_centering_start_q_il = np.asarray(start, np.float64).copy()
-        self._idle_centering_rootq = np.asarray(
-            m.root_quat_wxyz[cur], np.float64
-        ).copy()
+        self._idle_centering_rootq = np.asarray(m.root_quat_wxyz[cur], np.float64).copy()
         self._idle_centering_start_rootz = float(m.root_pos[cur, 2])
         self._idle_centering_step = 0
         self._idle_holding = False
@@ -605,23 +576,16 @@ class PicoReferenceWindow:
             )
             phase = np.clip(offsets / IDLE_CENTERING_STEPS, 0.0, 1.0)
             alpha = 0.5 - 0.5 * np.cos(np.pi * phase)
-            dalpha_dt = (
-                0.5 * np.pi * CONTROL_FPS / IDLE_CENTERING_STEPS
-                * np.sin(np.pi * phase)
-            )
+            dalpha_dt = 0.5 * np.pi * CONTROL_FPS / IDLE_CENTERING_STEPS * np.sin(np.pi * phase)
             delta = self._stable_stand_q_il - self._idle_centering_start_q_il
-            held["dof_fut"] = (
-                self._idle_centering_start_q_il[None]
-                + alpha[:, None] * delta[None]
-            )
+            held["dof_fut"] = self._idle_centering_start_q_il[None] + alpha[:, None] * delta[None]
             held["dvel_fut"] = dalpha_dt[:, None] * delta[None]
             held["rootq_fut"] = np.broadcast_to(
                 self._idle_centering_rootq, np.asarray(plan["rootq_fut"]).shape
             ).copy()
             held["root_quat_cur"] = self._idle_centering_rootq.copy()
-            rootz = (
-                self._idle_centering_start_rootz
-                + alpha * (self._stable_stand_rootz - self._idle_centering_start_rootz)
+            rootz = self._idle_centering_start_rootz + alpha * (
+                self._stable_stand_rootz - self._idle_centering_start_rootz
             )
             held["rootz_fut"] = rootz
             held["rootz_cur"] = np.asarray(rootz[0]).copy()
@@ -721,8 +685,9 @@ class PicoReferenceWindow:
             world["speed"] = -1.0
         if int(mode) in (4, 5, 6, 7, 8, 14) and world["height"] < 0.2:
             world["height"] = 0.2
-        self._last_world_nav = {k: v.copy() if isinstance(v, np.ndarray) else v
-                                for k, v in world.items()}
+        self._last_world_nav = {
+            k: v.copy() if isinstance(v, np.ndarray) else v for k, v in world.items()
+        }
         return int(mode), world
 
     def _period_for_mode(self, mode: int) -> float:
@@ -777,9 +742,7 @@ class PicoReferenceWindow:
         # Facing changes likewise run the generated turn before re-holding.
         if self.idle_hold and mode == 0:
             last_mode, last_nav = self._last_cmd
-            facing_changed = not _same_vector(
-                nav["facing"], last_nav["facing"]
-            )
+            facing_changed = not _same_vector(nav["facing"], last_nav["facing"])
             if not facing_changed:
                 entering_idle = last_mode != 0
                 with self._lock:
@@ -906,38 +869,26 @@ class PicoReferenceWindow:
             "body_pos_cur": body_pos,
             "body_quat_cur": body_quat,
             "rootz_cur": np.asarray(plan["rootz_cur"], np.float32).reshape(1),
-            "wrist_dof_smpl": np.zeros(
-                (1, self.model_profile.smpl_future_frames, 6), np.float32
-            ),
+            "wrist_dof_smpl": np.zeros((1, self.model_profile.smpl_future_frames, 6), np.float32),
             # Adapter metadata is not part of the official encoder tensor. It
             # describes a captured stand and whether this window represents an
             # active planner gait. SonicRunner may transform only its local
             # encoder-facing copy; planner recurrence remains untouched.
-            "stable_stand_q_il": np.asarray(
-                self._stable_stand_q_il, np.float32
-            ).copy(),
+            "stable_stand_q_il": np.asarray(self._stable_stand_q_il, np.float32).copy(),
             "stable_stand_root_z": np.float32(self._stable_stand_rootz),
             "reference_gait_active": np.bool_(
                 self.sonic_mode == "g1"
                 and not self._idle_holding
                 and not self._idle_centering
-                and (
-                    self._last_cmd[0] != 0
-                    or self._idle_settling
-                    or self._turn_plan_active
-                )
+                and (self._last_cmd[0] != 0 or self._idle_settling or self._turn_plan_active)
             ),
         }
         if self._smpl_active and smpl is not None:
-            result["smpl_joints_fut"] = np.asarray(
-                smpl["smpl_joints_local"], np.float32
-            )[None]
-            result["smpl_rootq_fut"] = np.asarray(
-                smpl["root_quat_wxyz"], np.float32
-            )[None]
-            result["wrist_dof_smpl"] = np.asarray(
-                smpl["joint_pos_il"], np.float32
-            )[:, [23, 24, 25, 26, 27, 28]][None]
+            result["smpl_joints_fut"] = np.asarray(smpl["smpl_joints_local"], np.float32)[None]
+            result["smpl_rootq_fut"] = np.asarray(smpl["root_quat_wxyz"], np.float32)[None]
+            result["wrist_dof_smpl"] = np.asarray(smpl["joint_pos_il"], np.float32)[
+                :, [23, 24, 25, 26, 27, 28]
+            ][None]
         if self._vr_active and vr is not None:
             pos, quat = vr
             targets = (
@@ -946,25 +897,18 @@ class PicoReferenceWindow:
             )
             result["vr_targets_encoder"] = targets
             result["vr_targets_local"] = True
-        self._last_reference_q_il = np.asarray(
-            result["dof_fut"][0, 0], np.float32
-        ).copy()
-        self._last_reference_dq_il = np.asarray(
-            result["dvel_fut"][0, 0], np.float32
-        ).copy()
-        self._last_reference_root_pos = np.asarray(
-            result["body_pos_cur"][0, 0], np.float32
-        ).copy()
+        self._last_reference_q_il = np.asarray(result["dof_fut"][0, 0], np.float32).copy()
+        self._last_reference_dq_il = np.asarray(result["dvel_fut"][0, 0], np.float32).copy()
+        self._last_reference_root_pos = np.asarray(result["body_pos_cur"][0, 0], np.float32).copy()
         self._last_reference_root_z = np.float32(result["rootz_cur"][0])
         return result
 
     def reference_diagnostics(self) -> dict[str, np.ndarray | np.generic]:
         """Small fixed-shape snapshot for offline planner/plant diagnosis."""
         idle_phase = (
-            3 if self._idle_holding
-            else 2 if self._idle_centering
-            else 1 if self._idle_settling
-            else 0
+            3
+            if self._idle_holding
+            else 2 if self._idle_centering else 1 if self._idle_settling else 0
         )
         return {
             "reference_q_il": self._last_reference_q_il.copy(),
@@ -1003,14 +947,10 @@ class PicoReferenceWindow:
             "teleop_vr_pos": vr_pos,
             "teleop_vr_quat_wxyz": vr_quat,
             "teleop_vr_valid": np.bool_(vr is not None),
-            "teleop_vr_ignored_by_planner_profile": np.bool_(
-                self.force_g1 and vr is not None
-            ),
+            "teleop_vr_ignored_by_planner_profile": np.bool_(self.force_g1 and vr is not None),
             "teleop_age_s": np.float32(self._client_age_s()),
             "teleop_stale": np.bool_(self._stale),
-            "sonic_encoder_mode": np.int32(
-                2 if self._smpl_active else 1 if self._vr_active else 0
-            ),
+            "sonic_encoder_mode": np.int32(2 if self._smpl_active else 1 if self._vr_active else 0),
             "planner_inference_ms": np.float32(self.planner.last_inference_ms),
             "planner_total_ms": np.float32(self.planner.last_total_ms),
             **self.reference_diagnostics(),

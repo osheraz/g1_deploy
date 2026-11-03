@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 import numpy as np
 
-
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
@@ -31,7 +30,7 @@ from sonic.model.inference_backend import (  # noqa: E402
     _apply_builder_math_flags,
     _engine_cache_signature,
 )
-from core.robot.unitree_crc import _lfs_object  # noqa: E402
+from core.robot.unitree_crc import check_crc_library  # noqa: E402
 from core.robot.unitree_dds import configure_process_local_cyclonedds_log  # noqa: E402
 from core.robot.mode import release_active_motion_mode
 from sonic.pico_reference import LOWER_BODY_IL_IDX, PicoReferenceWindow  # noqa: E402
@@ -43,9 +42,7 @@ from sonic.sim import (  # noqa: E402
 
 class MujocoKeyboardBindingTest(unittest.TestCase):
     def test_numeric_keypad_controls_do_not_overlap_viewer_shortcuts(self):
-        self.assertTrue(
-            _KEYPAD_TELEOP_KEYS.isdisjoint(_MUJOCO_DOCUMENTED_VIEWER_KEYS)
-        )
+        self.assertTrue(_KEYPAD_TELEOP_KEYS.isdisjoint(_MUJOCO_DOCUMENTED_VIEWER_KEYS))
 
 
 class RecorderButtonOwnershipTest(unittest.TestCase):
@@ -65,9 +62,7 @@ class RecorderButtonOwnershipTest(unittest.TestCase):
 class UnitreeDdsConfigTest(unittest.TestCase):
     def test_shared_cyclonedds_log_is_replaced_with_process_local_path(self):
         module = SimpleNamespace(
-            ChannelConfigHasInterface=(
-                "<Tracing><OutputFile>/tmp/cdds.LOG</OutputFile></Tracing>"
-            )
+            ChannelConfigHasInterface=("<Tracing><OutputFile>/tmp/cdds.LOG</OutputFile></Tracing>")
         )
         path = configure_process_local_cyclonedds_log(module)
         self.assertEqual(path.parent, Path("/tmp"))
@@ -75,15 +70,20 @@ class UnitreeDdsConfigTest(unittest.TestCase):
         self.assertNotIn(">/tmp/cdds.LOG<", module.ChannelConfigHasInterface)
         self.assertEqual(configure_process_local_cyclonedds_log(module), path)
 
-    def test_unitree_crc_lfs_pointer_is_parsed_strictly(self):
-        oid = "b136a91a7e99c5cf914f465e131f63c897a17107939184a6f85d1a57cf315ade"
-        pointer = (
-            "version https://git-lfs.github.com/spec/v1\n"
-            f"oid sha256:{oid}\n"
-            "size 15136\n"
-        ).encode("ascii")
-        self.assertEqual(_lfs_object(pointer), (oid, 15136))
-        self.assertIsNone(_lfs_object(b"\x7fELF"))
+    def test_unitree_crc_requires_installed_sdk_binary(self):
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "lib").mkdir()
+            for name in ("crc_amd64.so", "crc_aarch64.so"):
+                (root / "lib" / name).write_text("version https://git-lfs.github.com/spec/v1\n")
+            module = SimpleNamespace(__file__=str(root / "crc.py"))
+            with self.assertRaisesRegex(RuntimeError, "git lfs pull"):
+                check_crc_library(module)
+            self.assertEqual(module.__file__, str(root / "crc.py"))
 
 
 class UnitreeMotionModeHandoffTest(unittest.TestCase):
@@ -109,13 +109,9 @@ class UnitreeMotionModeHandoffTest(unittest.TestCase):
             return self.release_status, None
 
     def test_active_service_is_released_before_return(self):
-        client = self._Client(
-            [{"form": "0", "name": "ai"}, {"form": "", "name": ""}]
-        )
+        client = self._Client([{"form": "0", "name": "ai"}, {"form": "", "name": ""}])
         sleeps = []
-        returned = release_active_motion_mode(
-            lambda: client, sleep_fn=sleeps.append
-        )
+        returned = release_active_motion_mode(lambda: client, sleep_fn=sleeps.append)
         self.assertIs(returned, client)
         self.assertEqual(client.timeout, 5.0)
         self.assertTrue(client.initialized)
@@ -123,9 +119,7 @@ class UnitreeMotionModeHandoffTest(unittest.TestCase):
         self.assertEqual(sleeps, [5.0])
 
     def test_release_failure_is_fail_closed(self):
-        client = self._Client(
-            [{"form": "0", "name": "ai"}], release_status=3102
-        )
+        client = self._Client([{"form": "0", "name": "ai"}], release_status=3102)
         with self.assertRaisesRegex(RuntimeError, "ReleaseMode failed"):
             release_active_motion_mode(lambda: client, sleep_fn=lambda _: None)
 
@@ -153,15 +147,10 @@ class DefaultPoseHoldTelemetryTest(unittest.TestCase):
         )
         robot.remote_controller = SimpleNamespace(button=[0] * 16)
         robot.low_cmd = SimpleNamespace(
-            motor_cmd=[
-                SimpleNamespace(q=0.0, qd=0.0, kp=0.0, kd=0.0, tau=0.0)
-                for _ in range(2)
-            ]
+            motor_cmd=[SimpleNamespace(q=0.0, qd=0.0, kp=0.0, kd=0.0, tau=0.0) for _ in range(2)]
         )
         robot.low_state_snapshot_with_age = lambda: (None, age_s)
-        robot.send_cmd = lambda: robot.remote_controller.button.__setitem__(
-            KeyMap.start, 1
-        )
+        robot.send_cmd = lambda: robot.remote_controller.button.__setitem__(KeyMap.start, 1)
         return robot
 
     def test_brief_gap_keeps_unchanged_default_hold_alive(self):
@@ -204,9 +193,7 @@ class TensorRTContractTest(unittest.TestCase):
     def test_fp32_explicitly_clears_tf32_and_fp16(self):
         config = self._Config()
         builder = SimpleNamespace(platform_has_fast_fp16=True)
-        _apply_builder_math_flags(
-            config, builder, self._TRT, fp16=False, allow_tf32=False
-        )
+        _apply_builder_math_flags(config, builder, self._TRT, fp16=False, allow_tf32=False)
         self.assertEqual(config.set_flags, [])
         self.assertEqual(config.cleared_flags, [self._Flags.TF32, self._Flags.FP16])
 
@@ -253,9 +240,7 @@ class TensorRTContractTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             engine = Path(tmp) / "model.engine"
             engine.write_bytes(b"engine")
-            planner = SimpleNamespace(
-                providers=(DIRECT_TENSORRT_PROVIDER,), engine_path=engine
-            )
+            planner = SimpleNamespace(providers=(DIRECT_TENSORRT_PROVIDER,), engine_path=engine)
             runner = SimpleNamespace(
                 encoder_providers=(DIRECT_TENSORRT_PROVIDER,),
                 decoder_providers=(DIRECT_TENSORRT_PROVIDER,),
@@ -336,9 +321,7 @@ class EncoderMaskTest(unittest.TestCase):
         for name, expected in layouts.items():
             with self.subTest(profile=name, mode="g1"):
                 profile = get_model_profile(name)
-                self.assertEqual(
-                    profile.encoder_anchor_order, expected["order"]
-                )
+                self.assertEqual(profile.encoder_anchor_order, expected["order"])
                 g1 = self.build("g1", name)
                 self.assertFalse(g1[:, expected["single"]].any())
                 self.assertTrue(g1[:, expected["multi"]].any())
@@ -372,7 +355,7 @@ class EncoderMaskTest(unittest.TestCase):
                 smpl_rootq_fut=self.rootq[:, :sf],
             )
             self.assertEqual(x.shape, (1, profile.encoder_input_dim), name)
-            np.testing.assert_array_equal(x[0, -sf * 6:].reshape(sf, 6)[:, 2:], 0.0)
+            np.testing.assert_array_equal(x[0, -sf * 6 :].reshape(sf, 6)[:, 2:], 0.0)
 
 
 class PlannerMathTest(unittest.TestCase):
@@ -423,9 +406,7 @@ class PlannerMathTest(unittest.TestCase):
 
         held = ref._apply_idle_hold_to_plan(plan)
 
-        np.testing.assert_allclose(
-            held["dof_fut"], np.broadcast_to(ref._idle_hold_q_il, dof.shape)
-        )
+        np.testing.assert_allclose(held["dof_fut"], np.broadcast_to(ref._idle_hold_q_il, dof.shape))
         np.testing.assert_array_equal(held["dvel_fut"], 0.0)
         np.testing.assert_allclose(
             held["rootq_fut"],
@@ -467,14 +448,10 @@ class PlannerMathTest(unittest.TestCase):
     def test_reference_mask_utility_is_not_used_for_official_action_history(self):
         decoded = np.arange(29, dtype=np.float64)[None]
         projected = G1_23DOF.mask_isaaclab_reference(decoded)
-        np.testing.assert_array_equal(
-            projected[:, G1_23DOF.missing_isaaclab], 0.0
-        )
+        np.testing.assert_array_equal(projected[:, G1_23DOF.missing_isaaclab], 0.0)
         present = np.setdiff1d(np.arange(29), G1_23DOF.missing_isaaclab)
         np.testing.assert_array_equal(projected[:, present], decoded[:, present])
-        np.testing.assert_array_equal(
-            G1_29DOF.mask_isaaclab_reference(decoded), decoded
-        )
+        np.testing.assert_array_equal(G1_29DOF.mask_isaaclab_reference(decoded), decoded)
         # SONIC's official last_action is raw decoder output. The mask above is
         # a reference/projection utility, not the default history contract.
         np.testing.assert_array_equal(decoded, np.arange(29)[None])
@@ -529,9 +506,7 @@ class PlannerMathTest(unittest.TestCase):
         ref._idle_readapt_state = "idle"
         ref.robot_profile = G1_23DOF
         ref._idle_readapt_at_horizon()
-        np.testing.assert_allclose(
-            motion.joint_pos_il[-1, LOWER_BODY_IL_IDX], 0.004, atol=1e-12
-        )
+        np.testing.assert_allclose(motion.joint_pos_il[-1, LOWER_BODY_IL_IDX], 0.004, atol=1e-12)
         self.assertEqual(ref._idle_readapt_state, "adapting")
 
 
@@ -548,8 +523,13 @@ class PicoSemanticsTest(unittest.TestCase):
             "speed": 0.4,
             "height": -1.0,
         }
-        ref._last_cmd = (1, {key: value.copy() if isinstance(value, np.ndarray)
-                             else value for key, value in nav.items()})
+        ref._last_cmd = (
+            1,
+            {
+                key: value.copy() if isinstance(value, np.ndarray) else value
+                for key, value in nav.items()
+            },
+        )
         self.assertTrue(ref._should_replan(1, nav))
 
     def test_idle_small_turn_keeps_last_installed_facing_until_replan(self):
@@ -584,9 +564,7 @@ class PicoSemanticsTest(unittest.TestCase):
         ref._idle_holding = True
         ref._idle_centering = False
         ref._maybe_replan()
-        np.testing.assert_array_equal(
-            ref._last_cmd[1]["facing"], [1.0, 0.0, 0.0]
-        )
+        np.testing.assert_array_equal(ref._last_cmd[1]["facing"], [1.0, 0.0, 0.0])
 
     def test_turn_in_place_is_not_marked_as_idle_stop_transition(self):
         ref = object.__new__(PicoReferenceWindow)
@@ -779,9 +757,7 @@ class PicoSemanticsTest(unittest.TestCase):
         self.assertIsNone(joystick.vr_3point())
         self.assertEqual(joystick.navigation_frame, "world")
         self.assertAlmostEqual(nav["speed"], 4.5)
-        np.testing.assert_allclose(
-            nav["facing"], [np.cos(-0.15), np.sin(-0.15), 0.0], atol=1e-7
-        )
+        np.testing.assert_allclose(nav["facing"], [np.cos(-0.15), np.sin(-0.15), 0.0], atol=1e-7)
         np.testing.assert_allclose(nav["movement"], nav["facing"], atol=1e-7)
 
     def test_unitree_joystick_yaw_rate_follows_gait_scale(self):
@@ -790,9 +766,7 @@ class PicoSemanticsTest(unittest.TestCase):
             from sonic.inputs.pico_client import LocomotionMode
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
-        joystick = JoystickTeleop(
-            locomotion_mode=LocomotionMode.SLOW_WALK, yaw_command_scale=0.40
-        )
+        joystick = JoystickTeleop(locomotion_mode=LocomotionMode.SLOW_WALK, yaw_command_scale=0.40)
         joystick.set_axes(lx=0.0, ly=1.0, rx=1.0)
         joystick.tick(0.1)
         nav = joystick.nav_command()
@@ -876,9 +850,7 @@ class PicoSemanticsTest(unittest.TestCase):
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
 
-        remote = SimpleNamespace(
-            lx=0.0, ly=0.0, rx=0.0, ry=0.0, button=[0] * 16
-        )
+        remote = SimpleNamespace(lx=0.0, ly=0.0, rx=0.0, ry=0.0, button=[0] * 16)
         joystick = GamepadManagerTeleop()
         self.assertFalse(joystick.control_started)
         self.assertEqual(joystick.mode(), LocomotionMode.IDLE)
@@ -947,9 +919,7 @@ class PicoSemanticsTest(unittest.TestCase):
         except ModuleNotFoundError as exc:
             self.skipTest(f"deployment transport dependency is unavailable: {exc}")
 
-        remote = SimpleNamespace(
-            lx=0.0, ly=0.0, rx=0.0, ry=0.0, button=[0] * 16
-        )
+        remote = SimpleNamespace(lx=0.0, ly=0.0, rx=0.0, ry=0.0, button=[0] * 16)
         joystick = GamepadManagerTeleop()
         remote.button[KeyMap.start] = 1
         joystick.update_remote(remote)
@@ -1024,17 +994,29 @@ class ReleasedModelSelectionTest(unittest.TestCase):
             {"name": "height", "dtype": "f32", "shape": [1]},
             {"name": "vr_position", "dtype": "f32", "shape": [9]},
         ]
-        header = json.dumps({
-            "v": 1, "endian": "le", "count": 1, "fields": fields,
-        }, separators=(",", ":")).encode().ljust(HEADER_SIZE, b"\0")
-        payload = b"".join((
-            struct.pack("<i", 1),
-            struct.pack("<fff", 1.0, 0.0, 0.0),
-            struct.pack("<fff", 1.0, 0.0, 0.0),
-            struct.pack("<f", 0.2),
-            struct.pack("<f", -1.0),
-            struct.pack("<fffffffff", *np.arange(9, dtype=np.float32)),
-        ))
+        header = (
+            json.dumps(
+                {
+                    "v": 1,
+                    "endian": "le",
+                    "count": 1,
+                    "fields": fields,
+                },
+                separators=(",", ":"),
+            )
+            .encode()
+            .ljust(HEADER_SIZE, b"\0")
+        )
+        payload = b"".join(
+            (
+                struct.pack("<i", 1),
+                struct.pack("<fff", 1.0, 0.0, 0.0),
+                struct.pack("<fff", 1.0, 0.0, 0.0),
+                struct.pack("<f", 0.2),
+                struct.pack("<f", -1.0),
+                struct.pack("<fffffffff", *np.arange(9, dtype=np.float32)),
+            )
+        )
         decoded = decode_planner_message(b"planner" + header + payload)
 
         client = object.__new__(PicoClient)
@@ -1099,13 +1081,34 @@ class ReleasedModelSelectionTest(unittest.TestCase):
 
 class PreparedClipTest(unittest.TestCase):
     def test_neutral_clip_matches_configured_present_pose(self):
-        clip = np.load(ROOT / "sonic/model/motion_neutral_default.npz")
-        expected = np.array([
-            -0.312, 0.0, 0.0, 0.669, -0.363, 0.0,
-            -0.312, 0.0, 0.0, 0.669, -0.363, 0.0,
-            0.0, 0.2, 0.2, 0.0, 0.6, 0.0,
-            0.2, -0.2, 0.0, 0.6, 0.0,
-        ])
+        clip = np.load(ROOT / "sonic/assets/motions/motion_neutral_default.npz")
+        expected = np.array(
+            [
+                -0.312,
+                0.0,
+                0.0,
+                0.669,
+                -0.363,
+                0.0,
+                -0.312,
+                0.0,
+                0.0,
+                0.669,
+                -0.363,
+                0.0,
+                0.0,
+                0.2,
+                0.2,
+                0.0,
+                0.6,
+                0.0,
+                0.2,
+                -0.2,
+                0.0,
+                0.6,
+                0.0,
+            ]
+        )
         np.testing.assert_allclose(
             G1_23DOF.isaaclab_to_physical(clip["dof_il"][0]), expected, atol=1e-7
         )
@@ -1120,10 +1123,33 @@ class PreparedClipTest(unittest.TestCase):
         publisher = object.__new__(RobotFeedbackPublisher)
         publisher.robot_profile = G1_23DOF
         q29 = publisher.expand_to_mujoco(q23)
-        present_mj = np.array([
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-            15, 16, 17, 18, 19, 22, 23, 24, 25, 26,
-        ])
+        present_mj = np.array(
+            [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                15,
+                16,
+                17,
+                18,
+                19,
+                22,
+                23,
+                24,
+                25,
+                26,
+            ]
+        )
         missing_mj = np.array([13, 14, 20, 21, 27, 28])
         np.testing.assert_array_equal(q29[present_mj], q23)
         np.testing.assert_array_equal(q29[missing_mj], 0.0)
@@ -1146,10 +1172,14 @@ class EpisodeAnalysisTest(unittest.TestCase):
                 command_saturated_23=np.zeros((4, 23), bool),
                 sonic_missing_action_raw=np.zeros((4, 6)),
             )
-            (ep / "meta.json").write_text(json.dumps({
-                "control_dt": 0.02,
-                "sonic_missing_action_order": list(G1_23DOF.missing_names),
-            }))
+            (ep / "meta.json").write_text(
+                json.dumps(
+                    {
+                        "control_dt": 0.02,
+                        "sonic_missing_action_order": list(G1_23DOF.missing_names),
+                    }
+                )
+            )
             output = report(ep)
             self.assertIn("target 50.0 Hz", output)
             self.assertIn("absolute pelvis pitch", output)

@@ -81,7 +81,6 @@ class RobotInterface:
             )
         self._init_low_cmd()
 
-
     def _init_hg(self):
         self.low_cmd = unitree_hg_msg_dds__LowCmd_()
         self.low_state = unitree_hg_msg_dds__LowState_()
@@ -91,15 +90,11 @@ class RobotInterface:
         self.lowcmd_publisher_ = ChannelPublisher(self.config.lowcmd_topic, LowCmdHG)
         self.lowcmd_publisher_.Init()
 
-        self.lowstate_subscriber = ChannelSubscriber(
-            self.config.lowstate_topic, LowStateHG
-        )
+        self.lowstate_subscriber = ChannelSubscriber(self.config.lowstate_topic, LowStateHG)
         self.lowstate_subscriber.Init(self._low_state_hg_handler, 10)
         if self.config.require_torso_imu or self.config.imu_type == "torso":
             self._torso_imu = unitree_hg_msg_dds__IMUState_()
-            self.torso_imu_subscriber = ChannelSubscriber(
-                self.config.torso_imu_topic, IMUStateHG
-            )
+            self.torso_imu_subscriber = ChannelSubscriber(self.config.torso_imu_topic, IMUStateHG)
             self.torso_imu_subscriber.Init(self._torso_imu_handler, 50)
 
     def _init_go(self):
@@ -109,9 +104,7 @@ class RobotInterface:
         self.lowcmd_publisher_ = ChannelPublisher(self.config.lowcmd_topic, LowCmdGo)
         self.lowcmd_publisher_.Init()
 
-        self.lowstate_subscriber = ChannelSubscriber(
-            self.config.lowstate_topic, LowStateGo
-        )
+        self.lowstate_subscriber = ChannelSubscriber(self.config.lowstate_topic, LowStateGo)
         self.lowstate_subscriber.Init(self._low_state_go_handler, 10)
 
     def _init_low_cmd(self):
@@ -216,7 +209,6 @@ class RobotInterface:
     def torso_imu_nearest(self, target_monotonic: float):
         return self._nearest_history_sample(self._torso_imu_history, target_monotonic)
 
-
     def zero_torque_state(self):
         print("Enter zero torque state.")
         create_zero_cmd(self.low_cmd)
@@ -244,12 +236,8 @@ class RobotInterface:
         for i in range(num_step):
             state, age = self.low_state_snapshot_with_age()
             if age > self.config.max_low_state_age_s:
-                raise RuntimeError(
-                    f"LowState became stale while moving to default ({age:.3f}s)"
-                )
-            max_dq = max(
-                abs(float(state.motor_state[motor_idx].dq)) for motor_idx in dof_idx
-            )
+                raise RuntimeError(f"LowState became stale while moving to default ({age:.3f}s)")
+            max_dq = max(abs(float(state.motor_state[motor_idx].dq)) for motor_idx in dof_idx)
             if max_dq > self.config.max_joint_velocity:
                 raise RuntimeError(
                     f"measured joint velocity {max_dq:.2f}rad/s while moving to "
@@ -309,7 +297,6 @@ class RobotInterface:
             self.send_cmd()
             time.sleep(self.config.control_dt)
 
-
     def update_joint_state(self, state=None):
         state = self.low_state_snapshot() if state is None else state
         for i, motor_idx in enumerate(self.config.action_joint2motor_idx):
@@ -351,13 +338,11 @@ class RobotInterface:
         tau_est = np.full(count, np.nan, np.float32)
         for i in range(count):
             motor = states[i]
-            raw_temp = np.asarray(
-                getattr(motor, "temperature", np.nan), dtype=np.float32
-            ).reshape(-1)
-            temperature[i, :min(2, raw_temp.size)] = raw_temp[:2]
-            motor_error[i] = int(getattr(
-                motor, "motorstate", getattr(motor, "lost", -1)
-            ))
+            raw_temp = np.asarray(getattr(motor, "temperature", np.nan), dtype=np.float32).reshape(
+                -1
+            )
+            temperature[i, : min(2, raw_temp.size)] = raw_temp[:2]
+            motor_error[i] = int(getattr(motor, "motorstate", getattr(motor, "lost", -1)))
             tau_est[i] = float(getattr(motor, "tau_est", np.nan))
         return {
             "q": q,

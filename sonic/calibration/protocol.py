@@ -5,6 +5,7 @@ calibration launch from first moving a real robot to a hard-coded posture.  A
 runner must validate the captured pose, add these offsets, and apply the normal
 joint PD gains.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,60 +15,156 @@ from typing import Iterable
 
 import numpy as np
 
-
 SCHEMA = "e_skin.suspended_calibration_plan.v1"
 DT = 0.02
 
 MOTOR_NAMES = (
-    "left_hip_pitch", "left_hip_roll", "left_hip_yaw", "left_knee",
-    "left_ankle_pitch", "left_ankle_roll", "right_hip_pitch",
-    "right_hip_roll", "right_hip_yaw", "right_knee",
-    "right_ankle_pitch", "right_ankle_roll", "waist_yaw", "waist_roll",
-    "waist_pitch", "left_shoulder_pitch", "left_shoulder_roll",
-    "left_shoulder_yaw", "left_elbow", "left_wrist_roll",
-    "left_wrist_pitch", "left_wrist_yaw", "right_shoulder_pitch",
-    "right_shoulder_roll", "right_shoulder_yaw", "right_elbow",
-    "right_wrist_roll", "right_wrist_pitch", "right_wrist_yaw",
+    "left_hip_pitch",
+    "left_hip_roll",
+    "left_hip_yaw",
+    "left_knee",
+    "left_ankle_pitch",
+    "left_ankle_roll",
+    "right_hip_pitch",
+    "right_hip_roll",
+    "right_hip_yaw",
+    "right_knee",
+    "right_ankle_pitch",
+    "right_ankle_roll",
+    "waist_yaw",
+    "waist_roll",
+    "waist_pitch",
+    "left_shoulder_pitch",
+    "left_shoulder_roll",
+    "left_shoulder_yaw",
+    "left_elbow",
+    "left_wrist_roll",
+    "left_wrist_pitch",
+    "left_wrist_yaw",
+    "right_shoulder_pitch",
+    "right_shoulder_roll",
+    "right_shoulder_yaw",
+    "right_elbow",
+    "right_wrist_roll",
+    "right_wrist_pitch",
+    "right_wrist_yaw",
 )
 
 PRESENT_23 = np.array(
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-     15, 16, 17, 18, 19, 22, 23, 24, 25, 26],
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19, 22, 23, 24, 25, 26],
     dtype=np.int64,
 )
 LEG_MOTORS = np.arange(12, dtype=np.int64)
 
 # Absolute PR-mode limits from the 23-DoF MJCF.  Missing motors remain zero.
 LOWER_23 = np.array(
-    [-2.5307, -0.5236, -2.7576, -0.0873, -0.8727, -0.2618,
-     -2.5307, -2.9671, -2.7576, -0.0873, -0.8727, -0.2618,
-     -2.6180, -3.0892, -1.5882, -2.6180, -1.0472, -1.9722,
-     -3.0892, -2.2515, -2.6180, -1.0472, -1.9722],
+    [
+        -2.5307,
+        -0.5236,
+        -2.7576,
+        -0.0873,
+        -0.8727,
+        -0.2618,
+        -2.5307,
+        -2.9671,
+        -2.7576,
+        -0.0873,
+        -0.8727,
+        -0.2618,
+        -2.6180,
+        -3.0892,
+        -1.5882,
+        -2.6180,
+        -1.0472,
+        -1.9722,
+        -3.0892,
+        -2.2515,
+        -2.6180,
+        -1.0472,
+        -1.9722,
+    ],
     dtype=np.float64,
 )
 UPPER_23 = np.array(
-    [2.8798, 2.9671, 2.7576, 2.8798, 0.5236, 0.2618,
-     2.8798, 0.5236, 2.7576, 2.8798, 0.5236, 0.2618,
-     2.6180, 2.6704, 2.2515, 2.6180, 2.0944, 1.9722,
-     2.6704, 1.5882, 2.6180, 2.0944, 1.9722],
+    [
+        2.8798,
+        2.9671,
+        2.7576,
+        2.8798,
+        0.5236,
+        0.2618,
+        2.8798,
+        0.5236,
+        2.7576,
+        2.8798,
+        0.5236,
+        0.2618,
+        2.6180,
+        2.6704,
+        2.2515,
+        2.6180,
+        2.0944,
+        1.9722,
+        2.6704,
+        1.5882,
+        2.6180,
+        2.0944,
+        1.9722,
+    ],
     dtype=np.float64,
 )
 
 # Screening is the only physical default.  The full range is a second-stage
 # protocol that must be selected explicitly after screening data is reviewed.
 SCREENING_AMPLITUDE = {
-    0: .08, 1: .06, 2: .06, 3: .10, 4: .06, 5: .035,
-    6: .08, 7: .06, 8: .06, 9: .10, 10: .06, 11: .035,
-    12: .06,
-    15: .10, 16: .08, 17: .08, 18: .10, 19: .08,
-    22: .10, 23: .08, 24: .08, 25: .10, 26: .08,
+    0: 0.08,
+    1: 0.06,
+    2: 0.06,
+    3: 0.10,
+    4: 0.06,
+    5: 0.035,
+    6: 0.08,
+    7: 0.06,
+    8: 0.06,
+    9: 0.10,
+    10: 0.06,
+    11: 0.035,
+    12: 0.06,
+    15: 0.10,
+    16: 0.08,
+    17: 0.08,
+    18: 0.10,
+    19: 0.08,
+    22: 0.10,
+    23: 0.08,
+    24: 0.08,
+    25: 0.10,
+    26: 0.08,
 }
 FULL_AMPLITUDE = {
-    0: .25, 1: .18, 2: .20, 3: .35, 4: .20, 5: .10,
-    6: .25, 7: .18, 8: .20, 9: .35, 10: .20, 11: .10,
-    12: .18,
-    15: .30, 16: .25, 17: .25, 18: .35, 19: .25,
-    22: .30, 23: .25, 24: .25, 25: .35, 26: .25,
+    0: 0.25,
+    1: 0.18,
+    2: 0.20,
+    3: 0.35,
+    4: 0.20,
+    5: 0.10,
+    6: 0.25,
+    7: 0.18,
+    8: 0.20,
+    9: 0.35,
+    10: 0.20,
+    11: 0.10,
+    12: 0.18,
+    15: 0.30,
+    16: 0.25,
+    17: 0.25,
+    18: 0.35,
+    19: 0.25,
+    22: 0.30,
+    23: 0.25,
+    24: 0.25,
+    25: 0.35,
+    26: 0.25,
 }
 
 
@@ -144,7 +241,7 @@ def build_plan(
     fractions = (
         [0.0, 1.0, 0.0, -1.0, 0.0]
         if protocol == "screening"
-        else [0.0, .25, .5, 1.0, .5, 0.0, -.25, -.5, -1.0, -.5, 0.0, .25, 0.0]
+        else [0.0, 0.25, 0.5, 1.0, 0.5, 0.0, -0.25, -0.5, -1.0, -0.5, 0.0, 0.25, 0.0]
     )
 
     phases: list[str] = []
@@ -186,8 +283,7 @@ def build_plan(
         # Small dynamic probes estimate lag without the high accelerations of a
         # chirp.  Static inverse fitting deliberately ignores these samples.
         for frequency, scale, seconds in (
-            ((.20, .50, 5.0), (.55, .25, 4.0))
-            if protocol == "full" else ((.20, .40, 4.0),)
+            ((0.20, 0.50, 5.0), (0.55, 0.25, 4.0)) if protocol == "full" else ((0.20, 0.40, 4.0),)
         ):
             count = int(round(seconds / dt))
             prior = float(current[motor])
@@ -224,17 +320,33 @@ def save_plan(plan: CalibrationPlan, path: Path | str) -> Path:
     plan.validate()
     path = Path(path).expanduser().absolute()
     path.parent.mkdir(parents=True, exist_ok=True)
-    fields = ["schema", "protocol", "scope", "sample", "time_s", "phase",
-              "active_motor", "direction"] + [f"offset_{i}" for i in range(29)]
+    fields = [
+        "schema",
+        "protocol",
+        "scope",
+        "sample",
+        "time_s",
+        "phase",
+        "active_motor",
+        "direction",
+    ] + [f"offset_{i}" for i in range(29)]
     with path.open("w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(fields)
         for k in range(len(plan.time_s)):
-            writer.writerow([
-                SCHEMA, plan.protocol, plan.scope, k, f"{plan.time_s[k]:.9f}",
-                plan.phase[k], int(plan.active_motor[k]), int(plan.direction[k]),
-                *[f"{value:.9f}" for value in plan.offsets[k]],
-            ])
+            writer.writerow(
+                [
+                    SCHEMA,
+                    plan.protocol,
+                    plan.scope,
+                    k,
+                    f"{plan.time_s[k]:.9f}",
+                    plan.phase[k],
+                    int(plan.active_motor[k]),
+                    int(plan.direction[k]),
+                    *[f"{value:.9f}" for value in plan.offsets[k]],
+                ]
+            )
     return path
 
 
@@ -258,9 +370,7 @@ def load_plan(path: Path | str) -> CalibrationPlan:
         phase=np.asarray([row["phase"] for row in rows]),
         active_motor=np.asarray([int(row["active_motor"]) for row in rows]),
         direction=np.asarray([int(row["direction"]) for row in rows]),
-        offsets=np.asarray(
-            [[float(row[f"offset_{i}"]) for i in range(29)] for row in rows]
-        ),
+        offsets=np.asarray([[float(row[f"offset_{i}"]) for i in range(29)] for row in rows]),
         protocol=protocol,
         scope=scope,
     )

@@ -12,7 +12,7 @@ from sonic.model.model_profile import get_model_profile
 
 # fixed index sets (IsaacLab order)
 LOWER_JOINT_IL_IDX = robot_g1.ISAACLAB_TO_MUJOCO_DOF[:12]  # legs: mujoco 0..11 -> isaaclab
-WRIST_IL_IDX = np.array([23, 24, 25, 26, 27, 28])         # wrists for smpl term
+WRIST_IL_IDX = np.array([23, 24, 25, 26, 27, 28])  # wrists for smpl term
 # Official G1 carrier bodies and the endpoint names exposed by SONIC's VR3
 # interface.  Slot 3 is a virtual head/neck endpoint carried by torso_link; it
 # is not the torso-link origin.
@@ -26,15 +26,11 @@ VR_ENDPOINT_NAMES = (
     "right_wrist_endpoint",
     "virtual_head_endpoint",
 )
-VR_BODY_IDX = np.array(
-    [robot_g1.BODY_NAMES.index(name) for name in VR_CARRIER_BODY_NAMES]
-)
+VR_BODY_IDX = np.array([robot_g1.BODY_NAMES.index(name) for name in VR_CARRIER_BODY_NAMES])
 VR_ENDPOINT_OFFSETS = np.array(
     [[0.18, -0.025, 0.0], [0.18, 0.025, 0.0], [0.0, 0.0, 0.35]],
     dtype=np.float64,
 )
-# Backward-compatible name used by historical Stage 2 runners and logs.
-VR_OFFSETS = VR_ENDPOINT_OFFSETS
 ANCHOR_BODY_IDX = robot_g1.BODY_NAMES.index(robot_g1.ANCHOR_BODY)  # pelvis == 0
 
 ENCODER_MODE_IDX = {"g1": 0, "teleop": 1, "smpl": 2, "soma": 3}
@@ -50,13 +46,22 @@ DEC_TERM_DIMS = [64, 30, 290, 290, 290, 30]
 
 
 # numpy quat/rotation primitives live in the shared rotation lib (wxyz, torch-free deploy mirror)
-from sonic.model.rotation_np import heading_quat, matrix_from_quat, quat_apply, quat_conjugate, quat_inv, quat_mul, quat_rotate, subtract_frame_transforms
+from hv2_common.geometry.quaternion_numpy import (
+    heading_quat,
+    matrix_from_quat,
+    quat_apply,
+    quat_conjugate,
+    quat_inv,
+    quat_mul,
+    subtract_frame_transforms,
+)
 
 
 def quat_to_rot6d(q):
     """6D orientation in SONIC's on-wire order: first two COLUMNS of R, interleaved
-    (mat[...,:2].reshape) to match the released encoder. NOT motion_diffusion's block-order rot6d."""
-    mat = matrix_from_quat(q)                      # (...,3,3)
+    (mat[...,:2].reshape) to match the released encoder. NOT motion_diffusion's block-order rot6d.
+    """
+    mat = matrix_from_quat(q)  # (...,3,3)
     return mat[..., :2].reshape(q.shape[:-1] + (6,))
 
 
@@ -103,19 +108,16 @@ def build_encoder_obs(
     SMPL positions are the publisher's already pelvis-local ``(N,F,24,3)``
     representation; root quaternions are world WXYZ values.
     """
-    profile = (
-        get_model_profile(model_profile)
-        if isinstance(model_profile, str)
-        else model_profile
-    )
+    profile = get_model_profile(model_profile) if isinstance(model_profile, str) else model_profile
     gf = profile.g1_future_frames
     sf = profile.smpl_future_frames
     rq = np.asarray(robot_anchor_quat_wxyz, dtype=np.float64).reshape(-1, 4)  # (N,4)
     N = rq.shape[0]
     dof = np.asarray(dof_fut, dtype=np.float64).reshape(N, gf, 29).copy()
     dvel = np.asarray(dvel_fut, dtype=np.float64).reshape(N, gf, 29).copy()
-    if hold_idx is not None:                                # locked absent joints -> default 0, not the ref motion
-        dof[:, :, hold_idx] = 0.0; dvel[:, :, hold_idx] = 0.0
+    if hold_idx is not None:  # locked absent joints -> default 0, not the ref motion
+        dof[:, :, hold_idx] = 0.0
+        dvel[:, :, hold_idx] = 0.0
 
     # 1. encoder_index: mode-id in slot 0 (g1=0/teleop=1/smpl=2), rest zeros (NOT one-hot)
     t1 = np.zeros((N, 4))
@@ -131,26 +133,26 @@ def build_encoder_obs(
     ref_q = np.asarray(rootq_fut, dtype=np.float64).reshape(N, gf, 4)
     robot_orientation = heading_quat(rq) if profile.heading_normalized else rq
     dif = quat_mul(quat_inv(robot_orientation[:, None, :]), ref_q)
-    t4 = quat_to_rot6d(dif).reshape(N, -1)                   # 10*6
+    t4 = quat_to_rot6d(dif).reshape(N, -1)  # 10*6
 
     # 5. command_multi_future_lower_body (240): [lb_pos_f0..f9 (120) | lb_vel_f0..f9 (120)]
-    lb_pos = dof[:, :, LOWER_JOINT_IL_IDX].reshape(N, -1)    # 10*12
+    lb_pos = dof[:, :, LOWER_JOINT_IL_IDX].reshape(N, -1)  # 10*12
     lb_vel = dvel[:, :, LOWER_JOINT_IL_IDX].reshape(N, -1)
     t5 = np.concatenate([lb_pos, lb_vel], axis=1)
 
     # 6. vr_3point_local_target (9): 3 endpoints in desired-pose pelvis frame.
     bpc = np.asarray(body_pos_cur, dtype=np.float64).reshape(N, -1, 3)
     bqc = np.asarray(body_quat_cur, dtype=np.float64).reshape(N, -1, 4)
-    a_pos = bpc[:, ANCHOR_BODY_IDX]                          # (N,3) ref pelvis pos
-    a_q = bqc[:, ANCHOR_BODY_IDX]                            # (N,4) ref pelvis quat
-    if vr_targets is None:                                  # from motion: body pos + endpoint offset
-        vr_q = bqc[:, VR_BODY_IDX]                           # (N,3,4)
+    a_pos = bpc[:, ANCHOR_BODY_IDX]  # (N,3) ref pelvis pos
+    a_q = bqc[:, ANCHOR_BODY_IDX]  # (N,4) ref pelvis quat
+    if vr_targets is None:  # from motion: body pos + endpoint offset
+        vr_q = bqc[:, VR_BODY_IDX]  # (N,3,4)
         vr_pos_w = bpc[:, VR_BODY_IDX] + quat_apply(vr_q, VR_ENDPOINT_OFFSETS[None])
-    elif vr_targets_local:                                  # explicit local pass-through
+    elif vr_targets_local:  # explicit local pass-through
         vr_pos_local, vr_q_local = _validated_vr_targets(vr_targets, N)
         t6 = vr_pos_local.reshape(N, -1)
         t7 = vr_q_local.reshape(N, -1)
-    else:                                                   # external: already the head/hand targets
+    else:  # external: already the head/hand targets
         vr_pos_w, vr_q = _validated_vr_targets(vr_targets, N)
     if vr_targets is None or not vr_targets_local:
         vr_diff = vr_pos_w - a_pos[:, None, :]
@@ -161,10 +163,8 @@ def build_encoder_obs(
         t7 = quat_mul(quat_inv(a_q[:, None, :]), vr_q).reshape(N, -1)
 
     # 8. motion_anchor_ori_b (6): ref-vs-robot root ori, 6D (current)
-    _, ori8 = subtract_frame_transforms(
-        np.zeros((N, 3)), robot_orientation, np.zeros((N, 3)), a_q
-    )
-    t8 = quat_to_rot6d(ori8)                                 # (N,6)
+    _, ori8 = subtract_frame_transforms(np.zeros((N, 3)), robot_orientation, np.zeros((N, 3)), a_q)
+    t8 = quat_to_rot6d(ori8)  # (N,6)
 
     # 9. command_z (1): ref root z at current frame
     t9 = np.asarray(rootz_cur, dtype=np.float64).reshape(N, 1).copy()
@@ -172,9 +172,7 @@ def build_encoder_obs(
     # 10/11. SMPL local joints and root orientation.
     if smpl_joints_fut is None or smpl_rootq_fut is None:
         if mode == "smpl":
-            raise ValueError(
-                "SMPL encoder mode requires smpl_joints_fut and smpl_rootq_fut"
-            )
+            raise ValueError("SMPL encoder mode requires smpl_joints_fut and smpl_rootq_fut")
         t10 = np.zeros((N, sf * 24 * 3))
         t11 = np.zeros((N, sf * 6))
     else:
@@ -213,34 +211,48 @@ def build_encoder_obs(
     }[profile.encoder_anchor_order]
     if profile.include_root_height_terms:
         layout = (
-            "mode", "joint_future", "root_height_future",
-            "root_height_current", *anchors,
-            "lower_body_future", "vr_position", "vr_orientation",
-            "smpl_joints", "smpl_anchor", "smpl_wrists",
+            "mode",
+            "joint_future",
+            "root_height_future",
+            "root_height_current",
+            *anchors,
+            "lower_body_future",
+            "vr_position",
+            "vr_orientation",
+            "smpl_joints",
+            "smpl_anchor",
+            "smpl_wrists",
         )
     else:
         layout = (
-            "mode", "joint_future", *anchors, "lower_body_future",
-            "vr_position", "vr_orientation", "smpl_joints",
-            "smpl_anchor", "smpl_wrists",
+            "mode",
+            "joint_future",
+            *anchors,
+            "lower_body_future",
+            "vr_position",
+            "vr_orientation",
+            "smpl_joints",
+            "smpl_anchor",
+            "smpl_wrists",
         )
     required_parts = {
         "g1": {"mode", "joint_future", "anchor_multi"},
         "teleop": {
-            "mode", "anchor_single", "lower_body_future",
-            "vr_position", "vr_orientation",
+            "mode",
+            "anchor_single",
+            "lower_body_future",
+            "vr_position",
+            "vr_orientation",
         },
         "smpl": {"mode", "smpl_joints", "smpl_anchor", "smpl_wrists"},
     }
     if mode not in required_parts:
         raise ValueError(
-            f"unsupported SONIC encoder mode {mode!r}; expected one of "
-            f"{sorted(required_parts)}"
+            f"unsupported SONIC encoder mode {mode!r}; expected one of " f"{sorted(required_parts)}"
         )
     keep = required_parts[mode]
     masked_parts = [
-        values[name] if name in keep else np.zeros_like(values[name])
-        for name in layout
+        values[name] if name in keep else np.zeros_like(values[name]) for name in layout
     ]
     obs = np.concatenate(masked_parts, axis=1).astype(np.float32)
     if obs.shape != (N, profile.encoder_input_dim):
@@ -254,17 +266,21 @@ def build_encoder_obs(
 # decoder obs (994), BATCHED over leading dim N
 def build_decoder_obs(token64, history):
     """(N,994) buffer: token(64) | angvel(30) | jpos_rel(290) | jvel(290) | last_act(290) | grav(30). History RAW, frame-major.
-    token64 (N,64); history arrays leading N: ang_vel (N,10,3), joint_pos_rel/joint_vel/last_action (N,10,29), gravity (N,10,3)."""
+    token64 (N,64); history arrays leading N: ang_vel (N,10,3), joint_pos_rel/joint_vel/last_action (N,10,29), gravity (N,10,3).
+    """
     tok = np.asarray(token64, dtype=np.float64).reshape(-1, 64)
     N = tok.shape[0]
-    obs = np.concatenate([
-        tok,
-        np.asarray(history["ang_vel"]).reshape(N, -1),         # 10*3
-        np.asarray(history["joint_pos_rel"]).reshape(N, -1),   # 10*29
-        np.asarray(history["joint_vel"]).reshape(N, -1),       # 10*29
-        np.asarray(history["last_action"]).reshape(N, -1),     # 10*29
-        np.asarray(history["gravity"]).reshape(N, -1),         # 10*3
-    ], axis=1).astype(np.float32)
+    obs = np.concatenate(
+        [
+            tok,
+            np.asarray(history["ang_vel"]).reshape(N, -1),  # 10*3
+            np.asarray(history["joint_pos_rel"]).reshape(N, -1),  # 10*29
+            np.asarray(history["joint_vel"]).reshape(N, -1),  # 10*29
+            np.asarray(history["last_action"]).reshape(N, -1),  # 10*29
+            np.asarray(history["gravity"]).reshape(N, -1),  # 10*3
+        ],
+        axis=1,
+    ).astype(np.float32)
     assert obs.shape[1] == 994, obs.shape
     return obs
 

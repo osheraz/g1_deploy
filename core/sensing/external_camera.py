@@ -39,7 +39,6 @@ class ExtCamRGB(threading.Thread):
             self.running = False
             return
 
-
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(self.width))
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(self.height))
@@ -58,7 +57,7 @@ class ExtCamRGB(threading.Thread):
             if not ok or frame is None:
                 time.sleep(0.005)
                 continue
-            
+
             self.latest_bgr = frame
             self.frame_count += 1
 

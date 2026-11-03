@@ -4,12 +4,11 @@ from typing import Optional
 from pathlib import Path
 
 import numpy as np
-import math
 import torch
 import onnxruntime as ort
 
-from core.sensing.depth_client import depth_to_obs_vector_match_sim
-from core.history import HistoryHandler
+from vigor.depth import depth_to_obs_vector_match_sim
+from humanoidverse2.observations.history import HistoryHandler
 from core.config import Config
 
 
@@ -26,13 +25,16 @@ class PolicyRunner:
         self.ort_sess = None
         self.onnx_input_names = []
 
-        self.reference = None      # SonicRunner has one; this runner does not
+        self.reference = None  # SonicRunner has one; this runner does not
         self.action = np.zeros(config.num_actions, dtype=np.float32)
         self.action_ema = config.action_ema  # 1.0 off, lower = smoother
 
         self.history_config_long = config.history_actor_long_config
         self.history_handler = HistoryHandler(
-            history_config=self.history_config_long,
+            num_envs=1,
+            history_config={"policy": self.history_config_long},
+            device="cpu",
+            fill_first_sample=False,
             obs_dims=config.obs_dim,
         )
 
@@ -55,8 +57,7 @@ class PolicyRunner:
         path = Path(self.config.policy_path)
 
         if not path.exists():
-            print(f"Policy path does not exist: {path}")
-            return
+            raise FileNotFoundError(f"Policy path does not exist: {path}")
 
         suffix = path.suffix.lower()
 
@@ -78,25 +79,14 @@ class PolicyRunner:
             self.policy_type = "jit"
             print(f"\nLoaded JIT policy from {path}\n")
             return
-        except Exception:
+        except RuntimeError:
             pass
 
-        try:
-            from vigor.student_model import DeployStudentPolicy
+        from vigor.student_model import DeployStudentPolicy
 
-            self.device = "cuda"
-            self.policy = DeployStudentPolicy(
-                path, self.config, device=self.device
-            ).student
-            self.policy_type = "torch"
-            return
-
-        except Exception as e:
-            print(f"Failed to load policy: {e}")
-            self.policy = None
-            self.policy_type = None
-
-        print(self.policy_type)
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.policy = DeployStudentPolicy(path, self.config, device=self.device).student
+        self.policy_type = "torch"
 
     # -------- depth + history helpers --------
 
@@ -134,7 +124,7 @@ class PolicyRunner:
             if key in hc:
                 # features already scaled in RobotInterface.get_base_features_scaled
                 v = arr.reshape(1, -1).astype(np.float32)
-                self.history_handler.add(key, v)
+                self.history_handler.add(key, torch.from_numpy(v))
 
     def _build_student_hist_obs_long(self) -> np.ndarray:
         history_config = self.history_config_long
@@ -143,7 +133,7 @@ class PolicyRunner:
 
         for key in sorted(history_config.keys()):
             history_length = history_config[key]
-            hist_full = self.history_handler.query(key)
+            hist_full = self.history_handler.query(key).numpy()
             hist = hist_full[:, :history_length]
             if T is None:
                 T = hist.shape[1]
@@ -178,9 +168,7 @@ class PolicyRunner:
             inputs["perception_obs"] = depth_vec[np.newaxis, :].astype(np.float32)
 
         if self.depth_T and "perception_obs_history_obs" in names:
-            inputs["perception_obs_history_obs"] = self.depth_buf.reshape(1, -1).astype(
-                np.float32
-            )
+            inputs["perception_obs_history_obs"] = self.depth_buf.reshape(1, -1).astype(np.float32)
 
         return inputs
 
@@ -194,9 +182,6 @@ class PolicyRunner:
         base_quat_wxyz: Optional[np.ndarray] = None,
     ) -> np.ndarray:
 
-        if self.policy_type is None:
-            return np.zeros_like(self.action)
-
         values = {
             "base_ang_vel": base_ang_vel,
             "projected_gravity": projected_gravity,
@@ -206,9 +191,7 @@ class PolicyRunner:
         }
 
         keys = sorted(values.keys())
-        actor_obs = np.concatenate([values[k] for k in keys], axis=-1).astype(
-            np.float32
-        )
+        actor_obs = np.concatenate([values[k] for k in keys], axis=-1).astype(np.float32)
 
         self._update_history_long(
             base_ang_vel=base_ang_vel,
@@ -219,16 +202,8 @@ class PolicyRunner:
 
         hist_flat = self._build_student_hist_obs_long()
 
-        depth_vec = (
-            self._build_depth_vec_from_raw(depth_raw)
-            if self.config.use_depth_obs
-            else None
-        )
+        depth_vec = self._build_depth_vec_from_raw(depth_raw) if self.config.use_depth_obs else None
         use_depth_hist = bool(self.depth_T) and (depth_vec is not None)
-
-        # if use_depth_hist:
-        #     self.depth_buf[:, 1:] = self.depth_buf[:, :-1]
-        #     self.depth_buf[:, 0] = depth_vec.reshape(1, -1)
 
         if self.policy_type == "jit":
             with torch.no_grad():
@@ -242,10 +217,7 @@ class PolicyRunner:
         elif self.policy_type == "torch":
             if not self.depth_T:
                 obs_dict = {
-                    "actor_obs": torch.from_numpy(actor_obs)
-                    .unsqueeze(0)
-                    .float()
-                    .to(self.device),
+                    "actor_obs": torch.from_numpy(actor_obs).unsqueeze(0).float().to(self.device),
                     "perception_obs": (
                         torch.from_numpy(depth_vec).unsqueeze(0).float().to(self.device)
                         if depth_vec is not None
@@ -256,27 +228,18 @@ class PolicyRunner:
                         .float()
                         .to(self.device)
                     ),
-                    "student_hist_obs_long": torch.from_numpy(hist_flat)
-                    .float()
-                    .to(self.device),
+                    "student_hist_obs_long": torch.from_numpy(hist_flat).float().to(self.device),
                 }
             else:
                 obs_dict = {
-                    "actor_obs": torch.from_numpy(actor_obs)
-                    .unsqueeze(0)
-                    .float()
-                    .to(self.device),
+                    "actor_obs": torch.from_numpy(actor_obs).unsqueeze(0).float().to(self.device),
                     "perception_obs": torch.from_numpy(self.depth_buf[:, 0])
                     .float()
                     .to(self.device),
-                    "perception_obs_history_obs": torch.from_numpy(
-                        self.depth_buf.reshape(1, -1)
-                    )
+                    "perception_obs_history_obs": torch.from_numpy(self.depth_buf.reshape(1, -1))
                     .float()
                     .to(self.device),
-                    "student_hist_obs_long": torch.from_numpy(hist_flat)
-                    .float()
-                    .to(self.device),
+                    "student_hist_obs_long": torch.from_numpy(hist_flat).float().to(self.device),
                 }
 
             with torch.no_grad():
@@ -289,7 +252,7 @@ class PolicyRunner:
             act = outputs[0].squeeze()
 
         else:
-            return np.zeros_like(self.action)
+            raise RuntimeError(f"Unsupported policy type: {self.policy_type}")
 
         # update depth history *after* using it, so history is lagged (no current frame)
         if use_depth_hist:
@@ -297,14 +260,6 @@ class PolicyRunner:
             self.depth_buf[:, 0] = depth_vec.reshape(1, -1)
 
         act = np.clip(act, -self.config.clip_actions, self.config.clip_actions)
-        # print(act)
-        # Smooth
-        # num_warmup_steps = 50
-        # if self.act_count < num_warmup_steps:
-        #     e = min(self.act_count / num_warmup_steps, 1)
-        #     self.action = (e) * act.astype(np.float32)
-        #     # self.action = (1- e) * self.action + (e) * act.astype(np.float32)
-        # else:
         act = act.astype(np.float32)
         self.action = self.action_ema * act + (1.0 - self.action_ema) * self.action
 

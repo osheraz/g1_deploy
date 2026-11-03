@@ -1,4 +1,5 @@
 """Process-local CycloneDDS setup for Unitree's Python channel wrapper."""
+
 from __future__ import annotations
 
 import os
@@ -16,13 +17,11 @@ def configure_process_local_cyclonedds_log(channel_module) -> Path:
     """
 
     default_entry = "<OutputFile>/tmp/cdds.LOG</OutputFile>"
-    log_path = Path("/tmp") / f"e_skin-cdds-{os.getuid()}-{os.getpid()}.log"
+    log_path = Path("/tmp") / f"g1-cdds-{os.getuid()}-{os.getpid()}.log"
     replacement = f"<OutputFile>{log_path}</OutputFile>"
     config = channel_module.ChannelConfigHasInterface
     if default_entry in config:
-        channel_module.ChannelConfigHasInterface = config.replace(
-            default_entry, replacement, 1
-        )
+        channel_module.ChannelConfigHasInterface = config.replace(default_entry, replacement, 1)
     elif replacement not in config:
         raise RuntimeError(
             "Unitree CycloneDDS configuration changed; refusing to initialize "

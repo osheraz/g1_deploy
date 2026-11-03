@@ -4,6 +4,7 @@ Every frame is 256 taxel bytes + 16 IMU bytes per board (see
 ``jq_tactile_driver``), so a missing or short frame is zero-padded rather than
 changing shape mid-episode.
 """
+
 from __future__ import annotations
 
 import numpy as np

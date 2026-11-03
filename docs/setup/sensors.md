@@ -5,7 +5,7 @@ Match the camera mounting, intrinsics and clock alignment to the selected model.
 
 ## Start depth
 
-Use [terminal 1 in the operator guide](../recovery/deploy.md#terminal-1-depth).
+Use [terminal 1 in the operator guide](../rise/deploy.md#terminal-1-depth).
 Leave it running, then use a second terminal for the viewer below.
 
 ## Robot and depth in Viser
@@ -32,7 +32,7 @@ Stop both terminals with Ctrl+C.
 Current lens at **640×480**: `[fx, fy, cx, cy] =
 [388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]`.
 The physical camera is configured in
-[`steerable-recovery/config/models.yaml`](../../steerable-recovery/config/models.yaml), under
+[`rise/config/models.yaml`](../../rise/config/models.yaml), under
 `camera.base_intrinsics`. New simulated planner depth uses
 [`DEFAULT_DEPTH_CAPTURE`](../../../humanoidverse2/simulator/sensors/depth_capture.py);
 the environment default is also updated in
@@ -43,10 +43,10 @@ Existing checkpoints keep their saved calibration. For new training, regenerate
 any cached depth with the new capture settings; changing metadata alone does
 not change old rendered images.
 
-[`native_depth_server.py`](../../steerable-recovery/steerable_recovery/sensing/native_depth_server.py) publishes
+[`native_depth_server.py`](../../rise/sensing/native_depth_server.py) publishes
 `[JSON metadata, lossless uint16 pixels]` with 30 Hz capture. PNG is the default
 wire encoding; `--encoding raw` removes camera-side compression on gigabit.
-The viewer accepts both. See [server update and launch](../recovery/deploy.md#terminal-1-depth).
+The viewer accepts both. See [server update and launch](../rise/deploy.md#terminal-1-depth).
 Metadata carries capture time,
 clock domain, sequence, serial, intrinsics, depth scale and processing mode.
 The server default `--processing vigor_legacy` applies VIGOR smoothing and
@@ -63,7 +63,7 @@ input contracts interchangeable or infer training compatibility from image shape
 
 The viewer shows streamed depth in metres. It is **not** the planner's processed
 image. Current inference uses the shared calibrated crop/ray sampler,
-64×48 range/mask and causal history; see [deployment](../recovery/deploy.md).
+64×48 range/mask and causal history; see [deployment](../rise/deploy.md).
 The old square-crop VIGOR preprocessing is not used by the current planner.
 
 A receive timestamp is not camera capture time. Deployment automatically uses
@@ -76,7 +76,7 @@ With no deployment/Livox driver running, this owns a read-only preview driver:
 
 ```bash
 cd /home/osher/hv2
-.venv/bin/python g1_deploy/steerable-recovery/steerable_recovery/tools/sensors/check_lidar.py --live --viser
+.venv/bin/python g1_deploy/rise/tools/sensors/check_lidar.py --live --viser
 ```
 
 Open the printed Viser URL and forward its port in VS Code. Add
@@ -85,4 +85,4 @@ Ctrl+C closes the preview and its owned driver. Do this separately from the poli
 trial; it is not required for deployment. The live preview defaults to 50 Hz
 packets; the deployment recorder uses 30 Hz. Preview points are not a registered
 world map or qualified pelvis XYZ. For motion evaluation use
-[the deployment replay](../recovery/recording.md).
+[the deployment replay](../rise/recording.md).

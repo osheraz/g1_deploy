@@ -3,7 +3,7 @@
 Build the pinned ROS 2 Humble stack:
 
 ```bash
-bash g1_deploy/steerable-recovery/setup/build_lidar_workspace.sh
+bash g1_deploy/rise/setup/build_lidar_workspace.sh
 ```
 
 Default workspace: `~/.local/share/hv2/lidar/ros2_ws`.
@@ -12,7 +12,7 @@ The build script pins source revisions and applies the committed patches.
 It does not start sensors or install system dependencies.
 
 Configuration lives in
-[`steerable-recovery/config/lidar`](../../steerable-recovery/config/lidar).
+[`rise/config/lidar`](../../rise/config/lidar).
 Adjust `MID360_bluefin.json` for another host. The recording worker needs the
 Unitree SDK on its system-Python path.
 

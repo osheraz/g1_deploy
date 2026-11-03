@@ -6,10 +6,10 @@ module keeps that choice explicit and causal so it can be ablated without
 changing planner data, encoder dimensions, decoder dimensions, or motor output
 projection.
 """
+
 from __future__ import annotations
 
 import numpy as np
-
 
 STRATEGIES = ("zero", "reference", "shadow")
 

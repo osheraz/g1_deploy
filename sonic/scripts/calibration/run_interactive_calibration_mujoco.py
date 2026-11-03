@@ -25,7 +25,6 @@ from sonic.calibration.interactive import InteractiveCalibrationController, Inte
 from sonic.calibration.mujoco_plant import SuspendedMujocoPlant
 from sonic.calibration.protocol import PRESENT_23
 
-
 KEY_COMMANDS = {
     glfw.KEY_KP_ENTER: InteractiveCommand.EXECUTE,
     glfw.KEY_KP_0: InteractiveCommand.NEUTRAL,
@@ -104,11 +103,14 @@ def draw_selection(viewer, plant: SuspendedMujocoPlant, controller) -> None:
     for index, motor in enumerate(controller.selection.motors):
         if scene.ngeom >= scene.maxgeom:
             break
-        color = np.asarray([1.0, 0.25 + .12 * (index % 4), 0.1, 0.9], np.float32)
+        color = np.asarray([1.0, 0.25 + 0.12 * (index % 4), 0.1, 0.9], np.float32)
         mujoco.mjv_initGeom(
-            scene.geoms[scene.ngeom], mujoco.mjtGeom.mjGEOM_SPHERE,
-            np.asarray([0.025, 0.0, 0.0]), plant.joint_anchor(motor),
-            np.eye(3).reshape(-1), color,
+            scene.geoms[scene.ngeom],
+            mujoco.mjtGeom.mjGEOM_SPHERE,
+            np.asarray([0.025, 0.0, 0.0]),
+            plant.joint_anchor(motor),
+            np.eye(3).reshape(-1),
+            color,
         )
         scene.ngeom += 1
 
@@ -129,8 +131,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--view", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--scripted-demo", action="store_true")
-    parser.add_argument("--duration", type=float, default=0.0,
-                        help="optional wall/sim duration; 0 means until abort/window close")
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=0.0,
+        help="optional wall/sim duration; 0 means until abort/window close",
+    )
     parser.add_argument("--max-envelope", choices=("screening", "full"), default="screening")
     parser.add_argument("--fault-profile", type=Path)
     parser.add_argument("--calibration-profile", type=Path)
@@ -162,8 +168,11 @@ def main() -> None:
         from mujoco import viewer as mj_viewer
 
         viewer = mj_viewer.launch_passive(
-            plant.model, plant.data, key_callback=key_callback,
-            show_left_ui=True, show_right_ui=True,
+            plant.model,
+            plant.data,
+            key_callback=key_callback,
+            show_left_ui=True,
+            show_right_ui=True,
         )
         viewer.cam.distance = 3.0
         viewer.cam.elevation = -10
@@ -172,17 +181,31 @@ def main() -> None:
     print("[CAL] " + controller.status())
 
     rows: dict[str, list] = {
-        "time_s": [], "target_model": [], "command_hardware": [],
-        "effective_model_target": [], "q_measured": [], "dq_measured": [],
-        "tau_est": [], "command_offset": [], "captured_neutral": [],
-        "bank": [], "selection": [],
-        "mode": [], "range": [], "scale": [], "tempo": [], "running": [],
+        "time_s": [],
+        "target_model": [],
+        "command_hardware": [],
+        "effective_model_target": [],
+        "q_measured": [],
+        "dq_measured": [],
+        "tau_est": [],
+        "command_offset": [],
+        "captured_neutral": [],
+        "bank": [],
+        "selection": [],
+        "mode": [],
+        "range": [],
+        "scale": [],
+        "tempo": [],
+        "running": [],
     }
     events: list[dict] = []
-    events.append({
-        "time_s": "0.000000", "command": "initial",
-        **controller.status_dict(),
-    })
+    events.append(
+        {
+            "time_s": "0.000000",
+            "command": "initial",
+            **controller.status_dict(),
+        }
+    )
     demo_index = 0
     start_wall = time.perf_counter()
     sim_time = 0.0
@@ -196,26 +219,31 @@ def main() -> None:
                 demo_index += 1
         while not command_queue.empty():
             command = command_queue.get()
-            if (
-                command == InteractiveCommand.CAPTURE_NEUTRAL
-                and controller.can_capture()
-            ):
+            if command == InteractiveCommand.CAPTURE_NEUTRAL and controller.can_capture():
                 captured_neutral = np.asarray(
-                    plant.data.qpos[plant.qadr], dtype=np.float64,
+                    plant.data.qpos[plant.qadr],
+                    dtype=np.float64,
                 ).copy()
             status = controller.apply(command)
             print(f"[CAL {sim_time:7.2f}s] {command.value}: {status}")
-            events.append({
-                "time_s": f"{sim_time:.6f}", "command": command.value,
-                **controller.status_dict(),
-            })
+            events.append(
+                {
+                    "time_s": f"{sim_time:.6f}",
+                    "command": command.value,
+                    **controller.status_dict(),
+                }
+            )
         offset = controller.step()
         state = plant.step(captured_neutral + offset)
         status = controller.status_dict()
         rows["time_s"].append(sim_time)
         for key in (
-            "target_model", "command_hardware", "effective_model_target",
-            "q_measured", "dq_measured", "tau_est",
+            "target_model",
+            "command_hardware",
+            "effective_model_target",
+            "q_measured",
+            "dq_measured",
+            "tau_est",
         ):
             rows[key].append(state[key])
         rows["command_offset"].append(offset)
@@ -253,8 +281,14 @@ def main() -> None:
         "scripted_demo": args.scripted_demo,
         "max_envelope": args.max_envelope,
         "captured_neutral_rad": captured_neutral.tolist(),
-        "fault_profile": str(args.fault_profile.expanduser().absolute()) if args.fault_profile else None,
-        "calibration_profile": str(args.calibration_profile.expanduser().absolute()) if args.calibration_profile else None,
+        "fault_profile": (
+            str(args.fault_profile.expanduser().absolute()) if args.fault_profile else None
+        ),
+        "calibration_profile": (
+            str(args.calibration_profile.expanduser().absolute())
+            if args.calibration_profile
+            else None
+        ),
         "max_abs_command_offset_rad": float(np.max(np.abs(rows["command_offset"]))),
         "max_abs_tracking_error_rad": float(np.max(np.abs(error[:, PRESENT_23]))),
         "final_offset_norm_rad": float(np.linalg.norm(rows["command_offset"][-1])),

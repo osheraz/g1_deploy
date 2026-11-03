@@ -21,7 +21,6 @@ if str(ROOT) not in sys.path:
 from sonic.calibration.gated_protocol import FULL_SCREENING_AMPLITUDE, load_review_protocol
 from sonic.calibration.protocol import PRESENT_23, SCREENING_AMPLITUDE
 
-
 VALIDATION = ROOT / "configs/calibration/review_gated_validation.json"
 CPP = REPO / "sonic_cpp/src/g1/g1_deploy_onnx_ref/src/g1_suspended_calibration.cpp"
 GAIN_CONFIG = ROOT / "configs/g1_23dof_sonic.yaml"
@@ -81,9 +80,7 @@ def main() -> None:
         raise SystemExit("PARITY ERROR: physical C++ Kp differs from MuJoCo config")
     if not np.array_equal(cpp_kd, np.asarray(cfg["kds"], dtype=np.float64)):
         raise SystemExit("PARITY ERROR: physical C++ Kd differs from MuJoCo config")
-    if not np.array_equal(
-        cpp_initial, np.asarray(cfg["default_angles"], dtype=np.float64)
-    ):
+    if not np.array_equal(cpp_initial, np.asarray(cfg["default_angles"], dtype=np.float64)):
         raise SystemExit(
             "PARITY ERROR: physical calibration initial pose differs from "
             "the SONIC/MuJoCo default pose"
@@ -94,9 +91,7 @@ def main() -> None:
     dt_match = re.search(r"constexpr double kControlDt\s*=\s*([^;]+);", source)
     if not dt_match or float(dt_match.group(1)) != expected["control_dt_s"]:
         raise SystemExit("PARITY ERROR: physical C++ target period is not 50 Hz")
-    writer_match = re.search(
-        r"const auto period\s*=\s*std::chrono::microseconds\((\d+)\);", source
-    )
+    writer_match = re.search(r"const auto period\s*=\s*std::chrono::microseconds\((\d+)\);", source)
     if not writer_match or int(writer_match.group(1)) != 2000:
         raise SystemExit("PARITY ERROR: physical LowCmd writer period is not 2 ms")
 

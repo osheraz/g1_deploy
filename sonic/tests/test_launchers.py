@@ -47,7 +47,11 @@ else:
     def run(script, *args):
         return subprocess.run(
             ["bash", str(scripts / script), *args],
-            cwd=tmp_path, env=env, text=True, capture_output=True, timeout=10,
+            cwd=tmp_path,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=10,
         )
 
     return run
@@ -59,17 +63,35 @@ def command(result):
 
 
 def test_mujoco_keeps_selected_inputs_and_adaptation(launch):
-    args = command(launch(
-        "mujoco.sh", "--adaptation", "forward-stable-23",
-        "--sagittal-scale", "0.85", "--knee-gait-offset-deg", "4",
-        "--unitree-remote", "--interface", "test0", "--ground-friction", "0.7",
-        "--planner-replan-period", "0.4", "--no-idle-hold", "--no-record", "--viser",
-    ))
+    args = command(
+        launch(
+            "mujoco.sh",
+            "--adaptation",
+            "forward-stable-23",
+            "--sagittal-scale",
+            "0.85",
+            "--knee-gait-offset-deg",
+            "4",
+            "--unitree-remote",
+            "--interface",
+            "test0",
+            "--ground-friction",
+            "0.7",
+            "--planner-replan-period",
+            "0.4",
+            "--no-idle-hold",
+            "--no-record",
+            "--viser",
+        )
+    )
     assert args[0].endswith("/g1_deploy/sonic/sim.py")
     for name, value in {
-        "--config": "forward.yaml", "--reference-joint-scale": "sagittal=0.85",
-        "--reference-joint-offset-deg": "knee=4", "--interface": "test0",
-        "--ground-friction": "0.7", "--planner-replan-period": "0.4",
+        "--config": "forward.yaml",
+        "--reference-joint-scale": "sagittal=0.85",
+        "--reference-joint-offset-deg": "knee=4",
+        "--interface": "test0",
+        "--ground-friction": "0.7",
+        "--planner-replan-period": "0.4",
     }.items():
         assert args[args.index(name) + 1] == value
     assert {"--remote", "--viser", "--no-idle-hold"}.issubset(args)
@@ -90,12 +112,15 @@ def test_robot_launcher_does_not_arm_by_default(launch, script):
         assert "--preflight-only" in args
 
 
-@pytest.mark.parametrize("args", [
-    ["--landing-hold"],
-    ["--adaptation", "stable-slow-23"],
-    ["--adaptation", "forward-stable-23", "--slow-gait", "--hip-pitch-scale"],
-    ["--slow-gait"],
-])
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--landing-hold"],
+        ["--adaptation", "stable-slow-23"],
+        ["--adaptation", "forward-stable-23", "--slow-gait", "--hip-pitch-scale"],
+        ["--slow-gait"],
+    ],
+)
 def test_mujoco_rejects_retired_or_incompatible_options(launch, args):
     result = launch("mujoco.sh", *args)
     assert result.returncode == 2

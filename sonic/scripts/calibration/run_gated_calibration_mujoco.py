@@ -22,11 +22,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sonic.calibration.gated_protocol import (
-    DT, MOTOR_NAMES, ReviewBlock, build_review_protocol, save_review_protocol,
+    DT,
+    MOTOR_NAMES,
+    ReviewBlock,
+    build_review_protocol,
+    save_review_protocol,
 )
 from sonic.calibration.mujoco_plant import SuspendedMujocoPlant
 from sonic.calibration.protocol import PRESENT_23
-
 
 CAPTURE = "capture"
 APPROVE = "approve"
@@ -47,12 +50,14 @@ def quat_from_rpy_deg(rpy_deg: list[float]) -> np.ndarray:
     cr, sr = np.cos(roll), np.sin(roll)
     cp, sp = np.cos(pitch), np.sin(pitch)
     cy, sy = np.cos(yaw), np.sin(yaw)
-    return np.asarray([
-        cr * cp * cy + sr * sp * sy,
-        sr * cp * cy - cr * sp * sy,
-        cr * sp * cy + sr * cp * sy,
-        cr * cp * sy - sr * sp * cy,
-    ])
+    return np.asarray(
+        [
+            cr * cp * cy + sr * sp * sy,
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+        ]
+    )
 
 
 def quat_distance_rad(q: np.ndarray, reference: np.ndarray) -> np.ndarray:
@@ -64,10 +69,12 @@ def quat_distance_rad(q: np.ndarray, reference: np.ndarray) -> np.ndarray:
 
 def block_preview(block: ReviewBlock, index: int, total: int) -> str:
     joints = ", ".join(MOTOR_NAMES[motor] for motor in block.active_motors) or "none"
-    peaks = ", ".join(
-        f"{MOTOR_NAMES[motor]}={peak:.4f}rad"
-        for motor, peak in block.peak_offsets.items()
-    ) or "zero offset"
+    peaks = (
+        ", ".join(
+            f"{MOTOR_NAMES[motor]}={peak:.4f}rad" for motor, peak in block.peak_offsets.items()
+        )
+        or "zero offset"
+    )
     return (
         f"NEXT [{index + 1}/{total}] {block.name} ({block.duration_s:.1f}s)\n"
         f"  {block.description}\n"
@@ -101,26 +108,35 @@ def draw_fixture(viewer, plant: SuspendedMujocoPlant, motors: tuple[int, ...]) -
         if scene.ngeom >= scene.maxgeom:
             return
         mujoco.mjv_initGeom(
-            scene.geoms[scene.ngeom], mujoco.mjtGeom.mjGEOM_SPHERE,
-            np.asarray([size, 0.0, 0.0]), np.asarray(position),
-            np.eye(3).reshape(-1), np.asarray(color, dtype=np.float32),
+            scene.geoms[scene.ngeom],
+            mujoco.mjtGeom.mjGEOM_SPHERE,
+            np.asarray([size, 0.0, 0.0]),
+            np.asarray(position),
+            np.eye(3).reshape(-1),
+            np.asarray(color, dtype=np.float32),
         )
         scene.ngeom += 1
 
     for index, motor in enumerate(motors):
-        sphere(plant.joint_anchor(motor), 0.025, [1.0, .2 + .1 * (index % 5), .1, .9])
+        sphere(plant.joint_anchor(motor), 0.025, [1.0, 0.2 + 0.1 * (index % 5), 0.1, 0.9])
     for anchor, point in zip(plant.shoulder_anchors, plant.shoulder_points):
-        sphere(anchor, 0.018, [.1, .9, 1.0, .9])
-        sphere(point, 0.015, [1.0, .8, .1, .9])
+        sphere(anchor, 0.018, [0.1, 0.9, 1.0, 0.9])
+        sphere(point, 0.015, [1.0, 0.8, 0.1, 0.9])
         if scene.ngeom < scene.maxgeom:
             mujoco.mjv_initGeom(
-                scene.geoms[scene.ngeom], mujoco.mjtGeom.mjGEOM_CAPSULE,
-                np.asarray([.006, 0.0, 0.0]), np.zeros(3),
-                np.eye(3).reshape(-1), np.asarray([.2, .8, 1.0, .8], np.float32),
+                scene.geoms[scene.ngeom],
+                mujoco.mjtGeom.mjGEOM_CAPSULE,
+                np.asarray([0.006, 0.0, 0.0]),
+                np.zeros(3),
+                np.eye(3).reshape(-1),
+                np.asarray([0.2, 0.8, 1.0, 0.8], np.float32),
             )
             mujoco.mjv_connector(
-                scene.geoms[scene.ngeom], mujoco.mjtGeom.mjGEOM_CAPSULE,
-                .006, point, anchor,
+                scene.geoms[scene.ngeom],
+                mujoco.mjtGeom.mjGEOM_CAPSULE,
+                0.006,
+                point,
+                anchor,
             )
             scene.ngeom += 1
 
@@ -129,10 +145,18 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--protocol", choices=("pilot", "screening"), default="pilot")
     parser.add_argument("--view", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--auto-approve", action="store_true",
-                        help="headless validation only; automatically capture and approve")
-    parser.add_argument("--initial-rpy-deg", nargs=3, type=float, default=(0.0, 0.0, 0.0),
-                        metavar=("ROLL", "PITCH", "YAW"))
+    parser.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="headless validation only; automatically capture and approve",
+    )
+    parser.add_argument(
+        "--initial-rpy-deg",
+        nargs=3,
+        type=float,
+        default=(0.0, 0.0, 0.0),
+        metavar=("ROLL", "PITCH", "YAW"),
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--mjcf", type=Path, default=REPO / "sonic_cpp/g1/scene_23dof.xml")
     parser.add_argument("--config", type=Path, default=ROOT / "configs/g1_23dof_sonic.yaml")
@@ -161,9 +185,13 @@ def main() -> None:
     viewer = None
     if args.view:
         from mujoco import viewer as mj_viewer
+
         viewer = mj_viewer.launch_passive(
-            plant.model, plant.data, key_callback=key_callback,
-            show_left_ui=True, show_right_ui=True,
+            plant.model,
+            plant.data,
+            key_callback=key_callback,
+            show_left_ui=True,
+            show_right_ui=True,
         )
         viewer.cam.distance = 3.2
         viewer.cam.elevation = -8
@@ -179,15 +207,36 @@ def main() -> None:
         )
 
     rows: dict[str, list] = {
-        key: [] for key in (
-            "time_s", "target_model", "command_hardware", "effective_model_target",
-            "q_measured", "dq_measured", "tau_est", "physical_q_measured",
-            "physical_dq_measured", "physical_tau_est", "command_offset",
-            "captured_neutral", "root_position", "root_quaternion",
-            "root_linear_velocity", "root_angular_velocity", "imu_quaternion",
-            "imu_gyroscope", "imu_accelerometer", "shoulder_points",
-            "shoulder_anchors", "suspension_forces", "foot_link_height",
-            "contact_count", "contact_pairs", "block_id", "block_name", "phase",
+        key: []
+        for key in (
+            "time_s",
+            "target_model",
+            "command_hardware",
+            "effective_model_target",
+            "q_measured",
+            "dq_measured",
+            "tau_est",
+            "physical_q_measured",
+            "physical_dq_measured",
+            "physical_tau_est",
+            "command_offset",
+            "captured_neutral",
+            "root_position",
+            "root_quaternion",
+            "root_linear_velocity",
+            "root_angular_velocity",
+            "imu_quaternion",
+            "imu_gyroscope",
+            "imu_accelerometer",
+            "shoulder_points",
+            "shoulder_anchors",
+            "suspension_forces",
+            "foot_link_height",
+            "contact_count",
+            "contact_pairs",
+            "block_id",
+            "block_name",
+            "phase",
             "gate_state",
         )
     }
@@ -211,15 +260,19 @@ def main() -> None:
     sim_time = 0.0
 
     def event(command: str, message: str) -> None:
-        events.append({
-            "time_s": f"{sim_time:.6f}", "command": command,
-            "block_id": block_index if block_index < len(protocol.blocks) else -1,
-            "block_name": (
-                protocol.blocks[block_index].name
-                if block_index < len(protocol.blocks) else "complete"
-            ),
-            "message": message,
-        })
+        events.append(
+            {
+                "time_s": f"{sim_time:.6f}",
+                "command": command,
+                "block_id": block_index if block_index < len(protocol.blocks) else -1,
+                "block_name": (
+                    protocol.blocks[block_index].name
+                    if block_index < len(protocol.blocks)
+                    else "complete"
+                ),
+                "message": message,
+            }
+        )
         print(f"[CAL {sim_time:8.2f}s] {command}: {message}")
 
     def stable_to_capture() -> tuple[bool, str]:
@@ -227,7 +280,7 @@ def main() -> None:
         max_dq = float(np.max(np.abs(qvel)))
         root_w = float(np.linalg.norm(plant.data.qvel[3:6]))
         foot_min = float(np.min(plant.data.xpos[plant.foot_bodies, 2]))
-        okay = max_dq <= 0.20 and root_w <= 0.08 and plant.data.ncon == 0 and foot_min > .10
+        okay = max_dq <= 0.20 and root_w <= 0.08 and plant.data.ncon == 0 and foot_min > 0.10
         return okay, (
             f"max|dq|={max_dq:.3f}rad/s root|w|={root_w:.3f}rad/s "
             f"min_foot_z={foot_min:.3f}m contacts={plant.data.ncon}"
@@ -241,28 +294,30 @@ def main() -> None:
         dq = np.asarray(rows["dq_measured"][start:stop])[:, PRESENT_23]
         tau = np.asarray(rows["tau_est"][start:stop])[:, PRESENT_23]
         quat = np.asarray(rows["root_quaternion"][start:stop])
-        block_results.append({
-            "block_id": block.block_id,
-            "name": block.name,
-            "outcome": outcome,
-            "samples": stop - start,
-            "tracking_rmse_rad": float(np.sqrt(np.mean((command - measured) ** 2))),
-            "max_abs_tracking_error_rad": float(np.max(np.abs(command - measured))),
-            "max_abs_velocity_rad_s": float(np.max(np.abs(dq))),
-            "max_abs_torque_nm": float(np.max(np.abs(tau))),
-            "max_root_attitude_change_deg": float(np.degrees(np.max(
-                quat_distance_rad(quat, captured_quat)
-            ))),
-            "minimum_foot_link_height_m": float(np.min(
-                np.asarray(rows["foot_link_height"][start:stop])
-            )),
-            "maximum_fixture_force_n": float(np.max(np.linalg.norm(
-                np.asarray(rows["suspension_forces"][start:stop]), axis=-1
-            ))),
-            "contact_samples": int(np.sum(np.asarray(
-                rows["contact_count"][start:stop]
-            ) > 0)),
-        })
+        block_results.append(
+            {
+                "block_id": block.block_id,
+                "name": block.name,
+                "outcome": outcome,
+                "samples": stop - start,
+                "tracking_rmse_rad": float(np.sqrt(np.mean((command - measured) ** 2))),
+                "max_abs_tracking_error_rad": float(np.max(np.abs(command - measured))),
+                "max_abs_velocity_rad_s": float(np.max(np.abs(dq))),
+                "max_abs_torque_nm": float(np.max(np.abs(tau))),
+                "max_root_attitude_change_deg": float(
+                    np.degrees(np.max(quat_distance_rad(quat, captured_quat)))
+                ),
+                "minimum_foot_link_height_m": float(
+                    np.min(np.asarray(rows["foot_link_height"][start:stop]))
+                ),
+                "maximum_fixture_force_n": float(
+                    np.max(
+                        np.linalg.norm(np.asarray(rows["suspension_forces"][start:stop]), axis=-1)
+                    )
+                ),
+                "contact_samples": int(np.sum(np.asarray(rows["contact_count"][start:stop]) > 0)),
+            }
+        )
 
     event("initial", "waiting for the two-shoulder fixture to settle and for neutral capture")
     if block_index < len(protocol.blocks):
@@ -288,7 +343,9 @@ def main() -> None:
                 aborted = True
                 if active:
                     summarize_block(
-                        protocol.blocks[block_index], block_row_start, len(rows["time_s"]),
+                        protocol.blocks[block_index],
+                        block_row_start,
+                        len(rows["time_s"]),
                         "aborted",
                     )
                     active = False
@@ -298,7 +355,9 @@ def main() -> None:
                 continue
             if command == CAPTURE:
                 if captured or active or returning is not None:
-                    event(command, "capture rejected: capture is only allowed before the first block")
+                    event(
+                        command, "capture rejected: capture is only allowed before the first block"
+                    )
                     continue
                 okay, detail = stable_to_capture()
                 if not okay:
@@ -309,7 +368,9 @@ def main() -> None:
                 captured = True
                 offset[:] = 0.0
                 event(command, "captured 23 joint positions and root attitude; " + detail)
-                print(block_preview(protocol.blocks[block_index], block_index, len(protocol.blocks)))
+                print(
+                    block_preview(protocol.blocks[block_index], block_index, len(protocol.blocks))
+                )
                 continue
             if not captured:
                 event(command, "ignored until Num5 captures a steady hanging pose")
@@ -330,24 +391,30 @@ def main() -> None:
                     event(command, "skip is accepted only at a review gate")
                 elif block_index < len(protocol.blocks):
                     event(command, f"skipped {protocol.blocks[block_index].name}")
-                    block_results.append({
-                        "block_id": block_index,
-                        "name": protocol.blocks[block_index].name,
-                        "outcome": "skipped",
-                        "samples": 0,
-                    })
+                    block_results.append(
+                        {
+                            "block_id": block_index,
+                            "name": protocol.blocks[block_index].name,
+                            "outcome": "skipped",
+                            "samples": 0,
+                        }
+                    )
                     block_index += 1
                     if block_index < len(protocol.blocks):
-                        print(block_preview(
-                            protocol.blocks[block_index], block_index, len(protocol.blocks)
-                        ))
+                        print(
+                            block_preview(
+                                protocol.blocks[block_index], block_index, len(protocol.blocks)
+                            )
+                        )
                     else:
                         finished = True
                 continue
             if command == CANCEL:
                 if active:
                     summarize_block(
-                        protocol.blocks[block_index], block_row_start, len(rows["time_s"]),
+                        protocol.blocks[block_index],
+                        block_row_start,
+                        len(rows["time_s"]),
                         "cancelled",
                     )
                     active = False
@@ -380,24 +447,45 @@ def main() -> None:
                 else:
                     block_index += 1
                     if block_index < len(protocol.blocks):
-                        print(block_preview(protocol.blocks[block_index], block_index, len(protocol.blocks)))
+                        print(
+                            block_preview(
+                                protocol.blocks[block_index], block_index, len(protocol.blocks)
+                            )
+                        )
                     else:
                         finished = True
 
         target = (captured_neutral if captured else plant.neutral) + offset
         state = plant.step(target)
         gate_state = (
-            "active" if active else "returning" if returning is not None
-            else "waiting_capture" if not captured else "approval_gate"
+            "active"
+            if active
+            else (
+                "returning"
+                if returning is not None
+                else "waiting_capture" if not captured else "approval_gate"
+            )
         )
         rows["time_s"].append(sim_time)
         for key in (
-            "target_model", "command_hardware", "effective_model_target",
-            "q_measured", "dq_measured", "tau_est", "root_position",
-            "root_quaternion", "root_linear_velocity", "root_angular_velocity",
-            "imu_quaternion", "imu_gyroscope", "imu_accelerometer",
-            "shoulder_points", "shoulder_anchors", "suspension_forces",
-            "foot_link_height", "contact_count",
+            "target_model",
+            "command_hardware",
+            "effective_model_target",
+            "q_measured",
+            "dq_measured",
+            "tau_est",
+            "root_position",
+            "root_quaternion",
+            "root_linear_velocity",
+            "root_angular_velocity",
+            "imu_quaternion",
+            "imu_gyroscope",
+            "imu_accelerometer",
+            "shoulder_points",
+            "shoulder_anchors",
+            "suspension_forces",
+            "foot_link_height",
+            "contact_count",
             "contact_pairs",
         ):
             rows[key].append(state[key])
@@ -418,8 +506,10 @@ def main() -> None:
             aborted = True
             if active:
                 summarize_block(
-                    protocol.blocks[block_index], block_row_start,
-                    len(rows["time_s"]), "collision_abort",
+                    protocol.blocks[block_index],
+                    block_row_start,
+                    len(rows["time_s"]),
+                    "collision_abort",
                 )
             active = False
             completing_block = None
@@ -433,24 +523,26 @@ def main() -> None:
         if completing_block is not None:
             active = False
             offset[:] = 0.0
-            summarize_block(
-                completing_block, block_row_start, len(rows["time_s"]), "completed"
-            )
+            summarize_block(completing_block, block_row_start, len(rows["time_s"]), "completed")
             event(
                 "block_complete",
                 f"completed {completing_block.name}; neutral review gate",
             )
             block_index += 1
             if block_index < len(protocol.blocks):
-                print(block_preview(
-                    protocol.blocks[block_index], block_index, len(protocol.blocks)
-                ))
+                print(
+                    block_preview(protocol.blocks[block_index], block_index, len(protocol.blocks))
+                )
             else:
                 event("protocol_complete", "all approved blocks completed")
                 finished = True
 
         if viewer is not None:
-            motors = protocol.blocks[block_index].active_motors if block_index < len(protocol.blocks) else ()
+            motors = (
+                protocol.blocks[block_index].active_motors
+                if block_index < len(protocol.blocks)
+                else ()
+            )
             draw_fixture(viewer, plant, motors)
             viewer.sync()
         sim_time += DT
@@ -496,7 +588,11 @@ def main() -> None:
         "block_results": block_results,
     }
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    print(json.dumps({key: value for key, value in summary.items() if key != "block_results"}, indent=2))
+    print(
+        json.dumps(
+            {key: value for key, value in summary.items() if key != "block_results"}, indent=2
+        )
+    )
     if collision_detected:
         raise SystemExit("collision validation failed; see summary.json and events.csv")
 

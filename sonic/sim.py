@@ -10,6 +10,7 @@ prerequisite for touching hardware; a fall here means do not.
 
 Reports height, tilt and per-joint tracking error against the clip.
 """
+
 import argparse
 from collections import deque
 import json
@@ -30,7 +31,6 @@ from sonic.inputs.scripted_teleop import ScriptedTeleop
 from core.robot.unitree_dds import configure_process_local_cyclonedds_log
 from sonic.sonic_runner import SonicRunner
 from sonic.model.deployment_profile import model_profile_names
-
 
 # MuJoCo's Simulate viewer owns the ordinary digits, most letter keys,
 # left/right arrows, and square brackets. Keep policy control entirely on the
@@ -93,9 +93,11 @@ class _MujocoJointState:
         self._qpos_addresses = np.asarray(qpos_addresses, dtype=np.int64)
         self._qvel_addresses = np.asarray(qvel_addresses, dtype=np.int64)
         self._encoder_position_offset = np.asarray(
-            np.zeros(len(self._qpos_addresses), dtype=np.float64)
-            if encoder_position_offset is None
-            else encoder_position_offset,
+            (
+                np.zeros(len(self._qpos_addresses), dtype=np.float64)
+                if encoder_position_offset is None
+                else encoder_position_offset
+            ),
             dtype=np.float64,
         )
         if self._encoder_position_offset.shape != self._qpos_addresses.shape:
@@ -104,9 +106,7 @@ class _MujocoJointState:
 
     @property
     def qj(self) -> np.ndarray:
-        true_q = np.asarray(
-            self._data.qpos[self._qpos_addresses], np.float64
-        ).copy()
+        true_q = np.asarray(self._data.qpos[self._qpos_addresses], np.float64).copy()
         return true_q + self._encoder_position_offset
 
     @property
@@ -134,8 +134,7 @@ def _convex_hull_xy(points: np.ndarray) -> np.ndarray:
         return np.asarray(unique, np.float64)
 
     def cross(origin, a, b):
-        return ((a[0] - origin[0]) * (b[1] - origin[1])
-                - (a[1] - origin[1]) * (b[0] - origin[0]))
+        return (a[0] - origin[0]) * (b[1] - origin[1]) - (a[1] - origin[1]) * (b[0] - origin[0])
 
     lower = []
     for point in unique:
@@ -161,10 +160,9 @@ def _support_margin_xy(points: np.ndarray, point: np.ndarray) -> float:
     valid = length > 1e-9
     if np.count_nonzero(valid) < 3:
         return float("-inf")
-    signed = (
-        edge[valid, 0] * relative[valid, 1]
-        - edge[valid, 1] * relative[valid, 0]
-    ) / length[valid]
+    signed = (edge[valid, 0] * relative[valid, 1] - edge[valid, 1] * relative[valid, 0]) / length[
+        valid
+    ]
     return float(np.min(signed))
 
 
@@ -173,9 +171,7 @@ def _configure_process_local_dds_log(channel_module) -> Path:
     return configure_process_local_cyclonedds_log(channel_module)
 
 
-def _parse_joint_encoder_offsets_deg(
-    specs: list[str], joint_names: list[str]
-) -> np.ndarray:
+def _parse_joint_encoder_offsets_deg(specs: list[str], joint_names: list[str]) -> np.ndarray:
     """Parse repeatable JOINT=DEGREES measurement offsets in physical order."""
     offsets = np.zeros(len(joint_names), dtype=np.float64)
     aliases = {}
@@ -201,18 +197,18 @@ def _parse_joint_encoder_offsets_deg(
         if index in seen:
             raise SystemExit(f"encoder offset for {joint!r} was specified twice")
         if not np.isfinite(degrees) or abs(degrees) > 90.0:
-            raise SystemExit(
-                "--joint-encoder-offset-deg must be finite and within [-90, 90]"
-            )
+            raise SystemExit("--joint-encoder-offset-deg must be finite and within [-90, 90]")
         offsets[index] = np.deg2rad(degrees)
         seen.add(index)
     return offsets
 
+
 def gravity_orientation(q_wxyz):
     qw, qx, qy, qz = q_wxyz
-    return np.array([2 * (-qz * qx + qw * qy),
-                     -2 * (qz * qy + qw * qx),
-                     1 - 2 * (qw * qw + qz * qz)], np.float32)
+    return np.array(
+        [2 * (-qz * qx + qw * qy), -2 * (qz * qy + qw * qx), 1 - 2 * (qw * qw + qz * qz)],
+        np.float32,
+    )
 
 
 def draw_command(viewer, d, teleop):
@@ -229,19 +225,34 @@ def draw_command(viewer, d, teleop):
         colors = [[0.2, 1, 0.4, 1], [1, 0.4, 0.2, 1], [0.2, 0.6, 1, 1]]  # L, R, torso
         for p, c in zip(vr[0], colors):
             w = root + R @ p
-            mujoco.mjv_initGeom(scn.geoms[scn.ngeom], mujoco.mjtGeom.mjGEOM_SPHERE,
-                                np.array([0.04, 0, 0]), w, np.eye(3).flatten(),
-                                np.array(c, np.float32))
+            mujoco.mjv_initGeom(
+                scn.geoms[scn.ngeom],
+                mujoco.mjtGeom.mjGEOM_SPHERE,
+                np.array([0.04, 0, 0]),
+                w,
+                np.eye(3).flatten(),
+                np.array(c, np.float32),
+            )
             scn.ngeom += 1
 
     nav = teleop.nav_command()
     if nav["speed"] > 0:
         tip = root + R @ (np.asarray(nav["movement"]) * 0.6)
-        mujoco.mjv_initGeom(scn.geoms[scn.ngeom], mujoco.mjtGeom.mjGEOM_LINE,
-                            np.zeros(3), np.zeros(3), np.eye(3).flatten(),
-                            np.array([1, 1, 0.2, 1], np.float32))
-        mujoco.mjv_connector(scn.geoms[scn.ngeom], mujoco.mjtGeom.mjGEOM_LINE, 5,
-                             root.astype(np.float64), tip.astype(np.float64))
+        mujoco.mjv_initGeom(
+            scn.geoms[scn.ngeom],
+            mujoco.mjtGeom.mjGEOM_LINE,
+            np.zeros(3),
+            np.zeros(3),
+            np.eye(3).flatten(),
+            np.array([1, 1, 0.2, 1], np.float32),
+        )
+        mujoco.mjv_connector(
+            scn.geoms[scn.ngeom],
+            mujoco.mjtGeom.mjGEOM_LINE,
+            5,
+            root.astype(np.float64),
+            tip.astype(np.float64),
+        )
         scn.ngeom += 1
 
 
@@ -275,10 +286,13 @@ def _write_recording(
         "embodiment": profile.name,
         "trial_label": args.trial_label,
         "command_source": (
-            "unitree-remote" if args.remote
-            else "keyboard-native-gamepad" if args.native_gamepad and args.view
-            else "synthetic-native-gamepad" if args.native_gamepad
-            else "keyboard"
+            "unitree-remote"
+            if args.remote
+            else (
+                "keyboard-native-gamepad"
+                if args.native_gamepad and args.view
+                else "synthetic-native-gamepad" if args.native_gamepad else "keyboard"
+            )
         ),
         "remote_protocol": (
             "native-gamepad-manager" if (args.remote or args.native_gamepad) else None
@@ -289,21 +303,13 @@ def _write_recording(
         "joint_encoder_offset_convention": (
             "measured_q = true_mujoco_q + offset; low-level PD uses measured_q"
         ),
-        "joint_encoder_offset_rad": np.asarray(
-            args.joint_encoder_offset_rad, np.float64
-        ).tolist(),
+        "joint_encoder_offset_rad": np.asarray(args.joint_encoder_offset_rad, np.float64).tolist(),
         "joint_encoder_offset_deg": np.rad2deg(
             np.asarray(args.joint_encoder_offset_rad, np.float64)
         ).tolist(),
-        "plant_gain_scale": np.asarray(
-            args.plant_gain_scale_values, np.float64
-        ).tolist(),
-        "plant_target_delay_ms": np.asarray(
-            args.plant_target_delay_ms_values, np.float64
-        ).tolist(),
-        "plant_target_delay_steps": np.asarray(
-            args.plant_target_delay_steps, np.int64
-        ).tolist(),
+        "plant_gain_scale": np.asarray(args.plant_gain_scale_values, np.float64).tolist(),
+        "plant_target_delay_ms": np.asarray(args.plant_target_delay_ms_values, np.float64).tolist(),
+        "plant_target_delay_steps": np.asarray(args.plant_target_delay_steps, np.int64).tolist(),
         "planner_replan_period_s": float(args.effective_replan_period_s),
         "planner_random_seed": int(cfg.sonic_planner_random_seed),
         "config": str(Path(args.config).resolve()),
@@ -327,57 +333,38 @@ def _write_recording(
         "reduced_proprioception": str(cfg.sonic_reduced_proprioception),
         "shadow_settling_time_s": float(cfg.sonic_shadow_settling_time_s),
         "mask_missing_reference": bool(cfg.sonic_mask_missing_reference),
-        "mask_missing_action_history": bool(
-            cfg.sonic_mask_missing_action_history
-        ),
+        "mask_missing_action_history": bool(cfg.sonic_mask_missing_action_history),
         "missing_adaptation_scope": str(cfg.sonic_missing_adaptation_scope),
-        "motor_action_scale": np.asarray(
-            cfg.sonic_motor_action_scale, np.float64
-        ).tolist(),
-        "motor_action_abs_limit": np.asarray(
-            cfg.sonic_motor_action_abs_limit, np.float64
-        ).tolist(),
-        "motor_action_ema": np.asarray(
-            cfg.sonic_motor_action_ema, np.float64
-        ).tolist(),
+        "motor_action_scale": np.asarray(cfg.sonic_motor_action_scale, np.float64).tolist(),
+        "motor_action_abs_limit": np.asarray(cfg.sonic_motor_action_abs_limit, np.float64).tolist(),
+        "motor_action_ema": np.asarray(cfg.sonic_motor_action_ema, np.float64).tolist(),
         "motor_target_rate_limit": np.asarray(
             cfg.sonic_motor_target_rate_limit, np.float64
         ).tolist(),
         "action_history_source": str(cfg.sonic_action_history_source),
         "reference_leg_scale": float(cfg.sonic_reference_leg_scale),
-        "reference_root_height_scale": float(
-            cfg.sonic_reference_root_height_scale
-        ),
-        "reference_joint_scale": np.asarray(
-            cfg.sonic_reference_joint_scale, np.float64
-        ).tolist(),
+        "reference_root_height_scale": float(cfg.sonic_reference_root_height_scale),
+        "reference_joint_scale": np.asarray(cfg.sonic_reference_joint_scale, np.float64).tolist(),
         "reference_joint_dvel_scale": (
-            None if getattr(cfg, "sonic_reference_joint_dvel_scale", None) is None
+            None
+            if getattr(cfg, "sonic_reference_joint_dvel_scale", None) is None
             else np.asarray(cfg.sonic_reference_joint_dvel_scale, np.float64).tolist()
         ),
         "reference_joint_offset_rad": (
-            None if getattr(cfg, "sonic_reference_joint_offset_rad", None) is None
+            None
+            if getattr(cfg, "sonic_reference_joint_offset_rad", None) is None
             else np.asarray(cfg.sonic_reference_joint_offset_rad, np.float64).tolist()
         ),
         "reference_joint_flex_scale": (
-            None if getattr(cfg, "sonic_reference_joint_flex_scale", None) is None
+            None
+            if getattr(cfg, "sonic_reference_joint_flex_scale", None) is None
             else np.asarray(cfg.sonic_reference_joint_flex_scale, np.float64).tolist()
         ),
-        "derived_yaw_command_scale": float(
-            getattr(args, "derived_yaw_command_scale", 1.0)
-        ),
-        "yaw_command_scale": float(
-            getattr(args, "applied_yaw_command_scale", 1.0)
-        ),
-        "yaw_inplace_scale": float(
-            getattr(args, "applied_yaw_inplace_scale", 1.0)
-        ),
-        "yaw_command_scale_overridden": bool(
-            getattr(args, "yaw_command_scale", None) is not None
-        ),
-        "yaw_inplace_scale_overridden": bool(
-            getattr(args, "yaw_inplace_scale", None) is not None
-        ),
+        "derived_yaw_command_scale": float(getattr(args, "derived_yaw_command_scale", 1.0)),
+        "yaw_command_scale": float(getattr(args, "applied_yaw_command_scale", 1.0)),
+        "yaw_inplace_scale": float(getattr(args, "applied_yaw_inplace_scale", 1.0)),
+        "yaw_command_scale_overridden": bool(getattr(args, "yaw_command_scale", None) is not None),
+        "yaw_inplace_scale_overridden": bool(getattr(args, "yaw_inplace_scale", None) is not None),
         "realtime": bool(args.realtime),
         "encoder_providers": list(runner.encoder_providers),
         "decoder_providers": list(runner.decoder_providers),
@@ -392,8 +379,9 @@ def _write_recording(
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--config", default="g1_23dof_sonic.yaml")
     ap.add_argument(
         "--model-profile",
@@ -403,34 +391,44 @@ def main():
     )
     ap.add_argument("--mjcf", required=True)
     ap.add_argument("--clip", default=None, help="default: sonic_motion_clip from the config")
-    ap.add_argument("--pico", choices=["nav", "vr3", "both", "idle", "carry", "joystick"],
-                    default=None,
-                    help="drive the planner with a scripted teleop command")
-    ap.add_argument("--planner", action="store_true",
-                    help="force the G1 encoder, exactly deploy --mode planner")
+    ap.add_argument(
+        "--pico",
+        choices=["nav", "vr3", "both", "idle", "carry", "joystick"],
+        default=None,
+        help="drive the planner with a scripted teleop command",
+    )
+    ap.add_argument(
+        "--planner", action="store_true", help="force the G1 encoder, exactly deploy --mode planner"
+    )
     ap.add_argument(
         "--idle-hold",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="hold measured joint pose in IDLE without changing recurrent planner "
-             "context (default: enabled; --no-idle-hold is diagnostic only)",
+        "context (default: enabled; --no-idle-hold is diagnostic only)",
     )
-    ap.add_argument("--slow", action="store_true",
-                    help="joystick SLOW_WALK instead of WALK, as deploy --slow")
+    ap.add_argument(
+        "--slow", action="store_true", help="joystick SLOW_WALK instead of WALK, as deploy --slow"
+    )
     ap.add_argument("--speed", type=float, default=0.2, help="--pico nav: m/s")
-    ap.add_argument("--axes", default=None,
-                    help="--pico joystick: fixed 'lx,ly,rx' instead of the keyboard")
+    ap.add_argument(
+        "--axes", default=None, help="--pico joystick: fixed 'lx,ly,rx' instead of the keyboard"
+    )
     ap.add_argument(
         "--axes-from-step",
         type=int,
         default=None,
         help="keep joystick neutral until this control step, then apply --axes",
     )
-    ap.add_argument("--axes-until", type=int, default=None,
-                    help="release the stick (axes to 0) after N steps")
-    ap.add_argument("--remote", action="store_true",
-                    help="--pico joystick: real Unitree remote via DDS "
-                         "(robot on and reachable; nothing publishes lowcmd)")
+    ap.add_argument(
+        "--axes-until", type=int, default=None, help="release the stick (axes to 0) after N steps"
+    )
+    ap.add_argument(
+        "--remote",
+        action="store_true",
+        help="--pico joystick: real Unitree remote via DDS "
+        "(robot on and reachable; nothing publishes lowcmd)",
+    )
     ap.add_argument(
         "--native-gamepad",
         action="store_true",
@@ -484,11 +482,18 @@ def main():
             "joint/group; SONIC still receives current measured state"
         ),
     )
-    ap.add_argument("--blend", action=argparse.BooleanOptionalAction, default=True,
-                    help="same one-second raised-cosine handover as deployment "
-                         "(use --no-blend only for official parity diagnostics)")
-    ap.add_argument("--replan-ungated", action="store_true",
-                    help="replan on every command instead of official_gated, as deploy")
+    ap.add_argument(
+        "--blend",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="same one-second raised-cosine handover as deployment "
+        "(use --no-blend only for official parity diagnostics)",
+    )
+    ap.add_argument(
+        "--replan-ungated",
+        action="store_true",
+        help="replan on every command instead of official_gated, as deploy",
+    )
     ap.add_argument(
         "--planner-replan-period",
         type=float,
@@ -658,21 +663,25 @@ def main():
     ap.add_argument("--steps", type=int, default=None, help="default: whole clip")
     ap.add_argument("--control-dt", type=float, default=None)
     ap.add_argument("--init-height", type=float, default=0.78)
-    ap.add_argument("--zero-action", action="store_true",
-                    help="diagnostic: hold default pose, ignore policy")
+    ap.add_argument(
+        "--zero-action", action="store_true", help="diagnostic: hold default pose, ignore policy"
+    )
     ap.add_argument("--trace", action="store_true", help="print per-step height/tilt/dof-err")
     ap.add_argument("--view", action="store_true", help="open the MuJoCo viewer")
-    ap.add_argument("--viser", action="store_true",
-                    help="browser viewer + drive buttons on :8080 (for SSH; "
-                         "replaces the GLFW window)")
-    ap.add_argument("--realtime", action="store_true",
-                    help="with --view, pace the sim to wall clock")
+    ap.add_argument(
+        "--viser",
+        action="store_true",
+        help="browser viewer + drive buttons on :8080 (for SSH; " "replaces the GLFW window)",
+    )
+    ap.add_argument(
+        "--realtime", action="store_true", help="with --view, pace the sim to wall clock"
+    )
     ap.add_argument(
         "--sim-plugin",
         default=None,
         help="dotted path module:Class of a per-step observer plugin; "
-             "instantiated with (model, data, args), on_control_step(step) "
-             "runs after each control step, finalize(record_dir) after the run",
+        "instantiated with (model, data, args), on_control_step(step) "
+        "runs after each control step, finalize(record_dir) after the run",
     )
     ap.add_argument(
         "--record-dir",
@@ -711,9 +720,7 @@ def main():
     if args.mask_missing_reference is not None:
         cfg.sonic_mask_missing_reference = bool(args.mask_missing_reference)
     if args.mask_missing_action_history is not None:
-        cfg.sonic_mask_missing_action_history = bool(
-            args.mask_missing_action_history
-        )
+        cfg.sonic_mask_missing_action_history = bool(args.mask_missing_action_history)
     if args.missing_adaptation_scope is not None:
         cfg.sonic_missing_adaptation_scope = args.missing_adaptation_scope
     profile = get_robot_profile(cfg.sonic_robot_profile)
@@ -724,30 +731,38 @@ def main():
     }
     physical_names = np.asarray(profile.physical_joint_names)
     for group in (
-        "hip_pitch", "hip_roll", "hip_yaw", "knee",
-        "ankle_pitch", "ankle_roll",
+        "hip_pitch",
+        "hip_roll",
+        "hip_yaw",
+        "knee",
+        "ankle_pitch",
+        "ankle_roll",
     ):
-        group_indices[group] = np.flatnonzero(
-            np.char.find(physical_names.astype(str), group) >= 0
-        )
+        group_indices[group] = np.flatnonzero(np.char.find(physical_names.astype(str), group) >= 0)
     for index, name in enumerate(physical_names):
         short = str(name).removesuffix("_joint")
         group_indices.setdefault(short, np.array([index], dtype=np.int64))
-    group_indices["sagittal"] = np.unique(np.concatenate([
-        group_indices["hip_pitch"],
-        group_indices["knee"],
-        group_indices["ankle_pitch"],
-    ]))
-    group_indices["lateral"] = np.unique(np.concatenate([
-        group_indices["hip_roll"],
-        group_indices["hip_yaw"],
-        group_indices["ankle_roll"],
-    ]))
+    group_indices["sagittal"] = np.unique(
+        np.concatenate(
+            [
+                group_indices["hip_pitch"],
+                group_indices["knee"],
+                group_indices["ankle_pitch"],
+            ]
+        )
+    )
+    group_indices["lateral"] = np.unique(
+        np.concatenate(
+            [
+                group_indices["hip_roll"],
+                group_indices["hip_yaw"],
+                group_indices["ankle_roll"],
+            ]
+        )
+    )
     for joint_index, joint_name in enumerate(profile.physical_joint_names):
         group_indices[joint_name] = np.asarray([joint_index], dtype=np.int64)
-        group_indices[joint_name.removesuffix("_joint")] = np.asarray(
-            [joint_index], dtype=np.int64
-        )
+        group_indices[joint_name.removesuffix("_joint")] = np.asarray([joint_index], dtype=np.int64)
 
     def apply_motor_overrides(specs, attribute: str, kind: str) -> None:
         values = np.asarray(getattr(cfg, attribute), np.float64).copy()
@@ -761,14 +776,11 @@ def main():
                 group, text = spec.split("=", 1)
                 value = float(text)
             except ValueError as exc:
-                raise SystemExit(
-                    f"--motor-{kind} expects GROUP=VALUE, got {spec!r}"
-                ) from exc
+                raise SystemExit(f"--motor-{kind} expects GROUP=VALUE, got {spec!r}") from exc
             group = group.strip().lower()
             if group not in group_indices:
                 raise SystemExit(
-                    f"unknown --motor-{kind} group {group!r}; choose "
-                    + ", ".join(group_indices)
+                    f"unknown --motor-{kind} group {group!r}; choose " + ", ".join(group_indices)
                 )
             if not np.isfinite(value) or value <= 0:
                 raise SystemExit(f"--motor-{kind} value must be finite and positive")
@@ -780,16 +792,12 @@ def main():
     apply_motor_overrides(args.motor_scale, "sonic_motor_action_scale", "scale")
     apply_motor_overrides(args.motor_clip, "sonic_motor_action_abs_limit", "clip")
     apply_motor_overrides(args.motor_ema, "sonic_motor_action_ema", "ema")
-    apply_motor_overrides(
-        args.motor_rate, "sonic_motor_target_rate_limit", "rate"
-    )
+    apply_motor_overrides(args.motor_rate, "sonic_motor_target_rate_limit", "rate")
     if getattr(args, "slow_gait", False):
         from sonic.model.reference_adaptation import expand_slow_gait_recipe
 
         if str(cfg.sonic_adaptation_profile).strip().lower() != "forward-stable-23":
-            raise SystemExit(
-                "--slow-gait requires a forward-stable-23 adaptation config"
-            )
+            raise SystemExit("--slow-gait requires a forward-stable-23 adaptation config")
         if profile.name != "g1_23dof":
             raise SystemExit("--slow-gait requires embodiment g1_23dof")
         try:
@@ -812,23 +820,15 @@ def main():
             f"in-place yaw {args.yaw_inplace_scale:g}",
             flush=True,
         )
-    if np.asarray(cfg.sonic_reference_joint_scale).shape != (
-        profile.physical_dof,
-    ):
-        raise SystemExit(
-            "sonic_reference_joint_scale must contain one value per physical joint"
-        )
-    reference_joint_scale = np.asarray(
-        cfg.sonic_reference_joint_scale, np.float64
-    ).copy()
+    if np.asarray(cfg.sonic_reference_joint_scale).shape != (profile.physical_dof,):
+        raise SystemExit("sonic_reference_joint_scale must contain one value per physical joint")
+    reference_joint_scale = np.asarray(cfg.sonic_reference_joint_scale, np.float64).copy()
     for spec in args.reference_joint_scale:
         try:
             group, text = spec.split("=", 1)
             value = float(text)
         except ValueError as exc:
-            raise SystemExit(
-                f"--reference-joint-scale expects GROUP=VALUE, got {spec!r}"
-            ) from exc
+            raise SystemExit(f"--reference-joint-scale expects GROUP=VALUE, got {spec!r}") from exc
         group = group.strip().lower()
         if group not in group_indices:
             raise SystemExit(
@@ -836,9 +836,7 @@ def main():
                 + ", ".join(sorted(group_indices))
             )
         if not np.isfinite(value) or not 0.0 < value <= 2.0:
-            raise SystemExit(
-                "--reference-joint-scale value must be finite and in (0, 2]"
-            )
+            raise SystemExit("--reference-joint-scale value must be finite and in (0, 2]")
         reference_joint_scale[group_indices[group]] = value
     cfg.sonic_reference_joint_scale = reference_joint_scale
     if args.reference_joint_dvel_scale:
@@ -858,9 +856,7 @@ def main():
                     + ", ".join(sorted(group_indices))
                 )
             if not np.isfinite(value) or not 0.0 < value <= 2.0:
-                raise SystemExit(
-                    "--reference-joint-dvel-scale value must be finite and in (0, 2]"
-                )
+                raise SystemExit("--reference-joint-dvel-scale value must be finite and in (0, 2]")
             reference_dvel_scale[group_indices[group]] = value
         cfg.sonic_reference_joint_dvel_scale = reference_dvel_scale
     if args.reference_joint_offset_deg:
@@ -880,15 +876,11 @@ def main():
                     + ", ".join(sorted(group_indices))
                 )
             if not np.isfinite(value) or abs(value) > 45.0:
-                raise SystemExit(
-                    "--reference-joint-offset-deg value must be finite and within ±45"
-                )
+                raise SystemExit("--reference-joint-offset-deg value must be finite and within ±45")
             reference_offset[group_indices[group]] = np.radians(value)
         cfg.sonic_reference_joint_offset_rad = reference_offset
     if args.reference_joint_flex_scale:
-        reference_flex_scale = np.asarray(
-            cfg.sonic_reference_joint_scale, np.float64
-        ).copy()
+        reference_flex_scale = np.asarray(cfg.sonic_reference_joint_scale, np.float64).copy()
         for spec in args.reference_joint_flex_scale:
             try:
                 group, text = spec.split("=", 1)
@@ -904,11 +896,10 @@ def main():
                     + ", ".join(sorted(group_indices))
                 )
             if not np.isfinite(value) or not 0.0 < value <= 2.0:
-                raise SystemExit(
-                    "--reference-joint-flex-scale value must be finite and in (0, 2]"
-                )
+                raise SystemExit("--reference-joint-flex-scale value must be finite and in (0, 2]")
             reference_flex_scale[group_indices[group]] = value
         cfg.sonic_reference_joint_flex_scale = reference_flex_scale
+
     def parse_plant_overrides(
         specs, *, neutral: float, kind: str, lower: float, upper: float
     ) -> np.ndarray:
@@ -918,9 +909,7 @@ def main():
                 group, text = spec.split("=", 1)
                 value = float(text)
             except ValueError as exc:
-                raise SystemExit(
-                    f"--plant-{kind} expects GROUP=VALUE, got {spec!r}"
-                ) from exc
+                raise SystemExit(f"--plant-{kind} expects GROUP=VALUE, got {spec!r}") from exc
             group = group.strip().lower()
             if group not in group_indices:
                 raise SystemExit(
@@ -1012,8 +1001,7 @@ def main():
     ).astype(np.int64)
     effective_delay_ms = 1000.0 * args.control_dt * args.plant_target_delay_steps
     nonneutral_plant = np.flatnonzero(
-        (np.abs(args.plant_gain_scale_values - 1.0) > 1e-12)
-        | (args.plant_target_delay_steps != 0)
+        (np.abs(args.plant_gain_scale_values - 1.0) > 1e-12) | (args.plant_target_delay_steps != 0)
     )
     if len(nonneutral_plant):
         print("MuJoCo simulated plant faults (SONIC remains unchanged):")
@@ -1030,6 +1018,7 @@ def main():
     plugin = None
     if args.sim_plugin:
         import importlib
+
         plugin_module, _, plugin_class = args.sim_plugin.partition(":")
         plugin = getattr(importlib.import_module(plugin_module), plugin_class)(m, d, args)
     decim = max(1, round(args.control_dt / m.opt.timestep))
@@ -1051,9 +1040,7 @@ def main():
         + (" (priority override)" if args.ground_friction is not None else " (MJCF default)")
     )
     foot_body_ids = {
-        side: mujoco.mj_name2id(
-            m, mujoco.mjtObj.mjOBJ_BODY, f"{side}_ankle_roll_link"
-        )
+        side: mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, f"{side}_ankle_roll_link")
         for side in ("left", "right")
     }
     if any(body_id < 0 for body_id in foot_body_ids.values()):
@@ -1073,9 +1060,7 @@ def main():
         for contact_index in range(d.ncon):
             contact = d.contact[contact_index]
             pair = (int(contact.geom1), int(contact.geom2))
-            if (pair[0] == floor_id and pair[1] in ids) or (
-                pair[1] == floor_id and pair[0] in ids
-            ):
+            if (pair[0] == floor_id and pair[1] in ids) or (pair[1] == floor_id and pair[0] in ids):
                 contact_count += 1
         corners = foot_corner_geom_ids[side]
         corner_z = (
@@ -1093,9 +1078,7 @@ def main():
     def _stand_support_diagnostics():
         left = _foot_diagnostics("left")
         right = _foot_diagnostics("right")
-        corner_ids = np.concatenate(
-            (foot_corner_geom_ids["left"], foot_corner_geom_ids["right"])
-        )
+        corner_ids = np.concatenate((foot_corner_geom_ids["left"], foot_corner_geom_ids["right"]))
         if len(corner_ids) < 6:
             return None
         corner_xyz = np.asarray(d.geom_xpos[corner_ids], np.float64)
@@ -1109,10 +1092,12 @@ def main():
             "left_supported": bool(left[1] >= 2),
             "right_supported": bool(right[1] >= 2),
             "max_corner_z_m": float(np.max(corner_xyz[:, 2])),
-            "max_foot_corner_range_m": float(max(
-                np.ptp(d.geom_xpos[foot_corner_geom_ids["left"], 2]),
-                np.ptp(d.geom_xpos[foot_corner_geom_ids["right"], 2]),
-            )),
+            "max_foot_corner_range_m": float(
+                max(
+                    np.ptp(d.geom_xpos[foot_corner_geom_ids["left"], 2]),
+                    np.ptp(d.geom_xpos[foot_corner_geom_ids["right"], 2]),
+                )
+            ),
             "com_support_margin_m": _support_margin_xy(corner_xyz[:, :2], com_xy),
             "base_xy": np.asarray(d.qpos[:2], np.float64).copy(),
             "base_planar_speed_mps": float(np.linalg.norm(d.qvel[:2])),
@@ -1177,6 +1162,7 @@ def main():
 
         if args.pico == "joystick":
             from sonic.inputs.pico_client import LocomotionMode
+
             if args.remote or args.native_gamepad:
                 from sonic.inputs.joystick_teleop import GamepadManagerTeleop
 
@@ -1187,12 +1173,9 @@ def main():
                 from sonic.inputs.joystick_teleop import JoystickTeleop
 
                 teleop = JoystickTeleop(
-                    locomotion_mode=LocomotionMode.SLOW_WALK if args.slow
-                    else LocomotionMode.WALK
+                    locomotion_mode=LocomotionMode.SLOW_WALK if args.slow else LocomotionMode.WALK
                 )
-            scheduled_axes = (
-                tuple(map(float, args.axes.split(","))) if args.axes else None
-            )
+            scheduled_axes = tuple(map(float, args.axes.split(","))) if args.axes else None
             if scheduled_axes is not None and (
                 args.axes_from_step is None or args.axes_from_step <= 0
             ):
@@ -1209,9 +1192,7 @@ def main():
                 )
             if args.planner_speed is not None:
                 if not (args.remote or args.native_gamepad):
-                    raise SystemExit(
-                        "--planner-speed requires --native-gamepad or --remote"
-                    )
+                    raise SystemExit("--planner-speed requires --native-gamepad or --remote")
                 teleop.movement_speed = float(args.planner_speed)
             from sonic.model.reference_adaptation import gait_yaw_command_scale
 
@@ -1221,9 +1202,7 @@ def main():
                     not np.isfinite(args.yaw_command_scale)
                     or not 0.0 < args.yaw_command_scale <= 2.0
                 ):
-                    raise SystemExit(
-                        "--yaw-command-scale must be finite and in (0, 2]"
-                    )
+                    raise SystemExit("--yaw-command-scale must be finite and in (0, 2]")
                 teleop.yaw_command_scale = float(args.yaw_command_scale)
             else:
                 teleop.yaw_command_scale = derived_yaw
@@ -1232,9 +1211,7 @@ def main():
                     not np.isfinite(args.yaw_inplace_scale)
                     or not 0.0 < args.yaw_inplace_scale <= 2.0
                 ):
-                    raise SystemExit(
-                        "--yaw-inplace-scale must be finite and in (0, 2]"
-                    )
+                    raise SystemExit("--yaw-inplace-scale must be finite and in (0, 2]")
                 teleop.yaw_inplace_scale = float(args.yaw_inplace_scale)
             args.derived_yaw_command_scale = derived_yaw
             args.applied_yaw_command_scale = float(teleop.yaw_command_scale)
@@ -1278,11 +1255,13 @@ def main():
             teleop = ScriptedTeleop(args.pico, speed=args.speed)
         # wall-paced viewing uses the deploy's planner thread; headless sim
         # outruns the wall clock, so it replans synchronously instead
-        ref_kwargs = dict(threaded=args.realtime,
-                          gated=not args.replan_ungated,
-                          force_g1=args.planner,
-                          idle_hold=args.idle_hold,
-                          replan_period_s=args.effective_replan_period_s)
+        ref_kwargs = dict(
+            threaded=args.realtime,
+            gated=not args.replan_ungated,
+            force_g1=args.planner,
+            idle_hold=args.idle_hold,
+            replan_period_s=args.effective_replan_period_s,
+        )
         ref = PicoReferenceWindow(cfg, teleop, **ref_kwargs)
         ref.robot = _MujocoJointState(
             d,
@@ -1333,12 +1312,12 @@ def main():
         # Tap to set latched virtual axes. These numeric-keypad bindings are
         # disjoint from the complete documented MuJoCo Simulate shortcut set.
         axis_keys = {
-            glfw.KEY_KP_8: (0, -1, 0),   # forward
-            glfw.KEY_KP_2: (0, 1, 0),    # backward
-            glfw.KEY_KP_4: (-1, 0, 0),   # strafe left
-            glfw.KEY_KP_6: (1, 0, 0),    # strafe right
-            glfw.KEY_KP_7: (0, 0, -1),   # turn left
-            glfw.KEY_KP_9: (0, 0, 1),    # turn right
+            glfw.KEY_KP_8: (0, -1, 0),  # forward
+            glfw.KEY_KP_2: (0, 1, 0),  # backward
+            glfw.KEY_KP_4: (-1, 0, 0),  # strafe left
+            glfw.KEY_KP_6: (1, 0, 0),  # strafe right
+            glfw.KEY_KP_7: (0, 0, -1),  # turn left
+            glfw.KEY_KP_9: (0, 0, 1),  # turn right
         }
         mode_keys = {
             glfw.KEY_KP_1: "slow_walk",
@@ -1364,9 +1343,11 @@ def main():
                 )
             elif key in axis_keys:
                 dlx, dly, drx = axis_keys[key]
-                teleop.set_axes(np.clip(teleop.lx + 0.5 * dlx, -1, 1),
-                                np.clip(teleop.ly - 0.5 * dly, -1, 1),
-                                np.clip(teleop.rx + 0.5 * drx, -1, 1))
+                teleop.set_axes(
+                    np.clip(teleop.lx + 0.5 * dlx, -1, 1),
+                    np.clip(teleop.ly - 0.5 * dly, -1, 1),
+                    np.clip(teleop.rx + 0.5 * drx, -1, 1),
+                )
             else:
                 handled = False
             if not handled:
@@ -1406,14 +1387,15 @@ def main():
         on_capture = None
         if args.pico and hasattr(ref, "request_stable_stand_capture"):
             on_capture = lambda: ref.request_stable_stand_capture("viser button")
-        viser_view = ViserSimView(cfg.urdf_path,
-                                  teleop=teleop if args.pico == "joystick" else None,
-                                  on_capture=on_capture)
+        viser_view = ViserSimView(
+            cfg.urdf_path, teleop=teleop if args.pico == "joystick" else None, on_capture=on_capture
+        )
         print(f"viser: http://localhost:{viser_view.port}  (drive sliders in the sidebar)")
         if plugin is not None and hasattr(plugin, "attach_viser"):
             plugin.attach_viser(viser_view.server, teleop)
 
     import time as _time
+
     t_wall = _time.perf_counter()
 
     qlog = []
@@ -1470,15 +1452,10 @@ def main():
         "sonic_reference_dq_il_adapted": [],
     }
     recording_enabled = args.record_dir is not None
-    handover_origin = (
-        d.qpos[qadr].astype(np.float32)
-        + encoder_position_offset
-    )
+    handover_origin = d.qpos[qadr].astype(np.float32) + encoder_position_offset
     remote_activation_step = None
     max_plant_delay_steps = int(np.max(args.plant_target_delay_steps))
-    initial_plant_target = (
-        d.qpos[qadr].astype(np.float32).copy()
-    )
+    initial_plant_target = d.qpos[qadr].astype(np.float32).copy()
     plant_target_history = deque(
         (initial_plant_target.copy() for _ in range(max_plant_delay_steps + 1)),
         maxlen=max_plant_delay_steps + 1,
@@ -1489,11 +1466,7 @@ def main():
             if viewer is not None and not viewer.is_running():
                 print("viewer closed")
                 break
-            if (
-                qlog
-                and teleop is not None
-                and getattr(teleop, "stop_requested", False)
-            ):
+            if qlog and teleop is not None and getattr(teleop, "stop_requested", False):
                 print("Unitree Select received; stopping MuJoCo and saving")
                 break
             if (
@@ -1511,14 +1484,12 @@ def main():
             ):
                 teleop.set_axes(0, 0, 0)
             if args.capture_at_step is not None and step == args.capture_at_step:
-                ref.request_stable_stand_capture(
-                    f"diagnostic step {args.capture_at_step}"
-                )
+                ref.request_stable_stand_capture(f"diagnostic step {args.capture_at_step}")
             q_true = d.qpos[qadr].astype(np.float32)
             q = q_true + encoder_position_offset
             qd = d.qvel[vadr].astype(np.float32)
-            base_q = d.qpos[3:7].astype(np.float32)              # pelvis wxyz
-            ang_vel = d.qvel[3:6].astype(np.float32)             # base-local
+            base_q = d.qpos[3:7].astype(np.float32)  # pelvis wxyz
+            ang_vel = d.qvel[3:6].astype(np.float32)  # base-local
             proj_g = gravity_orientation(base_q)
 
             # SONIC builds its own observation from RAW state; this is exactly the
@@ -1539,8 +1510,11 @@ def main():
 
             if args.trace and step < 40 and ref_dof is not None:
                 de = float(np.abs(q - ref_dof[min(ref.frame, len(ref_dof) - 1)]).mean())
-                print(f"  t{step:3d} h={d.qpos[2]:.3f} gz={proj_g[2]:+.2f} "
-                      f"gx={proj_g[0]:+.2f} gy={proj_g[1]:+.2f} dof_err={de:.3f}", flush=True)
+                print(
+                    f"  t{step:3d} h={d.qpos[2]:.3f} gz={proj_g[2]:+.2f} "
+                    f"gx={proj_g[0]:+.2f} gy={proj_g[1]:+.2f} dof_err={de:.3f}",
+                    flush=True,
+                )
 
             waiting_for_remote_start = bool(
                 args.remote and not getattr(teleop, "control_started", False)
@@ -1567,17 +1541,13 @@ def main():
             # is produced in MuJoCo by shifting the actuator equilibrium by
             # -offset, since MuJoCo itself sees the true joint angle.
             pd_equilibrium_q_true = target - encoder_position_offset
-            plant_target_history.append(
-                np.asarray(pd_equilibrium_q_true, np.float32).copy()
-            )
+            plant_target_history.append(np.asarray(pd_equilibrium_q_true, np.float32).copy())
             plant_applied_target_q_true = np.empty_like(pd_equilibrium_q_true)
             history = list(plant_target_history)
-            for joint_index, delay_steps in enumerate(
-                args.plant_target_delay_steps
-            ):
-                plant_applied_target_q_true[joint_index] = history[
-                    -1 - int(delay_steps)
-                ][joint_index]
+            for joint_index, delay_steps in enumerate(args.plant_target_delay_steps):
+                plant_applied_target_q_true[joint_index] = history[-1 - int(delay_steps)][
+                    joint_index
+                ]
             d.ctrl[pd_act] = plant_applied_target_q_true
             if len(hold_act):
                 d.ctrl[hold_act] = hold_tgt
@@ -1592,10 +1562,7 @@ def main():
                 teleop.tick(args.control_dt)
 
             q_true_after = d.qpos[qadr].astype(np.float32).copy()
-            q_after = (
-                q_true_after
-                + encoder_position_offset
-            )
+            q_after = q_true_after + encoder_position_offset
             qd_after = d.qvel[vadr].astype(np.float32).copy()
             base_after = d.qpos[3:7].astype(np.float32).copy()
             projected_after = gravity_orientation(base_after)
@@ -1603,8 +1570,11 @@ def main():
                 if teleop is not None:
                     nav = teleop.nav_command()
                     mode = int(teleop.mode())
-                    axes = np.array([teleop.lx, teleop.ly, teleop.rx], np.float32) \
-                        if args.pico == "joystick" else np.full(3, np.nan, np.float32)
+                    axes = (
+                        np.array([teleop.lx, teleop.ly, teleop.rx], np.float32)
+                        if args.pico == "joystick"
+                        else np.full(3, np.nan, np.float32)
+                    )
                 else:
                     nav = {
                         "movement": np.full(3, np.nan, np.float32),
@@ -1628,9 +1598,7 @@ def main():
                     np.asarray(pd_equilibrium_q_true, np.float32).copy()
                 )
                 rows["plant_applied_target_q_true"].append(
-                    np.asarray(
-                        plant_applied_target_q_true, np.float32
-                    ).copy()
+                    np.asarray(plant_applied_target_q_true, np.float32).copy()
                 )
                 rows["action"].append(np.asarray(action, np.float32).copy())
                 rows["actuator_force"].append(
@@ -1646,12 +1614,8 @@ def main():
                 rows["planner_inference_ms"].append(
                     float(getattr(planner, "last_inference_ms", np.nan))
                 )
-                rows["planner_total_ms"].append(
-                    float(getattr(planner, "last_total_ms", np.nan))
-                )
-                rows["control_work_ms"].append(
-                    (_time.perf_counter() - work_start) * 1e3
-                )
+                rows["planner_total_ms"].append(float(getattr(planner, "last_total_ms", np.nan)))
+                rows["control_work_ms"].append((_time.perf_counter() - work_start) * 1e3)
                 runner_diagnostics = runner.diagnostic_fields()
                 for name in (
                     "sonic_action_il_raw",
@@ -1661,21 +1625,11 @@ def main():
                     "sonic_reference_q_il_adapted",
                     "sonic_reference_dq_il_adapted",
                 ):
-                    rows[name].append(
-                        np.asarray(runner_diagnostics[name]).copy()
-                    )
-                rows["control_started"].append(
-                    bool(getattr(teleop, "control_started", True))
-                )
-                rows["motion_set"].append(
-                    int(getattr(teleop, "motion_set_index", -1))
-                )
-                rows["planner_replan_count"].append(
-                    int(getattr(ref, "replan_count", 0))
-                )
-                reference_diagnostics = getattr(
-                    ref, "reference_diagnostics", None
-                )
+                    rows[name].append(np.asarray(runner_diagnostics[name]).copy())
+                rows["control_started"].append(bool(getattr(teleop, "control_started", True)))
+                rows["motion_set"].append(int(getattr(teleop, "motion_set_index", -1)))
+                rows["planner_replan_count"].append(int(getattr(ref, "replan_count", 0)))
+                reference_diagnostics = getattr(ref, "reference_diagnostics", None)
                 diagnostics = (
                     reference_diagnostics()
                     if callable(reference_diagnostics)
@@ -1700,9 +1654,7 @@ def main():
                 ):
                     rows[name].append(np.asarray(diagnostics[name]).copy())
                 for side in ("left", "right"):
-                    contact, contact_count, foot_position, corner_z = (
-                        _foot_diagnostics(side)
-                    )
+                    contact, contact_count, foot_position, corner_z = _foot_diagnostics(side)
                     rows[f"{side}_foot_contact"].append(contact)
                     rows[f"{side}_foot_contact_count"].append(contact_count)
                     rows[f"{side}_foot_position"].append(foot_position)
@@ -1713,9 +1665,7 @@ def main():
                 errs.append(np.abs(q_true_after - ref_dof[f]).mean())
             heights.append(float(d.qpos[2]))
             qlog.append(q_true_after)
-            tilts.append(
-                float(np.degrees(np.arccos(np.clip(-projected_after[2], -1, 1))))
-            )
+            tilts.append(float(np.degrees(np.arccos(np.clip(-projected_after[2], -1, 1)))))
             if d.qpos[2] < 0.4:
                 fell = True
                 print(f"FELL at step {step}/{n_steps} (height {d.qpos[2]:.2f})")
@@ -1724,7 +1674,7 @@ def main():
                 if teleop is not None:
                     draw_command(viewer, d, teleop)
                 viewer.sync()
-            if viser_view is not None and step % 2 == 0:      # 25 Hz mirror
+            if viser_view is not None and step % 2 == 0:  # 25 Hz mirror
                 viser_view.update(d.qpos[:3], d.qpos[3:7], d.qpos[qadr])
             if plugin is not None:
                 plugin.on_control_step(step)

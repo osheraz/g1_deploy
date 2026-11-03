@@ -53,8 +53,7 @@ class CalibrationSelection:
 
 
 SINGLE_SELECTIONS = tuple(
-    CalibrationSelection(MOTOR_NAMES[int(motor)], (int(motor),), (1.0,))
-    for motor in PRESENT_23
+    CalibrationSelection(MOTOR_NAMES[int(motor)], (int(motor),), (1.0,)) for motor in PRESENT_23
 )
 
 # These groups are identification motions, not SONIC references. Mirrored
@@ -68,11 +67,13 @@ GROUP_SELECTIONS = (
     CalibrationSelection("bilateral_ankle_pitch", (4, 10), (1.0, 1.0)),
     CalibrationSelection("bilateral_ankle_roll_symmetric", (5, 11), (1.0, -1.0)),
     CalibrationSelection(
-        "bilateral_leg_flexion", (0, 3, 4, 6, 9, 10),
+        "bilateral_leg_flexion",
+        (0, 3, 4, 6, 9, 10),
         (-0.5, 1.0, 0.5, -0.5, 1.0, 0.5),
     ),
     CalibrationSelection(
-        "alternating_leg_clearance", (0, 3, 4, 6, 9, 10),
+        "alternating_leg_clearance",
+        (0, 3, 4, 6, 9, 10),
         (-0.5, 1.0, 0.5, 0.5, -1.0, -0.5),
     ),
     CalibrationSelection("bilateral_shoulder_pitch", (15, 22), (1.0, 1.0)),
@@ -90,7 +91,10 @@ class InteractiveCalibrationController:
     RANGE_NAMES = ("micro", "screening", "extended")
 
     def __init__(
-        self, *, max_envelope: str = "screening", dt: float = 0.02,
+        self,
+        *,
+        max_envelope: str = "screening",
+        dt: float = 0.02,
         require_capture: bool = True,
     ):
         if max_envelope not in {"screening", "full"}:
@@ -117,8 +121,7 @@ class InteractiveCalibrationController:
         self._transition_duration = 1.0
         self._pending_selection: tuple[str, int] | None = None
         self.last_message = (
-            "ready at captured neutral" if self.captured
-            else "waiting for neutral capture"
+            "ready at captured neutral" if self.captured else "waiting for neutral capture"
         )
 
     @property
@@ -258,9 +261,7 @@ class InteractiveCalibrationController:
                 self.last_message = "wait for neutral before executing the queued selection"
                 return self.status()
             if self.mode == "static":
-                self.static_phase_index = (
-                    self.static_phase_index + 1
-                ) % len(self.STATIC_PHASES)
+                self.static_phase_index = (self.static_phase_index + 1) % len(self.STATIC_PHASES)
                 phase = self.STATIC_PHASES[self.static_phase_index]
                 self._start_transition(phase * self.selection_amplitude())
                 self.last_message = f"static phase {phase:+.0f}"
@@ -290,9 +291,8 @@ class InteractiveCalibrationController:
             )
             alpha = self._transition_elapsed / self._transition_duration
             blend = alpha**3 * (10.0 + alpha * (-15.0 + 6.0 * alpha))
-            self.current_offset = (
-                self._transition_start
-                + blend * (self._transition_goal - self._transition_start)
+            self.current_offset = self._transition_start + blend * (
+                self._transition_goal - self._transition_start
             )
             if alpha >= 1.0 and self._pending_selection is not None:
                 bank, index = self._pending_selection

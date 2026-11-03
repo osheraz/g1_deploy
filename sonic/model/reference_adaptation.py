@@ -4,10 +4,10 @@ The planner owns a recurrent 29-DoF trajectory.  Adaptations in this module
 must therefore operate on a copy returned to the encoder; modifying the
 planner-owned trajectory would feed altered state back into later replans.
 """
+
 from __future__ import annotations
 
 import numpy as np
-
 
 # Physical 23-DoF sagittal stride joints: hip pitch, knee, ankle pitch.
 SAGITTAL_PHYSICAL_IDX = (0, 3, 4, 6, 9, 10)
@@ -46,23 +46,17 @@ def expand_slow_gait_recipe(
     """
     scale_groups = {_spec_group(spec) for spec in joint_scale_specs}
     if scale_groups & {"sagittal", "hip_pitch"}:
-        raise ValueError(
-            "--slow-gait is mutually exclusive with sagittal/hip-pitch scale"
-        )
+        raise ValueError("--slow-gait is mutually exclusive with sagittal/hip-pitch scale")
     scales = [str(spec) for spec in joint_scale_specs]
     scales.append(f"sagittal={SLOW_GAIT_SAGITTAL_SCALE:g}")
     offsets = [str(spec) for spec in joint_offset_specs]
     if "knee" not in {_spec_group(spec) for spec in offsets}:
         offsets.append(f"knee={SLOW_GAIT_KNEE_OFFSET_DEG:g}")
     walk_yaw = (
-        SLOW_GAIT_YAW_COMMAND_SCALE
-        if yaw_command_scale is None
-        else float(yaw_command_scale)
+        SLOW_GAIT_YAW_COMMAND_SCALE if yaw_command_scale is None else float(yaw_command_scale)
     )
     inplace_yaw = (
-        SLOW_GAIT_YAW_INPLACE_SCALE
-        if yaw_inplace_scale is None
-        else float(yaw_inplace_scale)
+        SLOW_GAIT_YAW_INPLACE_SCALE if yaw_inplace_scale is None else float(yaw_inplace_scale)
     )
     return scales, offsets, walk_yaw, inplace_yaw
 
@@ -110,12 +104,8 @@ class GaitReferenceAdapter:
         if np.any((self.leg_idx < 0) | (self.leg_idx >= 29)):
             raise ValueError("leg_idx must contain SONIC IsaacLab indices in [0, 29)")
         self.leg_scale = self._scale(leg_scale, "leg_scale")
-        self.root_height_scale = self._scale(
-            root_height_scale, "root_height_scale"
-        )
-        self.default_stand_q_il = np.asarray(
-            default_stand_q_il, dtype=np.float64
-        ).reshape(29)
+        self.root_height_scale = self._scale(root_height_scale, "root_height_scale")
+        self.default_stand_q_il = np.asarray(default_stand_q_il, dtype=np.float64).reshape(29)
         if not np.isfinite(self.default_stand_q_il).all():
             raise ValueError("default_stand_q_il contains NaN or infinity")
         self.joint_scale_il = np.asarray(
@@ -136,17 +126,13 @@ class GaitReferenceAdapter:
         if joint_dvel_scale_il is None:
             self._effective_dvel_scale = self._effective_joint_scale.copy()
         else:
-            self.joint_dvel_scale_il = np.asarray(
-                joint_dvel_scale_il, dtype=np.float64
-            ).reshape(29)
+            self.joint_dvel_scale_il = np.asarray(joint_dvel_scale_il, dtype=np.float64).reshape(29)
             if (
                 not np.isfinite(self.joint_dvel_scale_il).all()
                 or np.any(self.joint_dvel_scale_il <= 0.0)
                 or np.any(self.joint_dvel_scale_il > 2.0)
             ):
-                raise ValueError(
-                    "joint_dvel_scale_il values must be finite and in (0, 2]"
-                )
+                raise ValueError("joint_dvel_scale_il values must be finite and in (0, 2]")
             self._effective_dvel_scale = self.joint_dvel_scale_il.copy()
             self._effective_dvel_scale[self.leg_idx] *= self.leg_scale
             if np.any(self._effective_dvel_scale > 2.0):
@@ -162,17 +148,13 @@ class GaitReferenceAdapter:
         if joint_flex_scale_il is None:
             self._effective_flex_scale = self._effective_joint_scale.copy()
         else:
-            self.joint_flex_scale_il = np.asarray(
-                joint_flex_scale_il, dtype=np.float64
-            ).reshape(29)
+            self.joint_flex_scale_il = np.asarray(joint_flex_scale_il, dtype=np.float64).reshape(29)
             if (
                 not np.isfinite(self.joint_flex_scale_il).all()
                 or np.any(self.joint_flex_scale_il <= 0.0)
                 or np.any(self.joint_flex_scale_il > 2.0)
             ):
-                raise ValueError(
-                    "joint_flex_scale_il values must be finite and in (0, 2]"
-                )
+                raise ValueError("joint_flex_scale_il values must be finite and in (0, 2]")
             self._effective_flex_scale = self.joint_flex_scale_il.copy()
             self._effective_flex_scale[self.leg_idx] *= self.leg_scale
             if np.any(self._effective_flex_scale > 2.0):
@@ -230,9 +212,8 @@ class GaitReferenceAdapter:
         flex_side = (delta * self._flex_sign_il[idx]) > 0.0
         q_scale = np.where(flex_side, flex_scale, ext_scale)
         q[..., idx] = stand[idx] + q_scale * delta + self.joint_offset_il[idx]
-        if (
-            not self._independent_dvel
-            and np.any(self._effective_flex_scale != self._effective_joint_scale)
+        if not self._independent_dvel and np.any(
+            self._effective_flex_scale != self._effective_joint_scale
         ):
             dq[..., idx] *= q_scale
         else:
@@ -246,12 +227,10 @@ class GaitReferenceAdapter:
             stand_z = float(reference.get("stable_stand_root_z", rootz_cur.reshape(-1)[0]))
             if not np.isfinite(stand_z):
                 raise ValueError("stable_stand_root_z is not finite")
-            out["rootz_fut"] = (
-                stand_z
-                + self.root_height_scale * (rootz_fut - stand_z)
-            ).astype(np.asarray(reference["rootz_fut"]).dtype)
-            out["rootz_cur"] = (
-                stand_z
-                + self.root_height_scale * (rootz_cur - stand_z)
-            ).astype(np.asarray(reference["rootz_cur"]).dtype)
+            out["rootz_fut"] = (stand_z + self.root_height_scale * (rootz_fut - stand_z)).astype(
+                np.asarray(reference["rootz_fut"]).dtype
+            )
+            out["rootz_cur"] = (stand_z + self.root_height_scale * (rootz_cur - stand_z)).astype(
+                np.asarray(reference["rootz_cur"]).dtype
+            )
         return out

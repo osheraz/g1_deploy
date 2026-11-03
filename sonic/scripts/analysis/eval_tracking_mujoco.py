@@ -4,7 +4,7 @@
 Runs sim2sim_sonic.py headless on a scenario (or analyzes an existing
 --record-dir session) and reports one metrics table per run:
 
-    python scripts/eval_tracking_mujoco.py --clip sonic/model/motion_walk_straight.npz
+    python scripts/eval_tracking_mujoco.py --clip sonic/assets/motions/motion_walk_straight.npz
     python scripts/eval_tracking_mujoco.py --planner-axes 0,1,0 --steps 500
     python scripts/eval_tracking_mujoco.py --record /path/to/session
 
@@ -12,6 +12,7 @@ Metrics: per-joint tracking error (lower/upper split), pelvis tilt, height,
 fall, achieved-vs-commanded speed, heading drift, action smoothness, compute
 timings. --json appends a machine-readable line for cross-run comparison.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,13 +30,33 @@ if str(DEPLOY_ROOT) not in sys.path:
 
 from sonic.model.robot_profile import get_robot_profile  # noqa: E402
 
-LOWER = list(range(12))            # our-23 order: legs
-UPPER = list(range(12, 23))        # waist yaw + arms
-NAMES = ["Lhip_p", "Lhip_r", "Lhip_y", "Lknee", "Lank_p", "Lank_r",
-         "Rhip_p", "Rhip_r", "Rhip_y", "Rknee", "Rank_p", "Rank_r",
-         "waist",
-         "Lsh_p", "Lsh_r", "Lsh_y", "Lelb", "Lwr",
-         "Rsh_p", "Rsh_r", "Rsh_y", "Relb", "Rwr"]
+LOWER = list(range(12))  # our-23 order: legs
+UPPER = list(range(12, 23))  # waist yaw + arms
+NAMES = [
+    "Lhip_p",
+    "Lhip_r",
+    "Lhip_y",
+    "Lknee",
+    "Lank_p",
+    "Lank_r",
+    "Rhip_p",
+    "Rhip_r",
+    "Rhip_y",
+    "Rknee",
+    "Rank_p",
+    "Rank_r",
+    "waist",
+    "Lsh_p",
+    "Lsh_r",
+    "Lsh_y",
+    "Lelb",
+    "Lwr",
+    "Rsh_p",
+    "Rsh_r",
+    "Rsh_y",
+    "Relb",
+    "Rwr",
+]
 
 
 def pct(x, q):
@@ -44,13 +65,16 @@ def pct(x, q):
 
 def analyze(record_dir: Path) -> dict:
     d = np.load(record_dir / "state.npz")
-    meta = json.loads((record_dir / "meta.json").read_text()) \
-        if (record_dir / "meta.json").exists() else {}
+    meta = (
+        json.loads((record_dir / "meta.json").read_text())
+        if (record_dir / "meta.json").exists()
+        else {}
+    )
     n = len(d["time_s"])
     dt = float(np.mean(np.diff(d["time_s"]))) if n > 1 else 0.02
 
-    q = np.asarray(d["q"], np.float64)                        # (T,23) measured
-    ref_il = np.asarray(d["reference_q_il"], np.float64)      # (T,29)
+    q = np.asarray(d["q"], np.float64)  # (T,23) measured
+    ref_il = np.asarray(d["reference_q_il"], np.float64)  # (T,29)
     profile = get_robot_profile(meta.get("robot_profile", "g1_23dof"))
     ref23 = ref_il[:, profile.isaaclab_from_physical]
     valid = ~np.isnan(ref23).any(axis=1)
@@ -72,8 +96,7 @@ def analyze(record_dir: Path) -> dict:
     # heading drift while nothing commanded a turn (facing ~ constant)
     quat = np.asarray(d["base_quat_wxyz"], np.float64)
     w, x, y, z = quat.T
-    yaw = np.degrees(np.unwrap(np.arctan2(2 * (w * z + x * y),
-                                          1 - 2 * (y * y + z * z))))
+    yaw = np.degrees(np.unwrap(np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))))
 
     act = np.asarray(d["action"], np.float64)
     act_rate = np.abs(np.diff(act, axis=0)).max(axis=1) if len(act) > 1 else [0.0]
@@ -110,9 +133,16 @@ def analyze(record_dir: Path) -> dict:
 
 
 def run_scenario(args, record_dir: Path) -> None:
-    cmd = [sys.executable, str(DEPLOY_ROOT / "sonic" / "sim.py"),
-           "--mjcf", args.mjcf, "--record-dir", str(record_dir),
-           "--steps", str(args.steps)]
+    cmd = [
+        sys.executable,
+        str(DEPLOY_ROOT / "sonic" / "sim.py"),
+        "--mjcf",
+        args.mjcf,
+        "--record-dir",
+        str(record_dir),
+        "--steps",
+        str(args.steps),
+    ]
     if args.config:
         cmd += ["--config", args.config]
     if args.model_profile:
@@ -128,8 +158,7 @@ def run_scenario(args, record_dir: Path) -> None:
         if args.slow:
             cmd += ["--slow"]
     print("running:", " ".join(cmd[1:]))
-    res = subprocess.run(cmd, capture_output=True, text=True,
-                         cwd=str(DEPLOY_ROOT), timeout=1800)
+    res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(DEPLOY_ROOT), timeout=1800)
     if res.returncode != 0:
         sys.stderr.write(res.stdout[-2000:] + res.stderr[-2000:])
         raise SystemExit(f"rollout failed (exit {res.returncode})")
@@ -137,23 +166,30 @@ def run_scenario(args, record_dir: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--record", default=None,
-                    help="analyze this existing session instead of running one")
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--record", default=None, help="analyze this existing session instead of running one"
+    )
     ap.add_argument("--clip", default=None, help="motion-clip scenario")
-    ap.add_argument("--planner-axes", default="0,1,0",
-                    help="joystick scenario: fixed lx,ly,rx")
+    ap.add_argument("--planner-axes", default="0,1,0", help="joystick scenario: fixed lx,ly,rx")
     ap.add_argument("--axes-until", type=int, default=None)
     ap.add_argument("--slow", action="store_true")
-    ap.add_argument("--analog-speed", action="store_true",
-                    help="stick-proportional speed instead of native fixed gaits")
+    ap.add_argument(
+        "--analog-speed",
+        action="store_true",
+        help="stick-proportional speed instead of native fixed gaits",
+    )
     ap.add_argument("--steps", type=int, default=500)
     ap.add_argument("--config", default=None)
     ap.add_argument("--model-profile", default=None)
-    ap.add_argument("--mjcf", default=str(
-        Path(__file__).resolve().parents[4]
-        / "research/repos/GR00T-WholeBodyControl/gear_sonic_deploy/g1/scene_23dof.xml"
-    ))
+    ap.add_argument(
+        "--mjcf",
+        default=str(
+            Path(__file__).resolve().parents[4]
+            / "research/repos/GR00T-WholeBodyControl/gear_sonic_deploy/g1/scene_23dof.xml"
+        ),
+    )
     ap.add_argument("--json", default=None, help="append the metrics dict to this file")
     args = ap.parse_args()
 

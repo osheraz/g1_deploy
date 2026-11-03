@@ -75,14 +75,10 @@ class GaitReferenceAdapterTest(unittest.TestCase):
         for index in (0, 3, 6):
             np.testing.assert_allclose(
                 out["dof_fut"][..., index],
-                stand[index] + scales[index] * (
-                    original_q[..., index] - stand[index]
-                ),
+                stand[index] + scales[index] * (original_q[..., index] - stand[index]),
             )
         for index in (1, 4, 7):
-            np.testing.assert_array_equal(
-                out["dof_fut"][..., index], original_q[..., index]
-            )
+            np.testing.assert_array_equal(out["dof_fut"][..., index], original_q[..., index])
 
     def test_neutral_adapter_is_bitwise_pass_through(self):
         source = self._reference(active=True)
@@ -196,10 +192,6 @@ class GaitReferenceAdapterTest(unittest.TestCase):
         hip_only[[0, 6]] = 0.85
         self.assertAlmostEqual(gait_yaw_command_scale(hip_only), 0.85)
         self.assertEqual(gait_yaw_command_scale(np.ones(11)), 1.0)
-
-
-
-
 
 
 if __name__ == "__main__":

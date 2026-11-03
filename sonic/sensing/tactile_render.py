@@ -4,6 +4,7 @@ Thin re-export of ``jq_tactile_driver.render`` -- one set of taxel maps for the
 Qt visualizer and viser alike. This module used to carry its own copy, which
 drifted to a stale 72-entry palm map and rendered the palm wrong.
 """
+
 from __future__ import annotations
 
 import sys

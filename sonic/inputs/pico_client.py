@@ -32,6 +32,7 @@ Optional, appended in this order when the sender includes them:
     vr_orientation       f32[12]  3 endpoints, wxyz
     vr_compliance        f32[3]   ignored by the official deploy
 """
+
 from __future__ import annotations
 
 import json
@@ -48,12 +49,20 @@ DEFAULT_PORT = 5556
 TOPIC = b"planner"
 TOPICS = (b"command", b"planner", b"pose")
 
-_DTYPE = {"i32": np.int32, "f32": np.float32, "f64": np.float64,
-          "u8": np.uint8, "i64": np.int64, "bool": np.bool_}
+_DTYPE = {
+    "i32": np.int32,
+    "f32": np.float32,
+    "f64": np.float64,
+    "u8": np.uint8,
+    "i64": np.int64,
+    "bool": np.bool_,
+}
 DEFAULT_VR_ORIENTATION = np.array(
-    [[0.7295, 0.3145, 0.5533, -0.2506],
-     [0.7320, -0.2639, 0.5395, 0.3217],
-     [0.9991, 0.0110, 0.0402, -0.0002]],
+    [
+        [0.7295, 0.3145, 0.5533, -0.2506],
+        [0.7320, -0.2639, 0.5395, 0.3217],
+        [0.9991, 0.0110, 0.0402, -0.0002],
+    ],
     dtype=np.float64,
 )
 
@@ -95,7 +104,7 @@ def decode_packed_message(msg: bytes, topic: bytes | str) -> dict:
     topic = topic.encode() if isinstance(topic, str) else topic
     if not msg.startswith(topic):
         raise ValueError(f"not a {topic.decode()} message: {msg[:16]!r}")
-    body = msg[len(topic):]
+    body = msg[len(topic) :]
     if len(body) < HEADER_SIZE:
         raise ValueError(f"message is shorter than its {HEADER_SIZE}-byte header")
     header = json.loads(body[:HEADER_SIZE].rstrip(b"\x00").decode("utf-8"))
@@ -115,9 +124,9 @@ def decode_packed_message(msg: bytes, topic: bytes | str) -> dict:
                 f"packed payload ends inside field {f['name']!r}: "
                 f"need {off + nbytes}, have {len(payload)} bytes"
             )
-        out[f["name"]] = np.frombuffer(payload[off:off + nbytes], dtype=dt).reshape(
-            f["shape"]
-        ).copy()
+        out[f["name"]] = (
+            np.frombuffer(payload[off : off + nbytes], dtype=dt).reshape(f["shape"]).copy()
+        )
         off += nbytes
     if off != len(payload):
         raise ValueError(f"packed payload has {len(payload) - off} trailing bytes")
@@ -331,12 +340,14 @@ def main():
                 continue
             nav = c.nav_command()
             vr = c.vr_3point()
-            print(f"[pico] {hz} Hz | mode={LocomotionMode(int(s['mode'][0])).name} "
-                  f"move={np.round(nav['movement'], 3)} facing={np.round(nav['facing'], 3)} "
-                  f"speed={nav['speed']:.2f} height={nav['height']:.2f} "
-                  f"vr={'yes' if vr is not None else 'no'} "
-                  f"hands={'yes' if c.hands() is not None else 'no'} "
-                  f"fields={sorted(s)}")
+            print(
+                f"[pico] {hz} Hz | mode={LocomotionMode(int(s['mode'][0])).name} "
+                f"move={np.round(nav['movement'], 3)} facing={np.round(nav['facing'], 3)} "
+                f"speed={nav['speed']:.2f} height={nav['height']:.2f} "
+                f"vr={'yes' if vr is not None else 'no'} "
+                f"hands={'yes' if c.hands() is not None else 'no'} "
+                f"fields={sorted(s)}"
+            )
     except KeyboardInterrupt:
         pass
     finally:

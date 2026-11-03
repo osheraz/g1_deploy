@@ -8,6 +8,7 @@ Keeping this boundary separate is intentional: :mod:`robot_g1` remains a
 small copy of NVIDIA's joint-order definitions, while 23-DoF support can be
 reviewed, tested, and disabled without modifying the model implementation.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,20 +17,37 @@ import numpy as np
 
 from sonic.model import robot_g1
 
-
 WRIST_IL = np.array([23, 24, 25, 26, 27, 28], dtype=np.int64)
 MUJOCO_JOINT_NAMES = (
-    "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",
-    "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
-    "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
-    "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",
-    "waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint",
-    "left_shoulder_pitch_joint", "left_shoulder_roll_joint",
-    "left_shoulder_yaw_joint", "left_elbow_joint", "left_wrist_roll_joint",
-    "left_wrist_pitch_joint", "left_wrist_yaw_joint",
-    "right_shoulder_pitch_joint", "right_shoulder_roll_joint",
-    "right_shoulder_yaw_joint", "right_elbow_joint", "right_wrist_roll_joint",
-    "right_wrist_pitch_joint", "right_wrist_yaw_joint",
+    "left_hip_pitch_joint",
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_knee_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_hip_pitch_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_knee_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint",
+    "waist_yaw_joint",
+    "waist_roll_joint",
+    "waist_pitch_joint",
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_joint",
+    "left_wrist_roll_joint",
+    "left_wrist_pitch_joint",
+    "left_wrist_yaw_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_joint",
+    "right_wrist_roll_joint",
+    "right_wrist_pitch_joint",
+    "right_wrist_yaw_joint",
 )
 
 
@@ -148,20 +166,22 @@ class RobotProfile:
 G1_23DOF = RobotProfile(
     name="g1_23dof",
     physical_motor_indices=np.array(
-        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-         15, 16, 17, 18, 19, 22, 23, 24, 25, 26],
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19, 22, 23, 24, 25, 26],
         dtype=np.int64,
     ),
     isaaclab_from_physical=np.array(
-        [0, 3, 6, 9, 13, 17, 1, 4, 7, 10, 14, 18, 2,
-         11, 15, 19, 21, 23, 12, 16, 20, 22, 24],
+        [0, 3, 6, 9, 13, 17, 1, 4, 7, 10, 14, 18, 2, 11, 15, 19, 21, 23, 12, 16, 20, 22, 24],
         dtype=np.int64,
     ),
     missing_isaaclab=np.array([5, 8, 25, 26, 27, 28], dtype=np.int64),
     missing_motor=np.array([13, 14, 20, 21, 27, 28], dtype=np.int64),
     missing_names=(
-        "waist_roll", "waist_pitch", "left_wrist_pitch",
-        "right_wrist_pitch", "left_wrist_yaw", "right_wrist_yaw",
+        "waist_roll",
+        "waist_pitch",
+        "left_wrist_pitch",
+        "right_wrist_pitch",
+        "left_wrist_yaw",
+        "right_wrist_yaw",
     ),
 )
 
@@ -191,4 +211,6 @@ def get_robot_profile(value) -> RobotProfile:
     try:
         return PROFILES[key]
     except KeyError as exc:
-        raise ValueError(f"unknown SONIC robot profile {value!r}; choose {sorted(PROFILES)}") from exc
+        raise ValueError(
+            f"unknown SONIC robot profile {value!r}; choose {sorted(PROFILES)}"
+        ) from exc

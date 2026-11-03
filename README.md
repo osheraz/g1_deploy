@@ -1,17 +1,25 @@
 # G1 deployment
 
-Run commands from the parent HV2 checkout. Use its pinned deployment revision
-and install once with `python -m pip install --no-deps -e ./g1_deploy`.
+RISE recovery, SONIC tracking and VIGOR visual control. Run commands from the
+parent HV2 checkout; install with `python -m pip install --no-deps -e . -e ./g1_deploy`.
 
-| Task | Guide | Entry point |
+| Task | Entry point | Guide |
 | --- | --- | --- |
-| RISE recovery, steering and recording | [Recovery](docs/recovery/deploy.md) | `steerable-recovery/deploy.py` |
-| Recovery in MuJoCo | [Simulation](docs/recovery/sim.md) | `steerable-recovery/sim.py` |
-| Replay a recording | [Replay](docs/recovery/recording.md) | `steerable-recovery/replay.py` |
-| SONIC tracking and teleoperation | [SONIC](docs/sonic/joystick.md) | `sonic/deploy.py`, `sonic/sim.py` |
-| VIGOR reactive policy | [VIGOR](docs/vigor.md) | `vigor/deploy.py` |
-| Network, cameras and installation | [Setup](docs/setup/README.md) | — |
+| RISE on the robot | `rise/deploy.py` | [Deploy](docs/rise/deploy.md) |
+| RISE in MuJoCo | `rise/sim.py` | [Simulation](docs/rise/sim.md) |
+| RISE recordings | `rise/replay.py` | [Replay](docs/rise/recording.md) |
+| SONIC | `sonic/deploy.py`, `sonic/sim.py` | [Joystick](docs/sonic/joystick.md) |
+| VIGOR | `vigor/deploy.py` | [VIGOR](docs/vigor.md) |
 
-Shared robot I/O, sensors, recording and viewers live in `core/`.
-[Code ownership](docs/architecture.md) · [All guides](docs/README.md).
-Model weights and recordings remain outside Git.
+```bash
+python g1_deploy/rise/deploy.py --help
+python g1_deploy/rise/sim.py --help
+python g1_deploy/rise/replay.py --help
+```
+
+Start with the [code map](docs/architecture.md) to review or extend the code.
+[Setup](docs/setup/README.md) · [Operator guides](docs/README.md).
+
+RISE bundles and recordings are external assets. SONIC's retained models and
+motion clips live in `sonic/assets/`; fetch its LFS weights with `git lfs pull`
+inside this submodule.

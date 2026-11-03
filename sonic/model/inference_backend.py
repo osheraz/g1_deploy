@@ -5,6 +5,7 @@ ONNX Runtime remains available for CPU/offline debugging and golden-trace
 comparison.  Both backends expose the subset of ``InferenceSession`` used by
 the SONIC tracker and kinematic planner.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,7 +16,6 @@ import threading
 import warnings
 
 import numpy as np
-
 
 ENGINE_CACHE_SCHEMA = 2
 DIRECT_TENSORRT_PROVIDER = "TensorRTExecutionProvider(direct)"
@@ -91,7 +91,9 @@ class OrtSession:
         requested = providers or ("CUDAExecutionProvider", "CPUExecutionProvider")
         selected = [p for p in requested if p in available]
         if not selected:
-            raise RuntimeError(f"ONNX Runtime has no requested provider; available={sorted(available)}")
+            raise RuntimeError(
+                f"ONNX Runtime has no requested provider; available={sorted(available)}"
+            )
         self._session = ort.InferenceSession(
             str(Path(model_path).expanduser()), sess_options=opts, providers=selected
         )
@@ -172,9 +174,7 @@ class TensorRTSession:
             self.engine_path.write_bytes(engine_bytes)
         self._engine = self._runtime.deserialize_cuda_engine(engine_bytes)
         if self._engine is None and self.engine_path.exists():
-            warnings.warn(
-                f"cached TensorRT engine {self.engine_path} is incompatible; rebuilding"
-            )
+            warnings.warn(f"cached TensorRT engine {self.engine_path} is incompatible; rebuilding")
             engine_bytes = self._build_engine(
                 self._logger,
                 fp16=self.fp16,
@@ -212,25 +212,17 @@ class TensorRTSession:
             "stream=dedicated"
         )
 
-    def _build_engine(
-        self, logger, *, fp16: bool, allow_tf32: bool, workspace_gib: float
-    ) -> bytes:
+    def _build_engine(self, logger, *, fp16: bool, allow_tf32: bool, workspace_gib: float) -> bytes:
         trt = self._trt
         builder = trt.Builder(logger)
-        network = builder.create_network(
-            1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-        )
+        network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
         parser = trt.OnnxParser(network, logger)
         if not parser.parse(self.model_path.read_bytes()):
             errors = "\n".join(str(parser.get_error(i)) for i in range(parser.num_errors))
             raise RuntimeError(f"TensorRT ONNX parse failed for {self.model_path}:\n{errors}")
         config = builder.create_builder_config()
-        config.set_memory_pool_limit(
-            trt.MemoryPoolType.WORKSPACE, int(workspace_gib * (1 << 30))
-        )
-        _apply_builder_math_flags(
-            config, builder, trt, fp16=fp16, allow_tf32=allow_tf32
-        )
+        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, int(workspace_gib * (1 << 30)))
+        _apply_builder_math_flags(config, builder, trt, fp16=fp16, allow_tf32=allow_tf32)
 
         profile = None
         for i in range(network.num_inputs):
@@ -273,12 +265,8 @@ class TensorRTSession:
                 for spec in self._inputs:
                     array = np.ascontiguousarray(feed[spec.name], dtype=spec.dtype)
                     if not self._context.set_input_shape(spec.name, tuple(array.shape)):
-                        raise ValueError(
-                            f"TensorRT rejected shape {array.shape} for {spec.name}"
-                        )
-                    tensor = torch.as_tensor(
-                        array, device=f"cuda:{self._device_index}"
-                    )
+                        raise ValueError(f"TensorRT rejected shape {array.shape} for {spec.name}")
+                    tensor = torch.as_tensor(array, device=f"cuda:{self._device_index}")
                     tensors[spec.name] = tensor
                     self._context.set_tensor_address(spec.name, int(tensor.data_ptr()))
 
@@ -289,9 +277,7 @@ class TensorRTSession:
                         raise ValueError(f"unknown TensorRT output {name!r}")
                     shape = tuple(self._context.get_tensor_shape(name))
                     if any(int(d) < 0 for d in shape):
-                        raise RuntimeError(
-                            f"unresolved TensorRT output shape {shape} for {name}"
-                        )
+                        raise RuntimeError(f"unresolved TensorRT output shape {shape} for {name}")
                     np_dtype = np.dtype(output_specs[name].dtype)
                     torch_dtype = torch.from_numpy(np.empty((), dtype=np_dtype)).dtype
                     tensor = torch.empty(
@@ -302,9 +288,7 @@ class TensorRTSession:
                     tensors[name] = tensor
                     self._context.set_tensor_address(name, int(tensor.data_ptr()))
 
-                if not self._context.execute_async_v3(
-                    stream_handle=int(self._stream.cuda_stream)
-                ):
+                if not self._context.execute_async_v3(stream_handle=int(self._stream.cuda_stream)):
                     raise RuntimeError("TensorRT execute_async_v3 failed")
             self._stream.synchronize()
             return [tensors[name].cpu().numpy() for name in wanted]

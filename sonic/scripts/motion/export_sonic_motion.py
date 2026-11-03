@@ -2,7 +2,7 @@
 """Export one motion from a SONIC tracker pack to a plain .npz for deploy.
 
     python scripts/motion/export_sonic_motion.py --pack <pack.pt> --motion 16 \
-        --out sonic/model/motion_clip.npz
+        --out sonic/assets/motions/motion_clip.npz
     python scripts/motion/export_sonic_motion.py --pack <pack.pt> --list
 
 The pack stores 33 bodies in the g1_bm order and 29 dofs in MuJoCo order. The
@@ -12,6 +12,7 @@ loads numpy.
 
 Name lists are taken verbatim from sonic/motion/bank.py and sonic/robot_g1.py.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,41 +22,128 @@ import numpy as np
 
 _SUF = "_joint"
 
-IL_DOF = [n + _SUF for n in [
-    "left_hip_pitch", "right_hip_pitch", "waist_yaw", "left_hip_roll", "right_hip_roll",
-    "waist_roll", "left_hip_yaw", "right_hip_yaw", "waist_pitch", "left_knee", "right_knee",
-    "left_shoulder_pitch", "right_shoulder_pitch", "left_ankle_pitch", "right_ankle_pitch",
-    "left_shoulder_roll", "right_shoulder_roll", "left_ankle_roll", "right_ankle_roll",
-    "left_shoulder_yaw", "right_shoulder_yaw", "left_elbow", "right_elbow",
-    "left_wrist_roll", "right_wrist_roll", "left_wrist_pitch", "right_wrist_pitch",
-    "left_wrist_yaw", "right_wrist_yaw"]]
+IL_DOF = [
+    n + _SUF
+    for n in [
+        "left_hip_pitch",
+        "right_hip_pitch",
+        "waist_yaw",
+        "left_hip_roll",
+        "right_hip_roll",
+        "waist_roll",
+        "left_hip_yaw",
+        "right_hip_yaw",
+        "waist_pitch",
+        "left_knee",
+        "right_knee",
+        "left_shoulder_pitch",
+        "right_shoulder_pitch",
+        "left_ankle_pitch",
+        "right_ankle_pitch",
+        "left_shoulder_roll",
+        "right_shoulder_roll",
+        "left_ankle_roll",
+        "right_ankle_roll",
+        "left_shoulder_yaw",
+        "right_shoulder_yaw",
+        "left_elbow",
+        "right_elbow",
+        "left_wrist_roll",
+        "right_wrist_roll",
+        "left_wrist_pitch",
+        "right_wrist_pitch",
+        "left_wrist_yaw",
+        "right_wrist_yaw",
+    ]
+]
 
-MJ_DOF = [n + _SUF for n in [
-    "left_hip_pitch", "left_hip_roll", "left_hip_yaw", "left_knee", "left_ankle_pitch",
-    "left_ankle_roll", "right_hip_pitch", "right_hip_roll", "right_hip_yaw", "right_knee",
-    "right_ankle_pitch", "right_ankle_roll", "waist_yaw", "waist_roll", "waist_pitch",
-    "left_shoulder_pitch", "left_shoulder_roll", "left_shoulder_yaw", "left_elbow",
-    "left_wrist_roll", "left_wrist_pitch", "left_wrist_yaw", "right_shoulder_pitch",
-    "right_shoulder_roll", "right_shoulder_yaw", "right_elbow", "right_wrist_roll",
-    "right_wrist_pitch", "right_wrist_yaw"]]
+MJ_DOF = [
+    n + _SUF
+    for n in [
+        "left_hip_pitch",
+        "left_hip_roll",
+        "left_hip_yaw",
+        "left_knee",
+        "left_ankle_pitch",
+        "left_ankle_roll",
+        "right_hip_pitch",
+        "right_hip_roll",
+        "right_hip_yaw",
+        "right_knee",
+        "right_ankle_pitch",
+        "right_ankle_roll",
+        "waist_yaw",
+        "waist_roll",
+        "waist_pitch",
+        "left_shoulder_pitch",
+        "left_shoulder_roll",
+        "left_shoulder_yaw",
+        "left_elbow",
+        "left_wrist_roll",
+        "left_wrist_pitch",
+        "left_wrist_yaw",
+        "right_shoulder_pitch",
+        "right_shoulder_roll",
+        "right_shoulder_yaw",
+        "right_elbow",
+        "right_wrist_roll",
+        "right_wrist_pitch",
+        "right_wrist_yaw",
+    ]
+]
 
 BM33 = [
-    "pelvis", "head", "left_hip_pitch_link", "left_hip_roll_link", "left_hip_yaw_link",
-    "left_knee_link", "left_ankle_pitch_link", "left_ankle_roll_link",
-    "right_hip_pitch_link", "right_hip_roll_link", "right_hip_yaw_link", "right_knee_link",
-    "right_ankle_pitch_link", "right_ankle_roll_link", "waist_yaw_link", "waist_roll_link",
-    "torso_link", "left_shoulder_pitch_link", "left_shoulder_roll_link",
-    "left_shoulder_yaw_link", "left_elbow_link", "left_wrist_roll_link",
-    "left_wrist_pitch_link", "left_wrist_yaw_link", "left_rubber_hand",
-    "right_shoulder_pitch_link", "right_shoulder_roll_link", "right_shoulder_yaw_link",
-    "right_elbow_link", "right_wrist_roll_link", "right_wrist_pitch_link",
-    "right_wrist_yaw_link", "right_rubber_hand"]
+    "pelvis",
+    "head",
+    "left_hip_pitch_link",
+    "left_hip_roll_link",
+    "left_hip_yaw_link",
+    "left_knee_link",
+    "left_ankle_pitch_link",
+    "left_ankle_roll_link",
+    "right_hip_pitch_link",
+    "right_hip_roll_link",
+    "right_hip_yaw_link",
+    "right_knee_link",
+    "right_ankle_pitch_link",
+    "right_ankle_roll_link",
+    "waist_yaw_link",
+    "waist_roll_link",
+    "torso_link",
+    "left_shoulder_pitch_link",
+    "left_shoulder_roll_link",
+    "left_shoulder_yaw_link",
+    "left_elbow_link",
+    "left_wrist_roll_link",
+    "left_wrist_pitch_link",
+    "left_wrist_yaw_link",
+    "left_rubber_hand",
+    "right_shoulder_pitch_link",
+    "right_shoulder_roll_link",
+    "right_shoulder_yaw_link",
+    "right_elbow_link",
+    "right_wrist_roll_link",
+    "right_wrist_pitch_link",
+    "right_wrist_yaw_link",
+    "right_rubber_hand",
+]
 
 BODY_NAMES = [
-    "pelvis", "left_hip_roll_link", "left_knee_link", "left_ankle_roll_link",
-    "right_hip_roll_link", "right_knee_link", "right_ankle_roll_link", "torso_link",
-    "left_shoulder_roll_link", "left_elbow_link", "left_wrist_yaw_link",
-    "right_shoulder_roll_link", "right_elbow_link", "right_wrist_yaw_link"]
+    "pelvis",
+    "left_hip_roll_link",
+    "left_knee_link",
+    "left_ankle_roll_link",
+    "right_hip_roll_link",
+    "right_knee_link",
+    "right_ankle_roll_link",
+    "torso_link",
+    "left_shoulder_roll_link",
+    "left_elbow_link",
+    "left_wrist_yaw_link",
+    "right_shoulder_roll_link",
+    "right_elbow_link",
+    "right_wrist_yaw_link",
+]
 
 FPS_OUT = 50.0
 
@@ -117,13 +205,19 @@ def main() -> None:
     import torch
 
     ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--pack", required=True)
     ap.add_argument("--motion", type=int, default=None, help="index within the pack")
-    ap.add_argument("--out", default="sonic/model/motion_clip.npz")
+    ap.add_argument("--out", default="sonic/assets/motions/motion_clip.npz")
     ap.add_argument("--list", action="store_true", help="list motions and exit")
-    ap.add_argument("--freeze", type=float, default=None, metavar="SECONDS",
-                    help="hold frame 0 for this long instead of playing the motion")
+    ap.add_argument(
+        "--freeze",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="hold frame 0 for this long instead of playing the motion",
+    )
     args = ap.parse_args()
 
     d = torch.load(Path(args.pack).expanduser(), map_location="cpu", weights_only=False)
@@ -148,11 +242,11 @@ def main() -> None:
     body_idx = np.array([BM33.index(b) for b in BODY_NAMES])
     dof_idx = np.array([MJ_DOF.index(n) for n in IL_DOF])
 
-    dof = d["dps"].numpy()[s:e][:, dof_idx]                 # (T,29) IsaacLab order
+    dof = d["dps"].numpy()[s:e][:, dof_idx]  # (T,29) IsaacLab order
     # Source velocities are intentionally not interpolated. The official
     # planner recomputes them from the resampled 50 Hz joint positions.
-    bpos = d["gts"].numpy()[s:e][:, body_idx]               # (T,14,3)
-    brot_xyzw = d["grs"].numpy()[s:e][:, body_idx]          # (T,14,4)
+    bpos = d["gts"].numpy()[s:e][:, body_idx]  # (T,14,3)
+    brot_xyzw = d["grs"].numpy()[s:e][:, body_idx]  # (T,14,4)
     bquat = np.concatenate([brot_xyzw[..., 3:4], brot_xyzw[..., :3]], axis=-1)
 
     dof = _resample(dof, fps_src, FPS_OUT)

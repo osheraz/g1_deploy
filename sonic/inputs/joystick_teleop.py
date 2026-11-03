@@ -4,6 +4,7 @@
 ``GamepadManagerTeleop`` mirrors the native C++ ``gamepad_manager`` button
 protocol used on the real robot.  Both emit no VR fields, so SONIC selects G1.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -62,9 +63,7 @@ STATIC_LOWER_MODES = frozenset(
         LocomotionMode.IDLE_KNEEL,
     )
 )
-CRAWLING_MODES = frozenset(
-    (LocomotionMode.CRAWLING, LocomotionMode.ELBOW_CRAWLING)
-)
+CRAWLING_MODES = frozenset((LocomotionMode.CRAWLING, LocomotionMode.ELBOW_CRAWLING))
 PUNCH_MODES = frozenset(
     (
         LocomotionMode.LEFT_PUNCH,
@@ -91,9 +90,9 @@ class JoystickTeleop(TeleopBase):
     ):
         super().__init__(publish_hz)
         self.navigation_frame = "world"
-        self.lx = 0.0     # right positive
-        self.ly = 0.0     # forward positive
-        self.rx = 0.0     # turn, right positive
+        self.lx = 0.0  # right positive
+        self.ly = 0.0  # forward positive
+        self.rx = 0.0  # turn, right positive
         self.locomotion_mode = LocomotionMode(locomotion_mode)
         self.yaw_rad = 0.0
         self.yaw_command_scale = yaw_command_scale
@@ -147,8 +146,7 @@ class JoystickTeleop(TeleopBase):
         if rising:
             self._idle_capture_requested = True
             print(
-                "[IDLE CAPTURE] F1+F3: waiting for one second of neutral, "
-                "steady standing data"
+                "[IDLE CAPTURE] F1+F3: waiting for one second of neutral, " "steady standing data"
             )
         return rising
 
@@ -168,10 +166,7 @@ class JoystickTeleop(TeleopBase):
         super().tick(dt)
         if abs(self.rx) >= DEADZONE:
             self.yaw_rad += (
-                YAW_GAIN
-                * self._yaw_scale_for_stick(deadzone=DEADZONE)
-                * (-self.rx)
-                * float(dt)
+                YAW_GAIN * self._yaw_scale_for_stick(deadzone=DEADZONE) * (-self.rx) * float(dt)
             )
 
     def set_axes(self, lx: float, ly: float, rx: float = 0.0) -> None:
@@ -187,9 +182,7 @@ class JoystickTeleop(TeleopBase):
         self.set_axes(remote.lx, remote.ly, remote.rx)
         buttons = np.asarray(remote.button, dtype=np.int8).reshape(-1)
         if buttons.size < self._previous_buttons.size:
-            raise ValueError(
-                f"Unitree remote exposes {buttons.size} buttons; expected at least 16"
-            )
+            raise ValueError(f"Unitree remote exposes {buttons.size} buttons; expected at least 16")
         self._update_idle_capture_chord(buttons)
         for index, mode in (
             (KeyMap.up, LocomotionMode.SLOW_WALK),
@@ -205,9 +198,7 @@ class JoystickTeleop(TeleopBase):
         self.locomotion_mode = LocomotionMode(mode)
 
     def _command(self) -> tuple[np.ndarray, np.ndarray, float, int]:
-        facing = np.array(
-            [np.cos(self.yaw_rad), np.sin(self.yaw_rad), 0.0], np.float32
-        )
+        facing = np.array([np.cos(self.yaw_rad), np.sin(self.yaw_rad), 0.0], np.float32)
 
         raw_mag = float(np.clip(np.hypot(self.lx, self.ly), 0.0, 1.0))
         if raw_mag < DEADZONE:
@@ -215,9 +206,7 @@ class JoystickTeleop(TeleopBase):
 
         mag = min((raw_mag - DEADZONE) / (1.0 - DEADZONE), 1.0)
         movement_local = np.array([-self.lx, self.ly], np.float64) * (mag / raw_mag)
-        rotation_facing = np.array(
-            [[-facing[1], facing[0]], [facing[0], facing[1]]], np.float64
-        )
+        rotation_facing = np.array([[-facing[1], facing[0]], [facing[0], facing[1]]], np.float64)
         movement_xy = rotation_facing @ movement_local
         movement = np.array([movement_xy[0], movement_xy[1], 0.0], np.float64)
 
@@ -261,7 +250,7 @@ class GamepadManagerTeleop(JoystickTeleop):
     MANAGER_DEADZONE = 0.05
     MANAGER_YAW_GAIN = 2.0  # native: 0.02 rad at its 100-Hz input rate
     CRAWL_TRANSITION_S = 2.0
-    BOXING_REVERT_S = 0.5   # actual C++ threshold (comment there says 1 s)
+    BOXING_REVERT_S = 0.5  # actual C++ threshold (comment there says 1 s)
 
     def __init__(self, publish_hz: float = 10.0):
         super().__init__(
@@ -372,19 +361,13 @@ class GamepadManagerTeleop(JoystickTeleop):
         self._select_target(MOTION_SETS[index][0])
         if index == 2:
             self._boxing_revert_s = self.BOXING_REVERT_S
-        print(
-            f"[GAMEPAD MANAGER] set={self.motion_set_name} "
-            f"mode={self.locomotion_mode.name}"
-        )
+        print(f"[GAMEPAD MANAGER] set={self.motion_set_name} " f"mode={self.locomotion_mode.name}")
 
     def _cycle(self, delta: int) -> None:
         modes = MOTION_SETS[self.motion_set_index]
         self.mode_index_in_set = (self.mode_index_in_set + delta) % len(modes)
         self._select_target(modes[self.mode_index_in_set])
-        print(
-            f"[GAMEPAD MANAGER] set={self.motion_set_name} "
-            f"mode={self.locomotion_mode.name}"
-        )
+        print(f"[GAMEPAD MANAGER] set={self.motion_set_name} " f"mode={self.locomotion_mode.name}")
 
     def _boxing_mode(self, mode: LocomotionMode, *, revert: bool) -> None:
         self._transition = None
@@ -394,8 +377,9 @@ class GamepadManagerTeleop(JoystickTeleop):
 
     def update_remote(self, remote) -> None:
         raw = (remote.lx, remote.ly, remote.rx, remote.ry)
-        filtered = [0.0 if abs(float(value)) < self.MANAGER_DEADZONE else float(value)
-                    for value in raw]
+        filtered = [
+            0.0 if abs(float(value)) < self.MANAGER_DEADZONE else float(value) for value in raw
+        ]
         self.lx = self.lx * (1.0 - self.SMOOTH) + filtered[0] * self.SMOOTH
         self.ly = self.ly * (1.0 - self.SMOOTH) + filtered[1] * self.SMOOTH
         self.rx = self.rx * (1.0 - self.SMOOTH) + filtered[2] * self.SMOOTH
@@ -403,9 +387,7 @@ class GamepadManagerTeleop(JoystickTeleop):
 
         buttons = np.asarray(remote.button, dtype=np.int8).reshape(-1)
         if buttons.size < self._previous_buttons.size:
-            raise ValueError(
-                f"Unitree remote exposes {buttons.size} buttons; expected at least 16"
-            )
+            raise ValueError(f"Unitree remote exposes {buttons.size} buttons; expected at least 16")
         capture_chord_rising = self._update_idle_capture_chord(buttons)
         pressed = lambda key: self._pressed(buttons, key)
         self._emergency_idle = pressed(KeyMap.A)
@@ -504,23 +486,18 @@ class GamepadManagerTeleop(JoystickTeleop):
                 print("[GAMEPAD MANAGER] boxing auto-revert mode=WALK_BOXING")
 
     def _manager_command(self) -> tuple[np.ndarray, np.ndarray, float, float, int]:
-        facing = np.array(
-            [np.cos(self.yaw_rad), np.sin(self.yaw_rad), 0.0], np.float32
-        )
+        facing = np.array([np.cos(self.yaw_rad), np.sin(self.yaw_rad), 0.0], np.float32)
         if not self.control_started or self._emergency_idle:
             return np.zeros(3, np.float32), facing, -1.0, -1.0, int(LocomotionMode.IDLE)
 
         stick_active = (
-            abs(self.lx) >= self.MANAGER_DEADZONE
-            or abs(self.ly) >= self.MANAGER_DEADZONE
+            abs(self.lx) >= self.MANAGER_DEADZONE or abs(self.ly) >= self.MANAGER_DEADZONE
         )
         if stick_active:
             raw_angle = float(np.arctan2(self.ly, self.lx))
             binned = round(raw_angle / (np.pi / 4.0)) * (np.pi / 4.0)
             movement_angle = binned - np.pi / 2.0 + self.yaw_rad
-            movement = np.array(
-                [np.cos(movement_angle), np.sin(movement_angle), 0.0], np.float32
-            )
+            movement = np.array([np.cos(movement_angle), np.sin(movement_angle), 0.0], np.float32)
         else:
             movement = np.zeros(3, np.float32)
 
@@ -548,8 +525,7 @@ class GamepadManagerTeleop(JoystickTeleop):
     def idle_capture_stationary(self) -> bool:
         return (
             int(self.mode()) == int(LocomotionMode.IDLE)
-            and max(abs(self.lx), abs(self.ly), abs(self.rx))
-            < self.MANAGER_DEADZONE
+            and max(abs(self.lx), abs(self.ly), abs(self.rx)) < self.MANAGER_DEADZONE
         )
 
     def nav_command(self) -> dict:

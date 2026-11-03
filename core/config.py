@@ -4,13 +4,10 @@ import numpy as np
 import yaml
 from omegaconf import OmegaConf
 
-
 REMOTE_ROOT = Path(__file__).resolve().parents[1]
 CONFIGS_DIR = REMOTE_ROOT / "configs"
 
-DEFAULT_URDF_PATH = str(
-    REMOTE_ROOT.parent / "humanoidverse2/data/robots/g1/g1_23dof_rev_1_0.urdf"
-)
+DEFAULT_URDF_PATH = str(REMOTE_ROOT.parent / "humanoidverse2/data/robots/g1/g1_23dof_rev_1_0.urdf")
 
 if not OmegaConf.has_resolver("eval"):
     OmegaConf.register_new_resolver("eval", lambda x: eval(x))
@@ -24,9 +21,8 @@ def _resolve_config_path(file_path: str | Path) -> Path:
 
 
 def _resolve_path(value: str, *, config_dir: Path) -> str:
-    expanded = (
-        value.replace("{REMOTE_ROOT}", str(REMOTE_ROOT))
-        .replace("{CONFIG_DIR}", str(config_dir))
+    expanded = value.replace("{REMOTE_ROOT}", str(REMOTE_ROOT)).replace(
+        "{CONFIG_DIR}", str(config_dir)
     )
     path = Path(expanded).expanduser()
     if path.is_absolute():
@@ -73,9 +69,7 @@ class Config:
         self.viser_display = config.get("viser_display", False)
         self.control_dt = config["control_dt"]
         self.max_low_state_age_s = config.get("max_low_state_age_s", 0.1)
-        self.max_default_hold_low_state_age_s = config.get(
-            "max_default_hold_low_state_age_s", 0.5
-        )
+        self.max_default_hold_low_state_age_s = config.get("max_default_hold_low_state_age_s", 0.5)
         if self.max_default_hold_low_state_age_s < self.max_low_state_age_s:
             raise ValueError(
                 "max_default_hold_low_state_age_s must be greater than or "
@@ -98,28 +92,19 @@ class Config:
         self.torso_imu_topic = config.get("torso_imu_topic", "rt/secondary_imu")
         self.require_torso_imu = bool(config.get("require_torso_imu", False))
         self.max_torso_imu_age_s = float(config.get("max_torso_imu_age_s", 0.05))
-        self.torso_imu_startup_timeout_s = float(
-            config.get("torso_imu_startup_timeout_s", 5.0)
-        )
+        self.torso_imu_startup_timeout_s = float(config.get("torso_imu_startup_timeout_s", 5.0))
         self.max_sensor_sync_skew_s = float(config.get("max_sensor_sync_skew_s", 0.04))
 
         self.livox_topic = config.get("livox_topic", "/livox/lidar")
         self.livox_imu_topic = config.get("livox_imu_topic", "/livox/imu")
         self.livox_max_points = int(config.get("livox_max_points", 1024))
         self.livox_max_age_s = float(config.get("livox_max_age_s", 0.12))
-        self.livox_scan_duration_s = float(
-            config.get("livox_scan_duration_s", 0.10)
-        )
+        self.livox_scan_duration_s = float(config.get("livox_scan_duration_s", 0.10))
         self.livox_min_rate_hz = float(config.get("livox_min_rate_hz", 20.0))
-        self.livox_startup_timeout_s = float(
-            config.get("livox_startup_timeout_s", 5.0)
-        )
+        self.livox_startup_timeout_s = float(config.get("livox_startup_timeout_s", 5.0))
 
-        # Relative to the repo root, not configs/: "policy/x.onnx" means
-        # g1_deploy/sonic/x.onnx. Absolute and ~ paths pass through.
-        self.policy_path = _resolve_path(
-            config["policy_path"], config_dir=REMOTE_ROOT
-        )
+        # Model paths resolve from g1_deploy; absolute paths pass through.
+        self.policy_path = _resolve_path(config["policy_path"], config_dir=REMOTE_ROOT)
         self.urdf_path = _resolve_path(
             config.get("urdf_path", DEFAULT_URDF_PATH), config_dir=config_dir
         )
@@ -128,13 +113,10 @@ class Config:
         self.kps = np.array(config["kps"])
         self.kds = np.array(config["kds"])
         self.default_angles = np.array(config["default_angles"], dtype=np.float32)
-        physical_default = config.get("physical_default_angles", config.get("default_angles_23"))
+        physical_default = config.get("physical_default_angles")
         if physical_default is None:
-            raise ValueError("config requires physical_default_angles (legacy: default_angles_23)")
+            raise ValueError("config requires physical_default_angles")
         self.physical_default_angles = np.array(physical_default, dtype=np.float32)
-        # Compatibility for the fall-recovery code. New SONIC code uses the
-        # embodiment-neutral physical_default_angles name.
-        self.default_angles_23 = self.physical_default_angles
         self.dof_lower = np.array(config["dof_lower"], dtype=np.float32)
         self.dof_upper = np.array(config["dof_upper"], dtype=np.float32)
 
@@ -148,9 +130,7 @@ class Config:
         self.dof_vel_scale = config["dof_vel_scale"]
         # scalar for the fall-recovery policy; per-joint (23) for SONIC
         _as = config["action_scale"]
-        self.action_scale = (
-            np.array(_as, dtype=np.float32) if isinstance(_as, list) else _as
-        )
+        self.action_scale = np.array(_as, dtype=np.float32) if isinstance(_as, list) else _as
         self.cmd_scale = np.array(config["cmd_scale"], dtype=np.float32)
         self.max_cmd = np.array(config["max_cmd"], dtype=np.float32)
 
@@ -190,15 +170,18 @@ class Config:
         self.policy_type = config.get("policy_type", "actor")
         self.sonic_encoder = (
             _resolve_path(config["sonic_encoder"], config_dir=REMOTE_ROOT)
-            if config.get("sonic_encoder") else None
+            if config.get("sonic_encoder")
+            else None
         )
         self.sonic_decoder = (
             _resolve_path(config["sonic_decoder"], config_dir=REMOTE_ROOT)
-            if config.get("sonic_decoder") else None
+            if config.get("sonic_decoder")
+            else None
         )
         self.sonic_observation_config = (
             _resolve_path(config["sonic_observation_config"], config_dir=REMOTE_ROOT)
-            if config.get("sonic_observation_config") else None
+            if config.get("sonic_observation_config")
+            else None
         )
         self.sonic_model_variant = config.get("sonic_model_variant", "default")
         self.sonic_robot_profile = config.get(
@@ -209,9 +192,7 @@ class Config:
             config.get("sonic_planner_replan_interval_s", 0.1)
         )
         if not 0.1 <= self.sonic_planner_replan_interval_s <= 10.0:
-            raise ValueError(
-                "sonic_planner_replan_interval_s must be in [0.1, 10.0]"
-            )
+            raise ValueError("sonic_planner_replan_interval_s must be in [0.1, 10.0]")
         self.sonic_planner_backend = config.get(
             "sonic_planner_backend", self.sonic_inference_backend
         )
@@ -224,22 +205,19 @@ class Config:
         self.sonic_mode = config.get("sonic_mode", "g1")
         self.sonic_planner_onnx = (
             _resolve_path(config["sonic_planner_onnx"], config_dir=REMOTE_ROOT)
-            if config.get("sonic_planner_onnx") else None
+            if config.get("sonic_planner_onnx")
+            else None
         )
-        self.sonic_planner_default_height = config.get(
-            "sonic_planner_default_height", 0.788740
-        )
+        self.sonic_planner_default_height = config.get("sonic_planner_default_height", 0.788740)
         self.sonic_planner_version = config.get("sonic_planner_version", None)
-        self.sonic_planner_random_seed = int(
-            config.get("sonic_planner_random_seed", 1234)
-        )
+        self.sonic_planner_random_seed = int(config.get("sonic_planner_random_seed", 1234))
         if self.sonic_planner_random_seed < 0:
             raise ValueError("sonic_planner_random_seed must be non-negative")
         self.pico_server_ip = config.get("pico_server_ip", "127.0.0.1")
         self.pico_server_port = config.get("pico_server_port", 5556)
         self.pico_feedback_port = config.get("pico_feedback_port", 5558)
         self.sonic_motion_clip = _resolve_path(
-            config.get("sonic_motion_clip", "sonic/model/motion_clip.npz"),
+            config.get("sonic_motion_clip", "sonic/assets/motions/motion_clip.npz"),
             config_dir=REMOTE_ROOT,
         )
         self.sonic_motion_loop = config.get("sonic_motion_loop", True)
@@ -251,18 +229,10 @@ class Config:
             "sonic_mask_missing_action_history",
             False,
         )
-        self.sonic_missing_adaptation_scope = config.get(
-            "sonic_missing_adaptation_scope", "all"
-        )
-        self.sonic_adaptation_profile = config.get(
-            "sonic_adaptation_profile", "official-parity"
-        )
-        self.sonic_reduced_proprioception = config.get(
-            "sonic_reduced_proprioception", "zero"
-        )
-        self.sonic_shadow_settling_time_s = float(
-            config.get("sonic_shadow_settling_time_s", 0.12)
-        )
+        self.sonic_missing_adaptation_scope = config.get("sonic_missing_adaptation_scope", "all")
+        self.sonic_adaptation_profile = config.get("sonic_adaptation_profile", "official-parity")
+        self.sonic_reduced_proprioception = config.get("sonic_reduced_proprioception", "zero")
+        self.sonic_shadow_settling_time_s = float(config.get("sonic_shadow_settling_time_s", 0.12))
         # Neutral by default.  These physical-order vectors are populated by
         # research profiles or MuJoCo CLI overrides; official parity is direct.
         physical_dof = int(self.num_actions)
@@ -282,15 +252,13 @@ class Config:
             config.get("sonic_motor_target_rate_limit", [float("inf")] * physical_dof),
             dtype=np.float64,
         )
-        self.sonic_action_history_source = str(
-            config.get("sonic_action_history_source", "raw")
-        ).strip().lower()
+        self.sonic_action_history_source = (
+            str(config.get("sonic_action_history_source", "raw")).strip().lower()
+        )
         # Encoder-facing gait amplitude. Neutral by default. Unlike motor
         # shaping, this asks SONIC to track a smaller reference while retaining
         # the tracker's full recovery authority at the output.
-        self.sonic_reference_leg_scale = float(
-            config.get("sonic_reference_leg_scale", 1.0)
-        )
+        self.sonic_reference_leg_scale = float(config.get("sonic_reference_leg_scale", 1.0))
         self.sonic_reference_root_height_scale = float(
             config.get("sonic_reference_root_height_scale", 1.0)
         )
@@ -300,18 +268,15 @@ class Config:
         )
         dvel_scale = config.get("sonic_reference_joint_dvel_scale", None)
         self.sonic_reference_joint_dvel_scale = (
-            None if dvel_scale is None
-            else np.asarray(dvel_scale, dtype=np.float64)
+            None if dvel_scale is None else np.asarray(dvel_scale, dtype=np.float64)
         )
         offset = config.get("sonic_reference_joint_offset_rad", None)
         self.sonic_reference_joint_offset_rad = (
-            None if offset is None
-            else np.asarray(offset, dtype=np.float64)
+            None if offset is None else np.asarray(offset, dtype=np.float64)
         )
         flex_scale = config.get("sonic_reference_joint_flex_scale", None)
         self.sonic_reference_joint_flex_scale = (
-            None if flex_scale is None
-            else np.asarray(flex_scale, dtype=np.float64)
+            None if flex_scale is None else np.asarray(flex_scale, dtype=np.float64)
         )
         # Compatibility only; embodiment selection is now explicit above.
         self.phantom_23dof = self.sonic_robot_profile == "g1_23dof"
@@ -333,10 +298,8 @@ class Config:
         self.depth_scale = config.get("depth_scale", 0.001)
 
         if self.use_depth_obs:
-            self.depth_img_width = OmegaConf.select(
-                self.train_cfg, "env.config.ego_camera.width")
-            self.depth_img_height = OmegaConf.select(
-                self.train_cfg, "env.config.ego_camera.height")
+            self.depth_img_width = OmegaConf.select(self.train_cfg, "env.config.ego_camera.width")
+            self.depth_img_height = OmegaConf.select(self.train_cfg, "env.config.ego_camera.height")
         else:
             self.depth_img_width = config.get("depth_img_width", 0)
             self.depth_img_height = config.get("depth_img_height", 0)
@@ -359,9 +322,7 @@ class Config:
         print(f"Use tactile: {self.use_tactile}")
         if self.use_tactile:
             print(f"Tactile sensors: {self.tactile_sensor_order}")
-            print(
-                f"Tactile server: {self.tactile_server_ip}:{self.tactile_server_port}"
-            )
+            print(f"Tactile server: {self.tactile_server_ip}:{self.tactile_server_port}")
 
     def select_sonic_model_profile(self, profile: str) -> None:
         """Select one complete released encoder/decoder tensor contract.

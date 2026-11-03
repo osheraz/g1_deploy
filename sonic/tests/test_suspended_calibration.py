@@ -6,7 +6,9 @@ import unittest
 import numpy as np
 
 from sonic.calibration.joint_mapping import (
-    JointCalibrationProfile, JointCurve, monotone_inverse_curve,
+    JointCalibrationProfile,
+    JointCurve,
+    monotone_inverse_curve,
 )
 from sonic.calibration.protocol import PRESENT_23, build_plan, load_plan, save_plan
 
@@ -32,16 +34,14 @@ class SuspendedProtocolTest(unittest.TestCase):
 
 class JointMappingTest(unittest.TestCase):
     def test_monotone_inverse_rejects_noise_without_reversing(self):
-        command = np.array([-1.0, -.5, 0.0, .5, 1.0])
-        measured = np.array([-.8, -.2, -.25, .4, .75])
+        command = np.array([-1.0, -0.5, 0.0, 0.5, 1.0])
+        measured = np.array([-0.8, -0.2, -0.25, 0.4, 0.75])
         knots, inverse = monotone_inverse_curve(command, measured)
         self.assertTrue(np.all(np.diff(knots) > 0))
         self.assertTrue(np.all(np.diff(inverse) >= 0))
 
     def test_direction_map_is_bounded_and_profile_round_trips(self):
-        curve = JointCurve(
-            [-1.0, 0.0, 1.0], [-1.1, .05, 1.1], [-1.0, -.05, 1.0], .08
-        )
+        curve = JointCurve([-1.0, 0.0, 1.0], [-1.1, 0.05, 1.1], [-1.0, -0.05, 1.0], 0.08)
         self.assertAlmostEqual(curve.apply(1.0, 1), 1.08)
         self.assertAlmostEqual(curve.apply(-1.0, -1), -1.0)
         # Outside the measured domain, retain only the bounded endpoint
@@ -58,7 +58,7 @@ class JointMappingTest(unittest.TestCase):
         self.assertAlmostEqual(loaded.apply_29(q, np.ones(29))[4], 1.08)
 
     def test_encoder_only_profile_cannot_self_approve(self):
-        curve = JointCurve([-1, 1], [-1, 1], [-1, 1], .1)
+        curve = JointCurve([-1, 1], [-1, 1], [-1, 1], 0.1)
         with self.assertRaisesRegex(ValueError, "encoder-only"):
             JointCalibrationProfile("g1_23dof", "encoder_only", True, {4: curve}, {})
 

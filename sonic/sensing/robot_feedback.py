@@ -5,6 +5,7 @@ uses it for wrist forward-kinematics calibration.  A 23-DoF G1 is expanded to
 the release model's 29-DoF MuJoCo ordering with its six absent joints fixed at
 zero.
 """
+
 from __future__ import annotations
 
 import time
@@ -35,9 +36,7 @@ class RobotFeedbackPublisher:
         print(f"PICO feedback: tcp://*:{self.port} topic={self.topic.decode()}")
 
     def expand_to_mujoco(self, values) -> np.ndarray:
-        return self.robot_profile.physical_to_mujoco(
-            np.asarray(values, np.float64), fill=0.0
-        )
+        return self.robot_profile.physical_to_mujoco(np.asarray(values, np.float64), fill=0.0)
 
     def publish(
         self,

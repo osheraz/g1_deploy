@@ -4,6 +4,7 @@
 Moves the robot during startup unless ``--preflight-only`` is supplied.
 See docs/sonic/joystick.md for controls and configuration.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,7 +27,7 @@ from core.sensing.depth_client import SimpleDepthClient
 from core.recording.episode import Recorder, load_episode
 from core.robot.remote import KeyMap
 from sonic.sensing.tactile_record import sample_fields as tactile_fields
-from core.robot.unitree_crc import configure_materialized_unitree_crc
+from core.robot.unitree_crc import check_crc_library
 from core.robot.unitree_dds import configure_process_local_cyclonedds_log
 from core.robot.mode import release_active_motion_mode
 from core.config import Config
@@ -110,8 +111,7 @@ ANKLE_IDX = np.array([4, 5, 10, 11])
 
 
 class EskinController:
-    def __init__(self, config, robot, policy_runner, camera, tactile, recorder,
-                 feedback=None):
+    def __init__(self, config, robot, policy_runner, camera, tactile, recorder, feedback=None):
         self.config = config
         self.robot = robot
         self.policy_runner = policy_runner
@@ -138,7 +138,8 @@ class EskinController:
     def step(self) -> None:
         step_start = time.perf_counter()
         loop_period_s = (
-            self.config.control_dt if self._last_step_start is None
+            self.config.control_dt
+            if self._last_step_start is None
             else step_start - self._last_step_start
         )
         self._last_step_start = step_start
@@ -177,9 +178,7 @@ class EskinController:
         faults = motor["motor_error"][present]
         if np.any(faults != 0):
             i = int(np.flatnonzero(faults != 0)[0])
-            raise RuntimeError(
-                f"motor {int(present[i])} reports fault code {int(faults[i])}"
-            )
+            raise RuntimeError(f"motor {int(present[i])} reports fault code {int(faults[i])}")
         quat_norm = float(np.linalg.norm(imu_quat))
         if not np.isfinite(quat_norm) or quat_norm < 1e-6:
             raise RuntimeError("pelvis IMU quaternion is invalid")
@@ -207,17 +206,18 @@ class EskinController:
                     "controller remains active"
                 )
                 self._next_tracking_warning_s = self.elapsed + 2.0
-        base_ang_vel, projected_gravity, dof_pos, dof_vel = (
-            self.robot.get_base_features_scaled(imu=(imu_quat, imu_gyro))
+        base_ang_vel, projected_gravity, dof_pos, dof_vel = self.robot.get_base_features_scaled(
+            imu=(imu_quat, imu_gyro)
         )
 
-        if self.record_only:                      # hold default, no inference
+        if self.record_only:  # hold default, no inference
             action = np.zeros(self.config.num_actions, np.float32)
             target_dof_pos = self.config.physical_default_angles.copy()
             target_dof_pos = self.robot.apply_target_dof_pos(target_dof_pos)
         else:
-            depth_raw = (self.camera.latest_depth
-                         if (self.camera and self.config.use_depth_obs) else None)
+            depth_raw = (
+                self.camera.latest_depth if (self.camera and self.config.use_depth_obs) else None
+            )
             if self.is_sonic:
                 ref = self.policy_runner.reference
                 if not ref.initialized:
@@ -248,9 +248,7 @@ class EskinController:
                     base_quat_wxyz=imu_quat,
                 )
 
-            target_dof_pos = (
-                action * self.config.action_scale + self.config.physical_default_angles
-            )
+            target_dof_pos = action * self.config.action_scale + self.config.physical_default_angles
             # Raised-cosine policy handover. The official controller switches
             # directly from its default-pose hold to the first policy target,
             # but that target is not generally identical to the measured pose.
@@ -268,9 +266,7 @@ class EskinController:
                 )
                 alpha = 0.5 - 0.5 * np.cos(np.pi * phase)
                 self._handover_alpha = float(alpha)
-                target_dof_pos = (
-                    alpha * target_dof_pos + (1.0 - alpha) * self._blend_origin
-                )
+                target_dof_pos = alpha * target_dof_pos + (1.0 - alpha) * self._blend_origin
             target_dof_pos = self.robot.apply_target_dof_pos(target_dof_pos)
 
         if self.feedback is not None:
@@ -285,15 +281,21 @@ class EskinController:
         self.recorder.handle_buttons(self.robot.remote_controller.button)
         if self.recorder.recording:
             self._record(
-                action, target_dof_pos, imu_quat, base_ang_vel,
-                projected_gravity, dof_pos, dof_vel,
+                action,
+                target_dof_pos,
+                imu_quat,
+                base_ang_vel,
+                projected_gravity,
+                dof_pos,
+                dof_vel,
                 loop_period_s=loop_period_s,
                 compute_s=time.perf_counter() - step_start,
             )
 
         if self.counter % 50 == 0:
-            print(f"\r[{self.elapsed:7.1f}s] {self.recorder.status()}          ",
-                  end="", flush=True)
+            print(
+                f"\r[{self.elapsed:7.1f}s] {self.recorder.status()}          ", end="", flush=True
+            )
 
         self._t_next += self.config.control_dt
         sleep = self._t_next - time.perf_counter()
@@ -306,9 +308,7 @@ class EskinController:
         """Interpolate to ``target`` while retaining live-state safety gates."""
         state, age = self.robot.low_state_snapshot_with_age()
         if age > self.config.max_low_state_age_s:
-            raise RuntimeError(
-                f"cannot start pose ramp: LowState is stale for {age:.3f}s"
-            )
+            raise RuntimeError(f"cannot start pose ramp: LowState is stale for {age:.3f}s")
         self.robot.update_joint_state(state)
         start = self.robot.qj.copy()
         target = np.asarray(target, np.float32)
@@ -318,9 +318,7 @@ class EskinController:
         for i in range(n):
             state, age = self.robot.low_state_snapshot_with_age()
             if age > self.config.max_low_state_age_s:
-                raise RuntimeError(
-                    f"LowState became stale during pose ramp ({age:.3f}s)"
-                )
+                raise RuntimeError(f"LowState became stale during pose ramp ({age:.3f}s)")
             self.robot.update_joint_state(state)
             max_dq = float(np.max(np.abs(self.robot.dqj)))
             if max_dq > self.config.max_joint_velocity:
@@ -355,9 +353,7 @@ class EskinController:
         for i in range(n):
             state, age = self.robot.low_state_snapshot_with_age()
             if age > self.config.max_low_state_age_s:
-                raise RuntimeError(
-                    f"LowState became stale during settle hold ({age:.3f}s)"
-                )
+                raise RuntimeError(f"LowState became stale during settle hold ({age:.3f}s)")
             self.robot.update_joint_state(state)
             speed = float(np.max(np.abs(self.robot.dqj)))
             if speed > self.config.max_joint_velocity:
@@ -393,9 +389,19 @@ class EskinController:
                 f"(limit {max_velocity:.3f})"
             )
 
-    def _record(self, action, target_dof_pos, imu_quat,
-                base_ang_vel, projected_gravity, dof_pos, dof_vel,
-                *, loop_period_s, compute_s) -> None:
+    def _record(
+        self,
+        action,
+        target_dof_pos,
+        imu_quat,
+        base_ang_vel,
+        projected_gravity,
+        dof_pos,
+        dof_vel,
+        *,
+        loop_period_s,
+        compute_s,
+    ) -> None:
         motor = self.robot.motor_state_arrays(state=self._step_low_state)
         pelvis_rpy = _rpy_wxyz(imu_quat)
         sample = {
@@ -411,9 +417,9 @@ class EskinController:
             "command_q_physical": self.robot.last_target_dof_pos.copy(),
             "command_q_physical_unclipped": self.robot.last_target_unclipped.copy(),
             "command_saturated_physical": self.robot.last_target_saturated.copy(),
-            "tracking_error_q_physical": (
-                self.robot.last_target_dof_pos - self.robot.qj
-            ).astype(np.float32),
+            "tracking_error_q_physical": (self.robot.last_target_dof_pos - self.robot.qj).astype(
+                np.float32
+            ),
             "command_q_motor_29": self.robot.commanded_q_29(),
             "measured_q_motor_29": motor["q"],
             "measured_dq_motor_29": motor["dq"],
@@ -432,9 +438,7 @@ class EskinController:
             "pelvis_pitch_rad": pelvis_rpy[1],
             "pelvis_yaw_rad": pelvis_rpy[2],
             "low_state_age_s": np.float32(self._step_low_state_age_s),
-            "low_state_tick": np.int64(
-                getattr(self._step_low_state, "tick", -1)
-            ),
+            "low_state_tick": np.int64(getattr(self._step_low_state, "tick", -1)),
             "loop_period_s": np.float32(loop_period_s),
             "control_compute_s": np.float32(compute_s),
             "policy_handover_alpha": np.float32(self._handover_alpha),
@@ -446,23 +450,23 @@ class EskinController:
         # Preserve the existing episode schema only for the embodiment it
         # actually describes. Generic readers should use the *_physical keys.
         if self.robot.robot_profile.name == "g1_23dof":
-            sample.update({
-                "measured_q_23": sample["measured_q_physical"],
-                "measured_dq_23": sample["measured_dq_physical"],
-                "command_q_23": sample["command_q_physical"],
-                "command_q_23_unclipped": sample["command_q_physical_unclipped"],
-                "command_saturated_23": sample["command_saturated_physical"],
-                "tracking_error_q_23": sample["tracking_error_q_physical"],
-            })
+            sample.update(
+                {
+                    "measured_q_23": sample["measured_q_physical"],
+                    "measured_dq_23": sample["measured_dq_physical"],
+                    "command_q_23": sample["command_q_physical"],
+                    "command_q_23_unclipped": sample["command_q_physical_unclipped"],
+                    "command_saturated_23": sample["command_saturated_physical"],
+                    "tracking_error_q_23": sample["tracking_error_q_physical"],
+                }
+            )
 
         if self.is_sonic:
             sample.update(self.policy_runner.diagnostic_fields())
             sample.update(self.policy_runner.reference.teleop_fields())
 
         if self.tactile is not None:
-            sample.update(
-                tactile_fields(self.tactile.snapshot(), self.config.tactile_sensor_order)
-            )
+            sample.update(tactile_fields(self.tactile.snapshot(), self.config.tactile_sensor_order))
 
         # camera is 30 Hz, loop is 50: only write bytes when the frame changed
         seq = self.camera.latest_seq if self.camera else 0
@@ -477,11 +481,17 @@ class EskinController:
         )
 
 
-def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = True,
-                        idle_hold: bool = True, slow: bool = False):
+def build_policy_runner(
+    config,
+    mode: str,
+    teleop: str = None,
+    gated: bool = True,
+    idle_hold: bool = True,
+    slow: bool = False,
+):
     """SONIC encoder/decoder driven by `mode`, the actor runner, or nothing."""
     if mode == "record":
-        return None            # hold position and only record
+        return None  # hold position and only record
     if config.policy_type == "sonic":
         from sonic.sonic_runner import SonicRunner
 
@@ -519,8 +529,7 @@ def build_policy_runner(config, mode: str, teleop: str = None, gated: bool = Tru
 
         from sonic.sonic_reference import build_reference
 
-        return SonicRunner(config, build_reference(config, mode, gated=gated,
-                                                   idle_hold=idle_hold))
+        return SonicRunner(config, build_reference(config, mode, gated=gated, idle_hold=idle_hold))
 
     from vigor.policy_runner import PolicyRunner
 
@@ -544,60 +553,106 @@ def main() -> None:
         "--mode",
         choices=["record", "motion", "pico", "planner", "smpl"],
         default="record",
-                    help="record: hold position, stream+record only (no policy). "
-                         "motion: replay an exported SONIC clip. pico: live, "
-                         "message-selected G1/VR3. planner: planner-only G1 "
-                         "encoder with planner-controlled upper body.")
+        help="record: hold position, stream+record only (no policy). "
+        "motion: replay an exported SONIC clip. pico: live, "
+        "message-selected G1/VR3. planner: planner-only G1 "
+        "encoder with planner-controlled upper body.",
+    )
     ap.add_argument("--out", default="episodes", help="episode output directory")
-    ap.add_argument("--clip", default=None,
-                    help="--mode motion: override sonic_motion_clip from the config")
-    ap.add_argument("--loop", action=argparse.BooleanOptionalAction, default=None,
-                    help="--mode motion: override the config's finite/loop setting")
-    ap.add_argument("--teleop", choices=["nav", "vr3", "both", "idle", "carry", "joystick"],
-                    default=None,
-                    help="--mode pico/planner: scripted or Unitree-remote command "
-                         "instead of a headset")
+    ap.add_argument(
+        "--clip", default=None, help="--mode motion: override sonic_motion_clip from the config"
+    )
+    ap.add_argument(
+        "--loop",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="--mode motion: override the config's finite/loop setting",
+    )
+    ap.add_argument(
+        "--teleop",
+        choices=["nav", "vr3", "both", "idle", "carry", "joystick"],
+        default=None,
+        help="--mode pico/planner: scripted or Unitree-remote command " "instead of a headset",
+    )
     ap.add_argument("--duration", type=float, default=None, help="stop after N seconds")
-    ap.add_argument("--blend", action=argparse.BooleanOptionalAction, default=True,
-                    help="raised-cosine handover to policy targets over one second "
-                         "(safe default; --no-blend is parity/debug only)")
-    ap.add_argument("--replan-ungated", action="store_true",
-                    help="--mode pico/planner: replan on every command instead of "
-                         "official gating")
+    ap.add_argument(
+        "--blend",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="raised-cosine handover to policy targets over one second "
+        "(safe default; --no-blend is parity/debug only)",
+    )
+    ap.add_argument(
+        "--replan-ungated",
+        action="store_true",
+        help="--mode pico/planner: replan on every command instead of " "official gating",
+    )
     ap.add_argument(
         "--idle-hold",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="--mode pico/planner: hold measured joint pose in IDLE without "
-             "changing recurrent planner context (default: enabled; "
-             "--no-idle-hold is diagnostic only)",
+        "changing recurrent planner context (default: enabled; "
+        "--no-idle-hold is diagnostic only)",
     )
     ap.add_argument("--net", default="enp132s0")
-    ap.add_argument("--auto-record", action="store_true",
-                    help="start experiment logging as soon as control begins")
+    ap.add_argument(
+        "--auto-record",
+        action="store_true",
+        help="start experiment logging as soon as control begins",
+    )
     ap.add_argument(
         "--preflight-only",
         action="store_true",
         help="load and verify the complete TensorRT policy/planner contract, "
-             "then exit before sensors or Unitree DDS are initialized",
+        "then exit before sensors or Unitree DDS are initialized",
     )
-    ap.add_argument("--feedback-port", type=int, default=None,
-                    help="g1_debug PUB port for official PICO VR3 wrist calibration")
-    ap.add_argument("--no-feedback", action="store_true",
-                    help="disable g1_debug publication (VR3 calibration will lack measured q)")
-    ap.add_argument("--motion-init-seconds", type=float, default=3.0,
-                    help="ramp to a motion clip's frame-0 joint pose before inference")
-    ap.add_argument("--max-motion-init-gap-deg", type=float, default=20.0,
-                    help="abort motion mode if frame 0 is farther from measured q than this")
-    ap.add_argument("--motion-settle-seconds", type=float, default=1.0,
-                    help="hold frame 0 this long and verify measured settling")
-    ap.add_argument("--max-motion-settle-error-deg", type=float, default=5.0,
-                    help="maximum tail pose error before motion policy activation")
-    ap.add_argument("--max-motion-settle-velocity", type=float, default=0.5,
-                    help="maximum tail |dq| rad/s before motion policy activation")
-    ap.add_argument("--tactile-ip", default=None,
-                    help="override config; use 127.0.0.1 when the gloves are "
-                         "plugged into this workstation")
+    ap.add_argument(
+        "--feedback-port",
+        type=int,
+        default=None,
+        help="g1_debug PUB port for official PICO VR3 wrist calibration",
+    )
+    ap.add_argument(
+        "--no-feedback",
+        action="store_true",
+        help="disable g1_debug publication (VR3 calibration will lack measured q)",
+    )
+    ap.add_argument(
+        "--motion-init-seconds",
+        type=float,
+        default=3.0,
+        help="ramp to a motion clip's frame-0 joint pose before inference",
+    )
+    ap.add_argument(
+        "--max-motion-init-gap-deg",
+        type=float,
+        default=20.0,
+        help="abort motion mode if frame 0 is farther from measured q than this",
+    )
+    ap.add_argument(
+        "--motion-settle-seconds",
+        type=float,
+        default=1.0,
+        help="hold frame 0 this long and verify measured settling",
+    )
+    ap.add_argument(
+        "--max-motion-settle-error-deg",
+        type=float,
+        default=5.0,
+        help="maximum tail pose error before motion policy activation",
+    )
+    ap.add_argument(
+        "--max-motion-settle-velocity",
+        type=float,
+        default=0.5,
+        help="maximum tail |dq| rad/s before motion policy activation",
+    )
+    ap.add_argument(
+        "--tactile-ip",
+        default=None,
+        help="override config; use 127.0.0.1 when the gloves are " "plugged into this workstation",
+    )
     ap.add_argument("--camera-ip", default=None, help="override config")
     ap.add_argument("--no-camera", action="store_true")
     ap.add_argument("--no-tactile", action="store_true")
@@ -606,7 +661,7 @@ def main() -> None:
     # The reviewed NFS checkout intentionally retains Git LFS pointer files.
     # Resolve and load-test the byte-identical local CRC ELF before expensive
     # model initialization, DDS, or any robot-facing object is created.
-    unitree_crc_library = configure_materialized_unitree_crc(_unitree_crc)
+    unitree_crc_library = check_crc_library(_unitree_crc)
     print(f"Unitree CRC library: {unitree_crc_library}")
 
     config = Config(args.config)
@@ -682,8 +737,10 @@ def main() -> None:
             port=config.tactile_server_port,
         )
         tactile.start()
-        print(f"tactile: tcp://{tactile_ip}:{config.tactile_server_port} "
-              f"{config.tactile_sensor_order}")
+        print(
+            f"tactile: tcp://{tactile_ip}:{config.tactile_server_port} "
+            f"{config.tactile_sensor_order}"
+        )
 
     feedback = None
     if args.mode in ("pico", "smpl") and not args.no_feedback:
@@ -710,70 +767,68 @@ def main() -> None:
     # trials are already auto-recorded by the launcher, so disable manual
     # recorder toggling there rather than stealing the gait button.
     recorder_button = None if unitree_planner_remote else KeyMap.X
-    recorder = Recorder(Path(args.out).expanduser(), {
-        "policy_type": config.policy_type,
-        "mode": args.mode,
-        "sonic_model_variant": config.sonic_model_variant,
-        "sonic_release_profile": getattr(
-            config, "sonic_release_profile", args.model_profile
-        ),
-        "sonic_robot_profile": config.sonic_robot_profile,
-        "force_g1_encoder": bool(args.mode == "planner"),
-        "planner_idle_hold": bool(args.idle_hold),
-        "config": str(config.config_path),
-        "policy": str(config.policy_path),
-        "control_dt": float(config.control_dt),
-        "rate_hz": 1.0 / float(config.control_dt),
-        "network_interface": args.net,
-        "unitree_crc_library": str(unitree_crc_library),
-        "encoder_model": str(config.sonic_encoder),
-        "decoder_model": str(config.sonic_decoder),
-        "observation_config": str(config.sonic_observation_config),
-        "planner_model": str(config.sonic_planner_onnx),
-        "tensorrt_precision": "fp16" if config.sonic_tensorrt_fp16 else "fp32",
-        "tensorrt_tf32": bool(config.sonic_tensorrt_tf32),
-        "tensorrt_engines": {k: str(v) for k, v in hardware_engines.items()},
-        "encoder_providers": list(getattr(policy_runner, "encoder_providers", ())),
-        "decoder_providers": list(getattr(policy_runner, "decoder_providers", ())),
-        "planner_providers": list(getattr(planner_for_meta, "providers", ())),
-        "motion_clip": str(config.sonic_motion_clip),
-        "motion_loop": bool(config.sonic_motion_loop),
-        "sonic_mask_missing_reference": bool(config.sonic_mask_missing_reference),
-        "sonic_mask_missing_action_history": bool(
-            config.sonic_mask_missing_action_history
-        ),
-        "sonic_adaptation_profile": str(config.sonic_adaptation_profile),
-        "sonic_missing_adaptation_scope": str(
-            config.sonic_missing_adaptation_scope
-        ),
-        "sonic_reduced_proprioception": str(
-            config.sonic_reduced_proprioception
-        ),
-        "sonic_motor_action_scale": np.asarray(
-            config.sonic_motor_action_scale, np.float64
-        ).tolist(),
-        "sonic_motor_action_abs_limit": np.asarray(
-            config.sonic_motor_action_abs_limit, np.float64
-        ).tolist(),
-        "sonic_motor_action_ema": np.asarray(
-            config.sonic_motor_action_ema, np.float64
-        ).tolist(),
-        "sonic_motor_target_rate_limit": np.asarray(
-            config.sonic_motor_target_rate_limit, np.float64
-        ).tolist(),
-        "sonic_action_history_source": str(config.sonic_action_history_source),
-        "sonic_missing_action_il_indices": missing_action_indices,
-        "sonic_missing_action_order": missing_action_names,
-        "physical_joint_names": list(profile.physical_joint_names) if config.policy_type == "sonic" else [],
-        "policy_handover_enabled": bool(args.blend),
-        "motion_settle_seconds": float(args.motion_settle_seconds),
-        "max_motion_settle_error_deg": float(args.max_motion_settle_error_deg),
-        "max_motion_settle_velocity": float(args.max_motion_settle_velocity),
-        "sensors": list(config.tactile_sensor_order) if tactile else [],
-        "tactile_raw_len": 256,
-        "tactile_imu_len": 16,
-        "camera_shape": [int(config.depth_raw_height), int(config.depth_raw_width)],
-    }, button=recorder_button)
+    recorder = Recorder(
+        Path(args.out).expanduser(),
+        {
+            "policy_type": config.policy_type,
+            "mode": args.mode,
+            "sonic_model_variant": config.sonic_model_variant,
+            "sonic_release_profile": getattr(config, "sonic_release_profile", args.model_profile),
+            "sonic_robot_profile": config.sonic_robot_profile,
+            "force_g1_encoder": bool(args.mode == "planner"),
+            "planner_idle_hold": bool(args.idle_hold),
+            "config": str(config.config_path),
+            "policy": str(config.policy_path),
+            "control_dt": float(config.control_dt),
+            "rate_hz": 1.0 / float(config.control_dt),
+            "network_interface": args.net,
+            "unitree_crc_library": str(unitree_crc_library),
+            "encoder_model": str(config.sonic_encoder),
+            "decoder_model": str(config.sonic_decoder),
+            "observation_config": str(config.sonic_observation_config),
+            "planner_model": str(config.sonic_planner_onnx),
+            "tensorrt_precision": "fp16" if config.sonic_tensorrt_fp16 else "fp32",
+            "tensorrt_tf32": bool(config.sonic_tensorrt_tf32),
+            "tensorrt_engines": {k: str(v) for k, v in hardware_engines.items()},
+            "encoder_providers": list(getattr(policy_runner, "encoder_providers", ())),
+            "decoder_providers": list(getattr(policy_runner, "decoder_providers", ())),
+            "planner_providers": list(getattr(planner_for_meta, "providers", ())),
+            "motion_clip": str(config.sonic_motion_clip),
+            "motion_loop": bool(config.sonic_motion_loop),
+            "sonic_mask_missing_reference": bool(config.sonic_mask_missing_reference),
+            "sonic_mask_missing_action_history": bool(config.sonic_mask_missing_action_history),
+            "sonic_adaptation_profile": str(config.sonic_adaptation_profile),
+            "sonic_missing_adaptation_scope": str(config.sonic_missing_adaptation_scope),
+            "sonic_reduced_proprioception": str(config.sonic_reduced_proprioception),
+            "sonic_motor_action_scale": np.asarray(
+                config.sonic_motor_action_scale, np.float64
+            ).tolist(),
+            "sonic_motor_action_abs_limit": np.asarray(
+                config.sonic_motor_action_abs_limit, np.float64
+            ).tolist(),
+            "sonic_motor_action_ema": np.asarray(
+                config.sonic_motor_action_ema, np.float64
+            ).tolist(),
+            "sonic_motor_target_rate_limit": np.asarray(
+                config.sonic_motor_target_rate_limit, np.float64
+            ).tolist(),
+            "sonic_action_history_source": str(config.sonic_action_history_source),
+            "sonic_missing_action_il_indices": missing_action_indices,
+            "sonic_missing_action_order": missing_action_names,
+            "physical_joint_names": (
+                list(profile.physical_joint_names) if config.policy_type == "sonic" else []
+            ),
+            "policy_handover_enabled": bool(args.blend),
+            "motion_settle_seconds": float(args.motion_settle_seconds),
+            "max_motion_settle_error_deg": float(args.max_motion_settle_error_deg),
+            "max_motion_settle_velocity": float(args.max_motion_settle_velocity),
+            "sensors": list(config.tactile_sensor_order) if tactile else [],
+            "tactile_raw_len": 256,
+            "tactile_imu_len": 16,
+            "camera_shape": [int(config.depth_raw_height), int(config.depth_raw_width)],
+        },
+        button=recorder_button,
+    )
 
     hl = None
     robot = None
@@ -869,8 +924,7 @@ def main() -> None:
                 "Select = stop and save\n"
             )
         else:
-            print("\n  X = toggle recording   A = kill (straight to damping)   "
-                  "select = quit\n")
+            print("\n  X = toggle recording   A = kill (straight to damping)   " "select = quit\n")
 
         a_released = unitree_planner_remote
         while True:
@@ -971,7 +1025,6 @@ def main() -> None:
     print(f"\nexit: {exit_reason}")
     if pending_error is not None:
         raise pending_error
-
 
 
 if __name__ == "__main__":

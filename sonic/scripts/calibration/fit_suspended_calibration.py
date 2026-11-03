@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fit a bounded monotone inverse map from a suspended calibration log."""
+
 from __future__ import annotations
 
 import argparse
@@ -15,7 +16,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sonic.calibration.joint_mapping import (
-    JointCalibrationProfile, JointCurve, monotone_inverse_curve,
+    JointCalibrationProfile,
+    JointCurve,
+    monotone_inverse_curve,
 )
 from sonic.calibration.protocol import MOTOR_NAMES, PRESENT_23
 
@@ -37,9 +40,9 @@ def _load(path: Path):
     measured = np.asarray([[float(row[f"q_measured_{i}"]) for i in range(29)] for row in rows])
     captured = None
     if all(f"captured_neutral_{i}" in rows[0] for i in range(29)):
-        captured = np.asarray([
-            [float(row[f"captured_neutral_{i}"]) for i in range(29)] for row in rows
-        ])
+        captured = np.asarray(
+            [[float(row[f"captured_neutral_{i}"]) for i in range(29)] for row in rows]
+        )
         # Review-gated rows use block metadata rather than a single active_motor.
         block_kind = np.asarray([row.get("block_kind", "") for row in rows])
         single = block_kind == "single_joint"
@@ -48,15 +51,12 @@ def _load(path: Path):
         nonzero = np.nanmax(delta, axis=1) > 1e-8
         active = np.where(single & nonzero, inferred, active)
         inferred_direction = np.sign(
-            command[np.arange(len(command)), inferred]
-            - captured[np.arange(len(command)), inferred]
+            command[np.arange(len(command)), inferred] - captured[np.arange(len(command)), inferred]
         ).astype(np.int64)
         direction = np.where(single & nonzero, inferred_direction, direction)
     external = None
     if all(f"q_external_{i}" in rows[0] for i in range(29)):
-        external = np.asarray([
-            [float(row[f"q_external_{i}"]) for i in range(29)] for row in rows
-        ])
+        external = np.asarray([[float(row[f"q_external_{i}"]) for i in range(29)] for row in rows])
     return phase, active, direction, target, command, measured, captured, external
 
 
@@ -65,15 +65,22 @@ def main() -> None:
     parser.add_argument("log", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
-        "--coordinate-basis", choices=("mujoco_truth", "external_truth", "encoder_only"),
+        "--coordinate-basis",
+        choices=("mujoco_truth", "external_truth", "encoder_only"),
         required=True,
     )
-    parser.add_argument("--max-correction", type=float, default=.25)
+    parser.add_argument("--max-correction", type=float, default=0.25)
     args = parser.parse_args()
-    if not 0 < args.max_correction <= .35:
+    if not 0 < args.max_correction <= 0.35:
         raise SystemExit("--max-correction must be in (0, 0.35]")
     (
-        phase, active, direction, target, command, encoder_measured, captured,
+        phase,
+        active,
+        direction,
+        target,
+        command,
+        encoder_measured,
+        captured,
         external,
     ) = _load(args.log)
     if args.coordinate_basis == "external_truth":
@@ -97,6 +104,7 @@ def main() -> None:
             mask &= np.abs(command[:, motor] - captured[:, motor]) > 1e-8
         if np.sum(mask) < 10:
             continue
+
         def fit_branch(branch):
             # Reduce every held target to a robust median.  The last 60% of a
             # dwell is naturally represented more often in the repeated CSV;
@@ -110,9 +118,7 @@ def main() -> None:
                 cmd_median.append(float(np.median(command[select, motor])))
                 measured_median.append(float(np.median(measured[select, motor])))
             try:
-                return monotone_inverse_curve(
-                    np.asarray(cmd_median), np.asarray(measured_median)
-                )
+                return monotone_inverse_curve(np.asarray(cmd_median), np.asarray(measured_median))
             except ValueError:
                 return None
 
@@ -161,8 +167,7 @@ def main() -> None:
             "created_utc": datetime.now(timezone.utc).isoformat(),
             "source_log": str(args.log.expanduser().absolute()),
             "measurement_source": (
-                "q_external" if args.coordinate_basis == "external_truth"
-                else "q_measured"
+                "q_external" if args.coordinate_basis == "external_truth" else "q_measured"
             ),
             "fit": fit_summary,
             "warning": (
@@ -173,8 +178,10 @@ def main() -> None:
     )
     output = profile.save(args.output)
     print(f"PROFILE FIT: {output}")
-    print(f"joints={len(joints)} coordinate_basis={args.coordinate_basis} "
-          "approved_for_deployment=false")
+    print(
+        f"joints={len(joints)} coordinate_basis={args.coordinate_basis} "
+        "approved_for_deployment=false"
+    )
 
 
 if __name__ == "__main__":

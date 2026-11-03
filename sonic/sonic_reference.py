@@ -11,6 +11,7 @@ Both return the dict ``sonic.model.obs.build_encoder_obs`` expects, batched
 with a leading dimension of 1. Term shapes and the future stride are taken from
 ``sonic/motion/bank.py`` in the research repo and must stay identical.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -42,7 +43,9 @@ class MotionReferenceWindow:
     is not.
     """
 
-    def __init__(self, clip_path, loop: bool = True, *, model_profile="default", robot_profile="g1_23dof"):
+    def __init__(
+        self, clip_path, loop: bool = True, *, model_profile="default", robot_profile="g1_23dof"
+    ):
         from sonic.model.model_profile import get_model_profile
         from sonic.model.robot_profile import get_robot_profile
 
@@ -56,8 +59,11 @@ class MotionReferenceWindow:
                 "--pack <pack.pt> --out <clip.npz>"
             )
         d = np.load(path)
-        missing = [k for k in ("dof_il", "dof_vel_il", "body_pos_il",
-                               "body_quat_wxyz_il") if k not in d.files]
+        missing = [
+            k
+            for k in ("dof_il", "dof_vel_il", "body_pos_il", "body_quat_wxyz_il")
+            if k not in d.files
+        ]
         if missing:
             raise SystemExit(f"{path} is missing {missing}; re-export it.")
 
@@ -92,10 +98,15 @@ class MotionReferenceWindow:
             )
         if "fps" in d.files and not np.allclose(d["fps"], 50.0):
             raise SystemExit(f"{path} must be resampled to 50 Hz; fps={d['fps']}")
-        if not all(np.isfinite(x).all() for x in (
-            self.dof_il, self.dof_vel_il,
-            self.body_pos_il, self.body_quat_wxyz_il,
-        )):
+        if not all(
+            np.isfinite(x).all()
+            for x in (
+                self.dof_il,
+                self.dof_vel_il,
+                self.body_pos_il,
+                self.body_quat_wxyz_il,
+            )
+        ):
             raise SystemExit(f"{path} contains NaN or infinity")
         quat_norm = np.linalg.norm(self.body_quat_wxyz_il, axis=-1)
         if not np.allclose(quat_norm, 1.0, atol=2e-3, rtol=2e-3):
@@ -107,16 +118,16 @@ class MotionReferenceWindow:
         self.frame = 0
         self.done = False
         self.initialized = False
-        self.sonic_mode = "g1"        # clip tracking
-        print(f"SONIC reference: motion clip {path.name}, {self.T} frames "
-              f"({self.T / 50.0:.1f}s @50fps){' looping' if loop else ''}")
+        self.sonic_mode = "g1"  # clip tracking
+        print(
+            f"SONIC reference: motion clip {path.name}, {self.T} frames "
+            f"({self.T / 50.0:.1f}s @50fps){' looping' if loop else ''}"
+        )
 
     @property
     def initial_joint_pose(self) -> np.ndarray:
         """Frame-0 physical pose used by the real deployment handoff."""
-        return self.robot_profile.isaaclab_to_physical(
-            self.dof_il[0]
-        ).astype(np.float32).copy()
+        return self.robot_profile.isaaclab_to_physical(self.dof_il[0]).astype(np.float32).copy()
 
     @property
     def initial_joint_pose_23(self) -> np.ndarray:
@@ -166,12 +177,15 @@ class MotionReferenceWindow:
         q = self.body_quat_wxyz_il
         w0, x0, y0, z0 = off
         w1, x1, y1, z1 = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
-        self.body_quat_wxyz_il = np.stack([
-            w0 * w1 - x0 * x1 - y0 * y1 - z0 * z1,
-            w0 * x1 + x0 * w1 + y0 * z1 - z0 * y1,
-            w0 * y1 - x0 * z1 + y0 * w1 + z0 * x1,
-            w0 * z1 + x0 * y1 - y0 * x1 + z0 * w1,
-        ], axis=-1)
+        self.body_quat_wxyz_il = np.stack(
+            [
+                w0 * w1 - x0 * x1 - y0 * y1 - z0 * z1,
+                w0 * x1 + x0 * w1 + y0 * z1 - z0 * y1,
+                w0 * y1 - x0 * z1 + y0 * w1 + z0 * x1,
+                w0 * z1 + x0 * y1 - y0 * x1 + z0 * w1,
+            ],
+            axis=-1,
+        )
 
         x, y = self.body_pos_il[..., 0].copy(), self.body_pos_il[..., 1].copy()
         self.body_pos_il[..., 0] = c * x - s * y
@@ -198,13 +212,13 @@ class MotionReferenceWindow:
         )
         ci = min(self.frame, self.T - 1)
         return {
-            "dof_fut": self.dof_il[gi][None],                       # (1,10,29)
-            "dvel_fut": self.dof_vel_il[gi][None],                  # (1,10,29)
-            "rootq_fut": self.body_quat_wxyz_il[gi, 0][None],       # (1,10,4)
-            "rootz_fut": self.body_pos_il[gi, 0, 2][None],          # (1,10)
-            "body_pos_cur": self.body_pos_il[ci][None],             # (1,14,3)
-            "body_quat_cur": self.body_quat_wxyz_il[ci][None],      # (1,14,4)
-            "rootz_cur": np.array([self.body_pos_il[ci, 0, 2]]),    # (1,)
+            "dof_fut": self.dof_il[gi][None],  # (1,10,29)
+            "dvel_fut": self.dof_vel_il[gi][None],  # (1,10,29)
+            "rootq_fut": self.body_quat_wxyz_il[gi, 0][None],  # (1,10,4)
+            "rootz_fut": self.body_pos_il[gi, 0, 2][None],  # (1,10)
+            "body_pos_cur": self.body_pos_il[ci][None],  # (1,14,3)
+            "body_quat_cur": self.body_quat_wxyz_il[ci][None],  # (1,14,4)
+            "rootz_cur": np.array([self.body_pos_il[ci, 0, 2]]),  # (1,)
             "wrist_dof_smpl": self.dof_il[si][:, WRIST_IL_IDX][None],  # (1,10,6)
         }
 
@@ -240,6 +254,4 @@ def build_reference(config, mode: str, *, gated: bool = True, idle_hold: bool = 
             force_smpl=(mode == "smpl"),
             idle_hold=idle_hold,
         )
-    raise SystemExit(
-        f"unknown sonic mode {mode!r}; expected motion, pico, planner, or smpl"
-    )
+    raise SystemExit(f"unknown sonic mode {mode!r}; expected motion, pico, planner, or smpl")

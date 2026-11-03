@@ -9,6 +9,7 @@ All vectors use the selected robot's *physical* joint order.  Rate limits are
 specified in target-joint radians/second and are converted through SONIC's
 per-joint action scale, so a limit has the same meaning for every motor.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -37,9 +38,7 @@ class MotorActionAdapter:
         self.scale = self._parameter(scale, 1.0, "scale")
         self.abs_limit = self._parameter(abs_limit, np.inf, "abs_limit")
         self.ema = self._parameter(ema, 1.0, "ema")
-        self.target_rate_limit = self._parameter(
-            target_rate_limit, np.inf, "target_rate_limit"
-        )
+        self.target_rate_limit = self._parameter(target_rate_limit, np.inf, "target_rate_limit")
         if np.any(self.scale <= 0):
             raise ValueError("motor action scale factors must be positive")
         if np.any(self.abs_limit <= 0):
@@ -84,17 +83,11 @@ class MotorActionAdapter:
         raw = np.asarray(raw_action, np.float64)
         if raw.shape != (self.n,) or not np.isfinite(raw).all():
             raise ValueError(
-                f"raw motor action must be finite with shape ({self.n},), "
-                f"got {raw.shape}"
+                f"raw motor action must be finite with shape ({self.n},), " f"got {raw.shape}"
             )
         shaped = np.clip(raw * self.scale, -self.abs_limit, self.abs_limit)
         shaped = self.ema * shaped + (1.0 - self.ema) * self.previous
-        max_delta = (
-            self.target_rate_limit * self.control_dt / self.action_scale
-        )
-        shaped = self.previous + np.clip(
-            shaped - self.previous, -max_delta, max_delta
-        )
+        max_delta = self.target_rate_limit * self.control_dt / self.action_scale
+        shaped = self.previous + np.clip(shaped - self.previous, -max_delta, max_delta)
         self.previous = shaped.copy()
         return shaped.astype(np.float32)
-

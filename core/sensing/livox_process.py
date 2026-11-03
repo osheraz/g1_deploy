@@ -46,13 +46,14 @@ def rotational_deskew(
     query = np.minimum(point_times_ns.astype(np.float64), float(scan_end_ns))
     grid = np.unique(
         np.concatenate(
-            (query, times[(times >= query.min()) & (times <= scan_end_ns)],
-             np.asarray([float(scan_end_ns)]))
+            (
+                query,
+                times[(times >= query.min()) & (times <= scan_end_ns)],
+                np.asarray([float(scan_end_ns)]),
+            )
         )
     )
-    omega_grid = np.stack(
-        [np.interp(grid, times, omega[:, axis]) for axis in range(3)], axis=-1
-    )
+    omega_grid = np.stack([np.interp(grid, times, omega[:, axis]) for axis in range(3)], axis=-1)
     increments = 0.5 * (omega_grid[:-1] + omega_grid[1:]) * np.diff(grid)[:, None] * 1.0e-9
     integrated = np.zeros_like(omega_grid)
     if increments.shape[0]:
@@ -89,8 +90,17 @@ def rolling_window_points(point_history, end_ns: int, duration_s: float, point_c
 
 
 def _child_main(
-    lidar_topic, imu_topic, point_count, scan_duration_s, frames, seq,
-    receipt_stamp, sensor_stamp, rate_hz, stop, err_text,
+    lidar_topic,
+    imu_topic,
+    point_count,
+    scan_duration_s,
+    frames,
+    seq,
+    receipt_stamp,
+    sensor_stamp,
+    rate_hz,
+    stop,
+    err_text,
 ):
     try:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -110,9 +120,7 @@ def _child_main(
         class LivoxNode(Node):
             def __init__(self):
                 super().__init__("hv2_livox_receiver")
-                self.create_subscription(
-                    Imu, imu_topic, self.on_imu, qos_profile_sensor_data
-                )
+                self.create_subscription(Imu, imu_topic, self.on_imu, qos_profile_sensor_data)
                 self.create_subscription(
                     CustomMsg, lidar_topic, self.on_lidar, qos_profile_sensor_data
                 )
@@ -122,8 +130,11 @@ def _child_main(
                     (
                         _stamp_ns(msg.header.stamp),
                         np.array(
-                            [msg.angular_velocity.x, msg.angular_velocity.y,
-                             msg.angular_velocity.z],
+                            [
+                                msg.angular_velocity.x,
+                                msg.angular_velocity.y,
+                                msg.angular_velocity.z,
+                            ],
                             dtype=np.float32,
                         ),
                     )
@@ -138,28 +149,21 @@ def _child_main(
                 timebase = int(msg.timebase)
                 offsets = np.asarray([p.offset_time for p in packet], dtype=np.uint64)
                 packet_ns = timebase + offsets
-                packet_xyz = np.asarray(
-                    [[p.x, p.y, p.z] for p in packet], dtype=np.float32
-                )
-                packet_reflectivity = np.asarray(
-                    [p.reflectivity for p in packet], dtype=np.float32
-                )
+                packet_xyz = np.asarray([[p.x, p.y, p.z] for p in packet], dtype=np.float32)
+                packet_reflectivity = np.asarray([p.reflectivity for p in packet], dtype=np.float32)
                 packet_tags = np.asarray([p.tag for p in packet], dtype=np.float32)
                 end_ns = int(packet_ns.max())
-                point_history.append(
-                    (packet_ns, packet_xyz, packet_reflectivity, packet_tags)
-                )
+                point_history.append((packet_ns, packet_xyz, packet_reflectivity, packet_tags))
 
-                window = rolling_window_points(
-                    point_history, end_ns, scan_duration_s, point_count
-                )
+                window = rolling_window_points(point_history, end_ns, scan_duration_s, point_count)
                 if window is None:
                     return
                 point_ns, xyz, reflectivity, tags, start_ns = window
 
                 margin_ns = 20_000_000
                 imu_window = [
-                    sample for sample in imu_history
+                    sample
+                    for sample in imu_history
                     if start_ns - margin_ns <= sample[0] <= end_ns + margin_ns
                 ]
                 # During a fall, publishing an un-deskewed scan is worse than
@@ -178,9 +182,7 @@ def _child_main(
                 if last_receipt > 0.0 and receipt > last_receipt:
                     instant_rate = 1.0 / (receipt - last_receipt)
                     rate_ema = (
-                        instant_rate
-                        if rate_ema <= 0.0
-                        else 0.9 * rate_ema + 0.1 * instant_rate
+                        instant_rate if rate_ema <= 0.0 else 0.9 * rate_ema + 0.1 * instant_rate
                     )
                 last_receipt = receipt
                 counter += 1
@@ -215,7 +217,10 @@ class LivoxProcess:
     point_dim = 7
 
     def __init__(
-        self, lidar_topic: str, imu_topic: str, point_count: int = 1024,
+        self,
+        lidar_topic: str,
+        imu_topic: str,
+        point_count: int = 1024,
         scan_duration_s: float = 0.10,
     ):
         ctx = mp.get_context("spawn")
@@ -233,9 +238,17 @@ class LivoxProcess:
         self.proc = ctx.Process(
             target=_child_main,
             args=(
-                str(lidar_topic), str(imu_topic), self.point_count,
-                float(scan_duration_s), self.frames, self.seq, self.receipt_stamp,
-                self.sensor_stamp, self.rate, self._stop, self.err_text,
+                str(lidar_topic),
+                str(imu_topic),
+                self.point_count,
+                float(scan_duration_s),
+                self.frames,
+                self.seq,
+                self.receipt_stamp,
+                self.sensor_stamp,
+                self.rate,
+                self._stop,
+                self.err_text,
             ),
             daemon=True,
         )

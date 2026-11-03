@@ -27,9 +27,7 @@ class MotorActionAdapterTest(unittest.TestCase):
         np.testing.assert_allclose(adapter.apply([2.0, 2.0]), [0.8, 0.8])
 
     def test_reset_clears_causal_state(self):
-        adapter = MotorActionAdapter(
-            action_scale=[1.0], control_dt=0.1, ema=[0.5]
-        )
+        adapter = MotorActionAdapter(action_scale=[1.0], control_dt=0.1, ema=[0.5])
         np.testing.assert_allclose(adapter.apply([1.0]), [0.5])
         adapter.reset()
         np.testing.assert_allclose(adapter.apply([1.0]), [0.5])
@@ -38,9 +36,7 @@ class MotorActionAdapterTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             MotorActionAdapter(action_scale=[0.5], control_dt=0.02, ema=[0.0])
         with self.assertRaises(ValueError):
-            MotorActionAdapter(
-                action_scale=[0.5], control_dt=0.02, target_rate_limit=[-1.0]
-            )
+            MotorActionAdapter(action_scale=[0.5], control_dt=0.02, target_rate_limit=[-1.0])
 
 
 if __name__ == "__main__":

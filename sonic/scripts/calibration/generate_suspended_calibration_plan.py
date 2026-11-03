@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Generate and validate the plan consumed by both calibration runners."""
+
 from __future__ import annotations
 
 import argparse
@@ -22,8 +23,10 @@ def main() -> None:
     plan = build_plan(protocol=args.protocol, scope=args.scope)
     output = save_plan(plan, args.output)
     print(f"PLAN OK: {output}")
-    print(f"protocol={plan.protocol} scope={plan.scope} samples={len(plan.time_s)} "
-          f"duration_s={plan.duration_s:.2f}")
+    print(
+        f"protocol={plan.protocol} scope={plan.scope} samples={len(plan.time_s)} "
+        f"duration_s={plan.duration_s:.2f}"
+    )
 
 
 if __name__ == "__main__":

@@ -1,4 +1,3 @@
-"""SONIC tracker assets: vendored obs builders, joint tables, and the
-released encoder/decoder ONNX.
-"""
+"""SONIC observation construction, model profiles and inference backends."""
+
 from sonic.model import obs, robot_g1, history

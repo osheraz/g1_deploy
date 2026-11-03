@@ -1,10 +1,10 @@
 """Fail-closed inference requirements for robot-facing SONIC launchers."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 from sonic.model.inference_backend import DIRECT_TENSORRT_PROVIDER
-
 
 _TRT_NAMES = {"trt", "tensorrt", "tensor_rt"}
 _PLANNER_MODES = {"pico", "planner", "smpl"}
@@ -34,9 +34,7 @@ def require_hardware_config(config, mode: str) -> None:
             "FP16 needs a separate numerical validation"
         )
     if bool(config.sonic_tensorrt_tf32):
-        raise RuntimeError(
-            "hardware SONIC forbids TF32 because planner parity exceeds tolerance"
-        )
+        raise RuntimeError("hardware SONIC forbids TF32 because planner parity exceeds tolerance")
 
 
 def _require_direct_session(label: str, providers, engine_path) -> Path:

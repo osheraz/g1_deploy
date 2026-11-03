@@ -4,6 +4,7 @@
 This tool consumes three operator-driven recordings plus the controlled replan
 A/B and long validation directories.  It never imports or runs the controller.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -14,11 +15,19 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 LEG_LABELS = (
-    "L hip pitch", "L hip roll", "L hip yaw", "L knee", "L ankle pitch",
-    "L ankle roll", "R hip pitch", "R hip roll", "R hip yaw", "R knee",
-    "R ankle pitch", "R ankle roll",
+    "L hip pitch",
+    "L hip roll",
+    "L hip yaw",
+    "L knee",
+    "L ankle pitch",
+    "L ankle roll",
+    "R hip pitch",
+    "R hip roll",
+    "R hip yaw",
+    "R knee",
+    "R ankle pitch",
+    "R ankle roll",
 )
 
 
@@ -53,8 +62,7 @@ def command_masks(state: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     translation = np.hypot(axes[:, 0], axes[:, 1])
     return {
         "pure_forward": (
-            moving & (axes[:, 1] > 0.8) & (np.abs(axes[:, 0]) < 0.08)
-            & (np.abs(axes[:, 2]) < 0.08)
+            moving & (axes[:, 1] > 0.8) & (np.abs(axes[:, 0]) < 0.08) & (np.abs(axes[:, 2]) < 0.08)
         ),
         "turning": moving & (translation > 0.8) & (np.abs(axes[:, 2]) > 0.2),
     }
@@ -64,7 +72,7 @@ def trim_island_starts(mask: np.ndarray, samples: int = 25) -> np.ndarray:
     trimmed = mask.copy()
     starts = np.flatnonzero(mask & ~np.r_[False, mask[:-1]])
     for start in starts:
-        trimmed[start:min(len(mask), start + samples)] = False
+        trimmed[start : min(len(mask), start + samples)] = False
     return trimmed
 
 
@@ -119,9 +127,9 @@ def full_run_metrics(path: Path, *, trim_s: float = 2.0) -> tuple[dict, list[dic
         "model": meta["model_profile"],
         "replan_period_s": float(meta.get("planner_replan_period_s", 1.0)),
         "duration_s": float(state["time_s"][-1]),
-        "travel_m": float(np.linalg.norm(
-            state["base_position"][-1, :2] - state["base_position"][0, :2]
-        )),
+        "travel_m": float(
+            np.linalg.norm(state["base_position"][-1, :2] - state["base_position"][0, :2])
+        ),
         "speed_p10_mps": float(np.quantile(speed, 0.1)),
         "speed_median_mps": float(np.median(speed)),
         "speed_p90_mps": float(np.quantile(speed, 0.9)),
@@ -138,16 +146,18 @@ def full_run_metrics(path: Path, *, trim_s: float = 2.0) -> tuple[dict, list[dic
     }
     joints = []
     for index, label in enumerate(LEG_LABELS):
-        joints.append({
-            "model": meta["model_profile"],
-            "replan_period_s": row["replan_period_s"],
-            "joint": label,
-            "error_rms_rad": float(np.sqrt(np.mean(error[keep, index] ** 2))),
-            "force_rms_nm": float(np.sqrt(np.mean(force[keep, index] ** 2))),
-            "target_rate_rms_rad_s": float(np.sqrt(np.mean(
-                (np.diff(state["target_q"][:, index]) / float(dyn["dt"])) ** 2
-            ))),
-        })
+        joints.append(
+            {
+                "model": meta["model_profile"],
+                "replan_period_s": row["replan_period_s"],
+                "joint": label,
+                "error_rms_rad": float(np.sqrt(np.mean(error[keep, index] ** 2))),
+                "force_rms_nm": float(np.sqrt(np.mean(force[keep, index] ** 2))),
+                "target_rate_rms_rad_s": float(
+                    np.sqrt(np.mean((np.diff(state["target_q"][:, index]) / float(dyn["dt"])) ** 2))
+                ),
+            }
+        )
     return row, joints
 
 
@@ -167,8 +177,13 @@ def plot_interactive(records: list[tuple[dict, dict]], output: Path) -> None:
         masks = command_masks(state)
         axis.plot(state["time_s"], dyn["speed_smooth"], lw=0.8, color="#333333")
         axis.fill_between(
-            state["time_s"], 0, 1.2, where=masks["turning"],
-            color="#2ca02c", alpha=0.14, transform=axis.get_xaxis_transform(),
+            state["time_s"],
+            0,
+            1.2,
+            where=masks["turning"],
+            color="#2ca02c",
+            alpha=0.14,
+            transform=axis.get_xaxis_transform(),
             label="turning command",
         )
         event = replan_events(state)
@@ -223,7 +238,12 @@ def plot_ab(rows: list[dict], output: Path) -> None:
     width = 0.36
     for axis, (field, title) in zip(axes, fields):
         for offset, (period, color) in enumerate(zip(periods, colors)):
-            values = [next(r[field] for r in rows if r["model"] == model and r["replan_period_s"] == period) for model in models]
+            values = [
+                next(
+                    r[field] for r in rows if r["model"] == model and r["replan_period_s"] == period
+                )
+                for model in models
+            ]
             axis.bar(x + (offset - 0.5) * width, values, width, label=f"{period:g} s", color=color)
         axis.set_title(title)
         axis.set_xticks(x, ["low-latency", "original", "v1.1"], rotation=20)
@@ -284,10 +304,14 @@ def main() -> None:
     plot_ab(ab_rows, args.output_dir)
 
     by_model = {row["model"]: row for row in long_rows}
-    best = min(long_rows, key=lambda row: (
-        row["tilt_p95_deg"] + 10.0 * row["leg_error_rms_rad"]
-        + 0.05 * row["left_ankle_force_rms_nm"]
-    ))
+    best = min(
+        long_rows,
+        key=lambda row: (
+            row["tilt_p95_deg"]
+            + 10.0 * row["leg_error_rms_rad"]
+            + 0.05 * row["left_ankle_force_rms_nm"]
+        ),
+    )
     report = [
         "# Unitree-remote straight-walking and replan analysis",
         "",
@@ -306,37 +330,52 @@ def main() -> None:
         "## Operator recordings",
         "",
     ]
-    report += markdown_table(operator_rows, [
-        ("model", "Model", "s"), ("command", "Command", "s"),
-        ("seconds", "Data (s)", ".1f"), ("replan_hz", "Replan Hz", ".2f"),
-        ("speed_median_mps", "Median speed", ".3f"),
-        ("near_stop_fraction", "Near-stop", ".1%"),
-        ("left_ankle_force_rms_nm", "L ankle RMS Nm", ".2f"),
-        ("right_ankle_force_rms_nm", "R ankle RMS Nm", ".2f"),
-    ])
+    report += markdown_table(
+        operator_rows,
+        [
+            ("model", "Model", "s"),
+            ("command", "Command", "s"),
+            ("seconds", "Data (s)", ".1f"),
+            ("replan_hz", "Replan Hz", ".2f"),
+            ("speed_median_mps", "Median speed", ".3f"),
+            ("near_stop_fraction", "Near-stop", ".1%"),
+            ("left_ankle_force_rms_nm", "L ankle RMS Nm", ".2f"),
+            ("right_ankle_force_rms_nm", "R ankle RMS Nm", ".2f"),
+        ],
+    )
     report += ["", "## Controlled 1.0 s versus 0.1 s straight-forward A/B", ""]
-    report += markdown_table(sorted(ab_rows, key=lambda row: (row["model"], -row["replan_period_s"])), [
-        ("model", "Model", "s"), ("replan_period_s", "Period", ".1f"),
-        ("speed_median_mps", "Median speed", ".3f"),
-        ("near_stop_fraction", "Near-stop", ".1%"),
-        ("left_ankle_error_rms_rad", "L ankle error", ".3f"),
-        ("right_ankle_error_rms_rad", "R ankle error", ".3f"),
-        ("left_ankle_force_rms_nm", "L ankle Nm", ".2f"),
-        ("right_ankle_force_rms_nm", "R ankle Nm", ".2f"),
-        ("tilt_p95_deg", "Tilt p95", ".1f"),
-    ])
+    report += markdown_table(
+        sorted(ab_rows, key=lambda row: (row["model"], -row["replan_period_s"])),
+        [
+            ("model", "Model", "s"),
+            ("replan_period_s", "Period", ".1f"),
+            ("speed_median_mps", "Median speed", ".3f"),
+            ("near_stop_fraction", "Near-stop", ".1%"),
+            ("left_ankle_error_rms_rad", "L ankle error", ".3f"),
+            ("right_ankle_error_rms_rad", "R ankle error", ".3f"),
+            ("left_ankle_force_rms_nm", "L ankle Nm", ".2f"),
+            ("right_ankle_force_rms_nm", "R ankle Nm", ".2f"),
+            ("tilt_p95_deg", "Tilt p95", ".1f"),
+        ],
+    )
     report += [
-        "", "## Sixty-second fixed-schedule validation", "",
+        "",
+        "## Sixty-second fixed-schedule validation",
+        "",
     ]
-    report += markdown_table(sorted(long_rows, key=lambda row: row["model"]), [
-        ("model", "Model", "s"), ("travel_m", "Travel m", ".2f"),
-        ("speed_median_mps", "Median speed", ".3f"),
-        ("tilt_p95_deg", "Tilt p95", ".1f"),
-        ("leg_error_rms_rad", "Leg RMS error", ".3f"),
-        ("left_ankle_error_rms_rad", "L ankle error", ".3f"),
-        ("left_ankle_force_rms_nm", "L ankle Nm", ".2f"),
-        ("fell", "Fell", "s"),
-    ])
+    report += markdown_table(
+        sorted(long_rows, key=lambda row: row["model"]),
+        [
+            ("model", "Model", "s"),
+            ("travel_m", "Travel m", ".2f"),
+            ("speed_median_mps", "Median speed", ".3f"),
+            ("tilt_p95_deg", "Tilt p95", ".1f"),
+            ("leg_error_rms_rad", "Leg RMS error", ".3f"),
+            ("left_ankle_error_rms_rad", "L ankle error", ".3f"),
+            ("left_ankle_force_rms_nm", "L ankle Nm", ".2f"),
+            ("fell", "Fell", "s"),
+        ],
+    )
     report += [
         "",
         f"All three completed 60 seconds without falling. By the combined tilt, bilateral leg tracking, "

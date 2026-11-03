@@ -5,6 +5,7 @@
 
 Reference providers supply motion clips, joystick commands or PICO input.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -31,8 +32,7 @@ class ReferenceWindowProvider(Protocol):
         vr_targets    optional     3-point teleop targets
     """
 
-    def window(self) -> dict:
-        ...
+    def window(self) -> dict: ...
 
 
 class SonicRunner:
@@ -52,6 +52,7 @@ class SonicRunner:
         from sonic.model.reference_adaptation import GaitReferenceAdapter
         from sonic.model.reduced_adaptation import ReducedProprioceptionAdapter
         from sonic.model.robot_profile import get_robot_profile
+
         self.robot_g1 = robot_g1
         self.obs = sonic_obs
 
@@ -68,9 +69,7 @@ class SonicRunner:
             )
         configured_motors = np.asarray(config.action_joint2motor_idx, np.int64)
         configured_fixed = np.asarray(config.fixed_joint2motor_idx, np.int64)
-        if not np.array_equal(
-            configured_motors, self.robot_profile.physical_motor_indices
-        ):
+        if not np.array_equal(configured_motors, self.robot_profile.physical_motor_indices):
             raise ValueError(
                 f"{self.robot_profile.name} requires physical motor order "
                 f"{self.robot_profile.physical_motor_indices.tolist()}, got "
@@ -91,7 +90,9 @@ class SonicRunner:
                 )
         full_default = np.asarray(config.default_angles, np.float64)
         if full_default.shape != (29,):
-            raise ValueError(f"SONIC default_angles must be full 29-D motor order, got {full_default.shape}")
+            raise ValueError(
+                f"SONIC default_angles must be full 29-D motor order, got {full_default.shape}"
+            )
         if not np.allclose(
             full_default[self.robot_profile.physical_motor_indices],
             config.physical_default_angles,
@@ -103,7 +104,7 @@ class SonicRunner:
                 "selected embodiment's motor indices"
             )
 
-        vendored = Path(__file__).resolve().parent / "model"
+        vendored = Path(__file__).resolve().parent / "assets/release"
         enc = Path(config.sonic_encoder or vendored / "model_encoder.onnx")
         dec = Path(config.sonic_decoder or vendored / "model_decoder.onnx")
         backend_args = dict(
@@ -147,9 +148,7 @@ class SonicRunner:
         # executed motion, so all 29 channels remain in policy history. Actual
         # non-motion of absent axes is already represented by q/dq feedback.
         self.default_physical = np.asarray(config.physical_default_angles, np.float64)
-        self.default_il = self.robot_profile.physical_to_isaaclab(
-            self.default_physical, fill=0.0
-        )
+        self.default_il = self.robot_profile.physical_to_isaaclab(self.default_physical, fill=0.0)
         # Complete official action scale, first in motor/MuJoCo order and then
         # in decoder/IsaacLab order. Present entries come from the selected
         # config; the six absent axes use NVIDIA's released motor constants.
@@ -158,13 +157,14 @@ class SonicRunner:
             config.action_scale, np.float64
         )
         if self.robot_profile.is_reduced:
-            wrist_4010_scale = 0.25 * 5.0 / (
-                0.00425 * (10.0 * 2.0 * np.pi) ** 2
-            )
+            wrist_4010_scale = 0.25 * 5.0 / (0.00425 * (10.0 * 2.0 * np.pi) ** 2)
             missing_scale = {
-                13: 0.438577, 14: 0.438577,
-                20: wrist_4010_scale, 21: wrist_4010_scale,
-                27: wrist_4010_scale, 28: wrist_4010_scale,
+                13: 0.438577,
+                14: 0.438577,
+                20: wrist_4010_scale,
+                21: wrist_4010_scale,
+                27: wrist_4010_scale,
+                28: wrist_4010_scale,
             }
             for motor in self.robot_profile.missing_motor:
                 full_action_scale_mj[motor] = missing_scale[int(motor)]
@@ -175,9 +175,7 @@ class SonicRunner:
             default_il=self.default_il,
             action_scale_il=full_action_scale_il,
             control_dt=float(config.control_dt),
-            settling_time_s=float(
-                getattr(config, "sonic_shadow_settling_time_s", 0.12)
-            ),
+            settling_time_s=float(getattr(config, "sonic_shadow_settling_time_s", 0.12)),
         )
         self.motor_action_adapter = MotorActionAdapter(
             action_scale=config.action_scale,
@@ -185,9 +183,7 @@ class SonicRunner:
             scale=getattr(config, "sonic_motor_action_scale", None),
             abs_limit=getattr(config, "sonic_motor_action_abs_limit", None),
             ema=getattr(config, "sonic_motor_action_ema", None),
-            target_rate_limit=getattr(
-                config, "sonic_motor_target_rate_limit", None
-            ),
+            target_rate_limit=getattr(config, "sonic_motor_target_rate_limit", None),
         )
         # First twelve physical joints are the two six-axis legs for both G1
         # embodiments. Convert that physical selection to SONIC/IsaacLab order.
@@ -195,60 +191,49 @@ class SonicRunner:
         self.gait_reference_adapter = GaitReferenceAdapter(
             leg_idx=self.robot_profile.isaaclab_from_physical[leg_physical],
             leg_scale=getattr(config, "sonic_reference_leg_scale", 1.0),
-            root_height_scale=getattr(
-                config, "sonic_reference_root_height_scale", 1.0
-            ),
+            root_height_scale=getattr(config, "sonic_reference_root_height_scale", 1.0),
             default_stand_q_il=self.default_il,
             joint_scale_il=self.robot_profile.physical_to_isaaclab(
                 np.asarray(config.sonic_reference_joint_scale, np.float64),
                 fill=1.0,
             ),
             joint_dvel_scale_il=(
-                None if getattr(
-                    config, "sonic_reference_joint_dvel_scale", None
-                ) is None
+                None
+                if getattr(config, "sonic_reference_joint_dvel_scale", None) is None
                 else self.robot_profile.physical_to_isaaclab(
-                    np.asarray(
-                        config.sonic_reference_joint_dvel_scale, np.float64
-                    ),
+                    np.asarray(config.sonic_reference_joint_dvel_scale, np.float64),
                     fill=1.0,
                 )
             ),
             joint_offset_il=(
-                None if getattr(
-                    config, "sonic_reference_joint_offset_rad", None
-                ) is None
+                None
+                if getattr(config, "sonic_reference_joint_offset_rad", None) is None
                 else self.robot_profile.physical_to_isaaclab(
-                    np.asarray(
-                        config.sonic_reference_joint_offset_rad, np.float64
-                    ),
+                    np.asarray(config.sonic_reference_joint_offset_rad, np.float64),
                     fill=0.0,
                 )
             ),
             joint_flex_scale_il=(
-                None if getattr(
-                    config, "sonic_reference_joint_flex_scale", None
-                ) is None
+                None
+                if getattr(config, "sonic_reference_joint_flex_scale", None) is None
                 else self.robot_profile.physical_to_isaaclab(
-                    np.asarray(
-                        config.sonic_reference_joint_flex_scale, np.float64
-                    ),
+                    np.asarray(config.sonic_reference_joint_flex_scale, np.float64),
                     fill=1.0,
                 )
             ),
         )
-        self.action_history_source = str(
-            getattr(config, "sonic_action_history_source", "raw")
-        ).strip().lower()
+        self.action_history_source = (
+            str(getattr(config, "sonic_action_history_source", "raw")).strip().lower()
+        )
         if self.action_history_source not in ("raw", "executed"):
             raise ValueError("sonic_action_history_source must be raw or executed")
         # Reference/history masks are explicit reduced-embodiment adaptations.
         # Official-parity execution leaves both native 29-D; the named
         # named research profiles enable masks under checked narrow contracts.
         self.hold_idx = self.robot_profile.missing_isaaclab
-        adaptation_scope = str(
-            getattr(config, "sonic_missing_adaptation_scope", "all")
-        ).strip().lower()
+        adaptation_scope = (
+            str(getattr(config, "sonic_missing_adaptation_scope", "all")).strip().lower()
+        )
         if adaptation_scope == "all":
             scoped_hold_idx = self.hold_idx
         elif adaptation_scope == "waist":
@@ -256,38 +241,30 @@ class SonicRunner:
         elif adaptation_scope == "wrist":
             scoped_hold_idx = np.setdiff1d(self.hold_idx, [5, 8])
         else:
-            raise ValueError(
-                "sonic_missing_adaptation_scope must be all, waist, or wrist"
-            )
+            raise ValueError("sonic_missing_adaptation_scope must be all, waist, or wrist")
         self.missing_adaptation_scope = adaptation_scope
-        self.encoder_hold_idx = (
-            scoped_hold_idx if config.sonic_mask_missing_reference else None
-        )
+        self.encoder_hold_idx = scoped_hold_idx if config.sonic_mask_missing_reference else None
         self.action_history_hold_idx = (
-            scoped_hold_idx
-            if getattr(config, "sonic_mask_missing_action_history", False)
-            else None
+            scoped_hold_idx if getattr(config, "sonic_mask_missing_action_history", False) else None
         )
-        self.adaptation_profile = str(
-            getattr(config, "sonic_adaptation_profile", "official-parity")
-        ).strip().lower()
+        self.adaptation_profile = (
+            str(getattr(config, "sonic_adaptation_profile", "official-parity")).strip().lower()
+        )
         if self.adaptation_profile not in ("official-parity", "forward-stable-23"):
-            raise ValueError("sonic_adaptation_profile must be official-parity or forward-stable-23")
+            raise ValueError(
+                "sonic_adaptation_profile must be official-parity or forward-stable-23"
+            )
         if self.adaptation_profile == "forward-stable-23":
             release_profile = getattr(config, "sonic_release_profile", None)
-            reference_joint_scale = np.asarray(
-                config.sonic_reference_joint_scale, np.float64
-            )
+            reference_joint_scale = np.asarray(config.sonic_reference_joint_scale, np.float64)
+
             def _bilateral_in_range(indices) -> bool:
                 pair = reference_joint_scale[list(indices)]
                 return bool(
-                    np.allclose(pair, pair[0], atol=1e-12)
-                    and 0.28 <= float(pair[0]) <= 1.00
+                    np.allclose(pair, pair[0], atol=1e-12) and 0.28 <= float(pair[0]) <= 1.00
                 )
 
-            other_scale = np.delete(
-                reference_joint_scale, [0, 3, 4, 6, 9, 10]
-            )
+            other_scale = np.delete(reference_joint_scale, [0, 3, 4, 6, 9, 10])
             qualified_lower_body_scale = (
                 _bilateral_in_range((0, 6))
                 and _bilateral_in_range((3, 9))
@@ -298,15 +275,11 @@ class SonicRunner:
                 np.all(self.motor_action_adapter.scale == 1.0)
                 and np.all(self.motor_action_adapter.ema == 1.0)
                 and np.all(np.isinf(self.motor_action_adapter.abs_limit))
-                and np.all(np.isinf(
-                    self.motor_action_adapter.target_rate_limit
-                ))
+                and np.all(np.isinf(self.motor_action_adapter.target_rate_limit))
             )
             contract_ok = (
                 self.robot_profile.name == "g1_23dof"
-                and release_profile in (
-                    "low-latency", "original-release", "sonic-v1.1"
-                )
+                and release_profile in ("low-latency", "original-release", "sonic-v1.1")
                 and self.missing_adaptation_scope == "all"
                 and self.encoder_hold_idx is not None
                 and self.action_history_hold_idx is not None
@@ -378,8 +351,11 @@ class SonicRunner:
         """Clear history; official StateLogger zero-pads unavailable past rows."""
         self._last_act_il.fill(0.0)
         for history in (
-            self._h_angvel, self._h_jpos, self._h_jvel,
-            self._h_lastact, self._h_grav,
+            self._h_angvel,
+            self._h_jpos,
+            self._h_jvel,
+            self._h_lastact,
+            self._h_grav,
         ):
             history.fill(0.0)
         self.action.fill(0.0)
@@ -406,8 +382,9 @@ class SonicRunner:
         )
         return q - self.default_il[None], v
 
-    def compute_action(self, dof_pos, dof_vel, base_quat_wxyz, base_ang_vel_body,
-                       **_ignored) -> np.ndarray:
+    def compute_action(
+        self, dof_pos, dof_vel, base_quat_wxyz, base_ang_vel_body, **_ignored
+    ) -> np.ndarray:
         """Track one step from physical joint order and body-frame angular velocity.
 
         Robot IMU and MuJoCo free-joint rates already use the body frame; do not
@@ -416,12 +393,8 @@ class SonicRunner:
         policy_start = time.perf_counter()
         raw = self.reference.window()
         g = self.gait_reference_adapter.apply(raw)
-        self.last_reference_q_il_adapted = np.asarray(
-            g["dof_fut"][0, 0], np.float32
-        ).copy()
-        self.last_reference_dq_il_adapted = np.asarray(
-            g["dvel_fut"][0, 0], np.float32
-        ).copy()
+        self.last_reference_q_il_adapted = np.asarray(g["dof_fut"][0, 0], np.float32).copy()
+        self.last_reference_dq_il_adapted = np.asarray(g["dvel_fut"][0, 0], np.float32).copy()
         # Encoder mode is dynamic for PICO: fresh VR3 fields select teleop;
         # navigation-only and one-second-stale input select G1.
         self.mode = self.reference.sonic_mode
@@ -429,9 +402,17 @@ class SonicRunner:
         base_quat = np.asarray(base_quat_wxyz, np.float64).reshape(1, 4)
         vr_targets = g.get("vr_targets_encoder", g.get("vr_targets"))
         enc_obs = self.obs.build_encoder_obs(
-            self.mode, g["dof_fut"], g["dvel_fut"], g["rootq_fut"], g["rootz_fut"],
-            g["body_pos_cur"], g["body_quat_cur"], g["rootz_cur"], base_quat,
-            g["wrist_dof_smpl"], vr_targets=vr_targets,
+            self.mode,
+            g["dof_fut"],
+            g["dvel_fut"],
+            g["rootq_fut"],
+            g["rootz_fut"],
+            g["body_pos_cur"],
+            g["body_quat_cur"],
+            g["rootz_cur"],
+            base_quat,
+            g["wrist_dof_smpl"],
+            vr_targets=vr_targets,
             hold_idx=self.encoder_hold_idx,
             vr_targets_local=bool(g.get("vr_targets_local", False)),
             model_profile=self.model_profile,
@@ -450,23 +431,29 @@ class SonicRunner:
         )
         grav = self.obs.gravity_dir(base_quat)
 
-        for h, v in ((self._h_angvel, ang_vel), (self._h_jpos, jpos_rel),
-                     (self._h_jvel, jvel), (self._h_lastact, self._last_act_il),
-                     (self._h_grav, grav)):
+        for h, v in (
+            (self._h_angvel, ang_vel),
+            (self._h_jpos, jpos_rel),
+            (self._h_jvel, jvel),
+            (self._h_lastact, self._last_act_il),
+            (self._h_grav, grav),
+        ):
             h[:, :-1] = h[:, 1:]
             h[:, -1] = v
 
-        history = {"ang_vel": self._h_angvel, "joint_pos_rel": self._h_jpos,
-                   "joint_vel": self._h_jvel, "last_action": self._h_lastact,
-                   "gravity": self._h_grav}
+        history = {
+            "ang_vel": self._h_angvel,
+            "joint_pos_rel": self._h_jpos,
+            "joint_vel": self._h_jvel,
+            "last_action": self._h_lastact,
+            "gravity": self._h_grav,
+        }
         decoder_obs = self.obs.build_decoder_obs(token, history)
         decoder_start = time.perf_counter()
         action_il = self._decode(decoder_obs)
         self.last_decoder_ms = (time.perf_counter() - decoder_start) * 1e3
 
-        raw_act = self.robot_profile.isaaclab_to_physical(
-            action_il[0]
-        ).astype(np.float32)
+        raw_act = self.robot_profile.isaaclab_to_physical(action_il[0]).astype(np.float32)
         act = self.motor_action_adapter.apply(raw_act)
         # Smoothing is applied only to motor output; history uses the selected source.
         self.action = self.action_ema * act + (1.0 - self.action_ema) * self.action
@@ -510,17 +497,11 @@ class SonicRunner:
             "sonic_token": self.last_token.copy(),
             "sonic_encoder_obs": self.last_encoder_obs.copy(),
             "sonic_decoder_obs": self.last_decoder_obs.copy(),
-            "sonic_reference_q_il_adapted": (
-                self.last_reference_q_il_adapted.copy()
-            ),
-            "sonic_reference_dq_il_adapted": (
-                self.last_reference_dq_il_adapted.copy()
-            ),
+            "sonic_reference_q_il_adapted": (self.last_reference_q_il_adapted.copy()),
+            "sonic_reference_dq_il_adapted": (self.last_reference_dq_il_adapted.copy()),
             "encoder_inference_ms": np.float32(self.last_encoder_ms),
             "decoder_inference_ms": np.float32(self.last_decoder_ms),
             "policy_total_ms": np.float32(self.last_policy_ms),
             "sonic_encoder_mode": np.int32({"g1": 0, "teleop": 1, "smpl": 2}[self.mode]),
-            "sonic_reference_gait_active": np.bool_(
-                self.gait_reference_adapter.last_active
-            ),
+            "sonic_reference_gait_active": np.bool_(self.gait_reference_adapter.last_active),
         }

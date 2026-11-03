@@ -1,4 +1,5 @@
 """Piecewise, direction-aware inverse maps at the joint-PD boundary."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,7 +10,6 @@ from typing import Any
 import numpy as np
 
 from sonic.calibration.protocol import MOTOR_NAMES, PRESENT_23
-
 
 SCHEMA = "e_skin.joint_calibration.v1"
 
@@ -64,9 +64,7 @@ class JointCurve:
         inc = q + np.interp(q, self.model_knots_rad, inc_residual)
         dec = q + np.interp(q, self.model_knots_rad, dec_residual)
         mapped = np.where(sign < 0, dec, inc)
-        correction = np.clip(
-            mapped - q, -self.max_abs_correction_rad, self.max_abs_correction_rad
-        )
+        correction = np.clip(mapped - q, -self.max_abs_correction_rad, self.max_abs_correction_rad)
         out = q + correction
         return float(out) if out.ndim == 0 else out
 
@@ -175,11 +173,11 @@ def monotone_inverse_curve(
         left, right = blocks[k], blocks[k + 1]
         weight = left[1] + right[1]
         mean = (left[0] * left[1] + right[0] * right[1]) / weight
-        blocks[k:k + 2] = [[mean, weight, left[2], right[3]]]
+        blocks[k : k + 2] = [[mean, weight, left[2], right[3]]]
         k = max(0, k - 1)
     fitted = np.empty_like(y)
     for mean, _, lo, hi in blocks:
-        fitted[lo:hi + 1] = mean
+        fitted[lo : hi + 1] = mean
     model_knots, hardware = _strictly_increasing(fitted, x)
     if len(model_knots) < 2 or model_knots[-1] - model_knots[0] < 1e-3:
         raise ValueError("measured response is not sufficiently monotone")

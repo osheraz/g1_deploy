@@ -6,7 +6,6 @@ from typing import Dict, Optional
 
 import zmq
 
-
 DEFAULT_PORT = 5557
 
 # Sensor ids the server may publish; see jq_tactile_driver/reader.py.
@@ -100,8 +99,9 @@ def main():
     ap = argparse.ArgumentParser(description="Print tactile stream rates.")
     ap.add_argument("--server", default="192.168.123.164")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
-    ap.add_argument("--sensor", action="append", dest="sensors",
-                    default=None, help="repeatable; default: all")
+    ap.add_argument(
+        "--sensor", action="append", dest="sensors", default=None, help="repeatable; default: all"
+    )
     args = ap.parse_args()
 
     client = TactileClient(

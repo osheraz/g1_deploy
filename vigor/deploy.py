@@ -13,15 +13,16 @@ import threading
 import numpy as np
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
-from core.sensing.depth_client import SimpleDepthClient, pack_depth_images
+from core.sensing.depth_client import SimpleDepthClient
+from vigor.depth import pack_depth_images
 from core.robot.commands import create_damping_cmd
 from core.robot.remote import KeyMap
-from core.timing import TicToc
-from core.recording.logger import RealLogger
+from vigor.recording import RealLogger
 from core.config import Config
 
 from core.robot.robot_interface import RobotInterface
 from vigor.policy_runner import PolicyRunner
+
 
 class ViserUpdateThread(threading.Thread):
     def __init__(
@@ -90,7 +91,6 @@ def init_loco_client():
     return loco_client
 
 
-
 class HighLevelController:
     def __init__(
         self,
@@ -112,7 +112,6 @@ class HighLevelController:
         self.elapsed_time = 0.0
         self._t_next = time.perf_counter()
         self._fps_last_time = self._t_next
-        self.tt = TicToc()
         self._ext_cam_last_t = 0.0
 
     def step(self):
@@ -124,9 +123,7 @@ class HighLevelController:
         self.robot.update_joint_state()
         imu_quat, _ = self.robot.get_imu()
 
-        base_ang_vel, projected_gravity, dof_pos, dof_vel = (
-            self.robot.get_base_features_scaled()
-        )
+        base_ang_vel, projected_gravity, dof_pos, dof_vel = self.robot.get_base_features_scaled()
 
         depth_raw = None
         depth_full = None
@@ -145,16 +142,13 @@ class HighLevelController:
             base_quat_wxyz=imu_quat,
         )
 
-        
-        target_dof_pos = (
-            action * self.config.action_scale + self.config.physical_default_angles
-        )
+        target_dof_pos = action * self.config.action_scale + self.config.physical_default_angles
 
         if self.policy_runner.act_count < 50:
             e = 0.5
-            target_dof_pos = e * target_dof_pos + (1-e)*self.robot.qj
-        
-        self.robot.apply_target_dof_pos(target_dof_pos) 
+            target_dof_pos = e * target_dof_pos + (1 - e) * self.robot.qj
+
+        self.robot.apply_target_dof_pos(target_dof_pos)
 
         # Log
         loop_dt_ms = (time.perf_counter() - t0) * 1000.0
@@ -237,13 +231,9 @@ class HighLevelController:
         # millimetres as uint16 so it is lossless; the u8 fields above are the
         # policy's cropped/normalised view and are not a substitute.
         if depth_full is not None:
-            sample["depth_full_mm_u16"] = (
-                np.clip(depth_full * 1000.0, 0, 65535).astype(np.uint16)
-            )
+            sample["depth_full_mm_u16"] = np.clip(depth_full * 1000.0, 0, 65535).astype(np.uint16)
         if color_full is not None:
             sample["color_full_bgr_u8"] = color_full.astype(np.uint8)
-
-
 
         if self.ext_cam is not None:
             frame = self.ext_cam.latest_bgr
@@ -292,7 +282,6 @@ def main():
 
     logger = RealLogger(args.log)
     logger.start()
-    
 
     from core.sensing.external_camera import ExtCamRGB
 
@@ -331,7 +320,7 @@ def main():
     # while True:
     #     robot.zero_torque_state()
 
-    robot.move_to_default_pos() 
+    robot.move_to_default_pos()
     robot.default_pos_state()
 
     exit_reason = None
@@ -340,14 +329,11 @@ def main():
     warmup_steps = 1000
     for _ in range(warmup_steps):
         robot.update_joint_state()
-        base_ang_vel, projected_gravity, dof_pos, dof_vel = (
-            robot.get_base_features_scaled()
-        )
+        base_ang_vel, projected_gravity, dof_pos, dof_vel = robot.get_base_features_scaled()
         policy_runner._update_history_long(
             base_ang_vel=base_ang_vel,
             projected_gravity=projected_gravity,
             dof_pos=dof_pos,
-
             dof_vel=dof_vel,
         )
 
@@ -384,13 +370,9 @@ def main():
             "T": float(hl.elapsed_time),
             "depth_enabled": bool(config.use_depth_obs),
             "depth_shape": [int(config.depth_img_height), int(config.depth_img_width)],
-            "depth_full_shape": [
-                int(config.depth_raw_height), int(config.depth_raw_width)
-            ],
+            "depth_full_shape": [int(config.depth_raw_height), int(config.depth_raw_width)],
             "depth_full_units": "mm_uint16",
-            "color_full_shape": [
-                int(config.depth_raw_height), int(config.depth_raw_width), 3
-            ],
+            "color_full_shape": [int(config.depth_raw_height), int(config.depth_raw_width), 3],
             "color_full_format": "bgr8",
             "depth_min_m": float(config.min_d),
             "depth_max_m": float(config.max_d),

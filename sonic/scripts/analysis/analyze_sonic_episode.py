@@ -5,6 +5,7 @@ This consumes the diagnostic ``state.npz`` written by ``sonic/deploy.py``.  It
 does not certify a robot run; it makes the deployment-PC evidence needed to
 separate inference latency, loop/DDS jitter, and mechanical tracking visible.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -90,7 +91,8 @@ def report(path: Path) -> str:
         )
 
     tracking_key = (
-        "tracking_error_q_physical" if "tracking_error_q_physical" in state
+        "tracking_error_q_physical"
+        if "tracking_error_q_physical" in state
         else "tracking_error_q_23"
     )
     if tracking_key in state:
@@ -110,7 +112,8 @@ def report(path: Path) -> str:
         lines.append(f"absolute pelvis pitch: {_stats(np.abs(np.degrees(rpy[:, 1])))} deg")
 
     saturation_key = (
-        "command_saturated_physical" if "command_saturated_physical" in state
+        "command_saturated_physical"
+        if "command_saturated_physical" in state
         else "command_saturated_23"
     )
     if saturation_key in state:
@@ -125,17 +128,17 @@ def report(path: Path) -> str:
         lines.append("unavailable 29-DoF action demand (absolute p99/max):")
         for i, name in enumerate(names):
             v = np.abs(missing[:, i])
-            lines.append(
-                f"  {name:18s} p99={np.percentile(v, 99):.3f} max={np.max(v):.3f}"
-            )
+            lines.append(f"  {name:18s} p99={np.percentile(v, 99):.3f} max={np.max(v):.3f}")
 
-    lines.extend((
-        "interpretation boundary:",
-        "  - High encoder/decoder/policy time points to inference/runtime setup.",
-        "  - Normal inference with late loop periods or old LowState points to host scheduling, DDS, or network jitter.",
-        "  - Normal timing with growing tracking/tilt, saturation, or large unavailable waist demand points away from a Python rewrite and toward control/embodiment mismatch.",
-        "  - These local timestamps do not measure robot-clock-to-PC one-way latency; add synchronized wire timestamps before claiming a network latency value.",
-    ))
+    lines.extend(
+        (
+            "interpretation boundary:",
+            "  - High encoder/decoder/policy time points to inference/runtime setup.",
+            "  - Normal inference with late loop periods or old LowState points to host scheduling, DDS, or network jitter.",
+            "  - Normal timing with growing tracking/tilt, saturation, or large unavailable waist demand points away from a Python rewrite and toward control/embodiment mismatch.",
+            "  - These local timestamps do not measure robot-clock-to-PC one-way latency; add synchronized wire timestamps before claiming a network latency value.",
+        )
+    )
     return "\n".join(lines)
 
 

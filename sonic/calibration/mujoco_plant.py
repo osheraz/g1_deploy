@@ -89,33 +89,32 @@ class SuspendedMujocoPlant:
         self.kp = np.asarray(cfg["kps"], dtype=np.float64)
         self.kd = np.asarray(cfg["kds"], dtype=np.float64)
         self.profile = (
-            JointCalibrationProfile.load(calibration_profile)
-            if calibration_profile else None
+            JointCalibrationProfile.load(calibration_profile) if calibration_profile else None
         )
         self.faults = load_faults(fault_profile)
         self.present = np.asarray(PRESENT_23, dtype=np.int64)
-        self.joint_ids = np.asarray([
-            mujoco.mj_name2id(
-                self.model, mujoco.mjtObj.mjOBJ_JOINT,
-                MUJOCO_JOINT_NAMES[motor],
-            )
-            for motor in range(29)
-        ])
+        self.joint_ids = np.asarray(
+            [
+                mujoco.mj_name2id(
+                    self.model,
+                    mujoco.mjtObj.mjOBJ_JOINT,
+                    MUJOCO_JOINT_NAMES[motor],
+                )
+                for motor in range(29)
+            ]
+        )
         if np.any(self.joint_ids < 0):
             missing = [MOTOR_NAMES[i] for i in np.flatnonzero(self.joint_ids < 0)]
             raise RuntimeError(f"23-DoF compatibility MJCF is missing joints: {missing}")
         self.qadr = self.model.jnt_qposadr[self.joint_ids]
         self.vadr = self.model.jnt_dofadr[self.joint_ids]
-        actuator_by_joint = {
-            int(self.model.actuator_trnid[a, 0]): a for a in range(self.model.nu)
-        }
-        self.actuators = np.asarray([
-            actuator_by_joint[int(joint)] for joint in self.joint_ids
-        ])
+        actuator_by_joint = {int(self.model.actuator_trnid[a, 0]): a for a in range(self.model.nu)}
+        self.actuators = np.asarray([actuator_by_joint[int(joint)] for joint in self.joint_ids])
         for motor, joint, actuator in zip(range(29), self.joint_ids, self.actuators):
             effort = (
                 float(self.model.jnt_actfrcrange[joint, 1])
-                if self.model.jnt_actfrclimited[joint] else 0.0
+                if self.model.jnt_actfrclimited[joint]
+                else 0.0
             )
             set_pd(self.model, int(actuator), self.kp[motor], self.kd[motor], effort)
         self.root_position = np.asarray([0.0, 0.0, 1.20], dtype=np.float64)
@@ -129,23 +128,22 @@ class SuspendedMujocoPlant:
         if quat_norm < 1e-8:
             raise ValueError("root quaternion has zero norm")
         self.root_quat /= quat_norm
-        self.torso_body = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_BODY, "torso_link"
+        self.torso_body = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "torso_link")
+        self.foot_bodies = np.asarray(
+            [
+                mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "left_ankle_roll_link"),
+                mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "right_ankle_roll_link"),
+            ]
         )
-        self.foot_bodies = np.asarray([
-            mujoco.mj_name2id(
-                self.model, mujoco.mjtObj.mjOBJ_BODY, "left_ankle_roll_link"
-            ),
-            mujoco.mj_name2id(
-                self.model, mujoco.mjtObj.mjOBJ_BODY, "right_ankle_roll_link"
-            ),
-        ])
         if self.torso_body < 0 or np.any(self.foot_bodies < 0):
             raise RuntimeError("suspension model is missing torso or foot bodies")
-        self.shoulder_local_points = np.asarray([
-            [0.004, 0.145, 0.220],
-            [0.004, -0.145, 0.220],
-        ], dtype=np.float64)
+        self.shoulder_local_points = np.asarray(
+            [
+                [0.004, 0.145, 0.220],
+                [0.004, -0.145, 0.220],
+            ],
+            dtype=np.float64,
+        )
         self.shoulder_anchors = np.zeros((2, 3), dtype=np.float64)
         self.shoulder_points = np.zeros((2, 3), dtype=np.float64)
         self.last_suspension_forces = np.zeros((2, 3), dtype=np.float64)
@@ -166,11 +164,11 @@ class SuspendedMujocoPlant:
         mujoco.mj_forward(self.model, self.data)
         rotation = self.data.xmat[self.torso_body].reshape(3, 3)
         self.shoulder_points = (
-            self.data.xpos[self.torso_body]
-            + (rotation @ self.shoulder_local_points.T).T
+            self.data.xpos[self.torso_body] + (rotation @ self.shoulder_local_points.T).T
         )
         equilibrium_extension = (
-            np.sum(self.model.body_mass) * abs(float(self.model.opt.gravity[2]))
+            np.sum(self.model.body_mass)
+            * abs(float(self.model.opt.gravity[2]))
             / (2.0 * self.shoulder_stiffness_n_m)
         )
         self.shoulder_anchors = self.shoulder_points.copy()
@@ -183,8 +181,12 @@ class SuspendedMujocoPlant:
         points = origin + (rotation @ self.shoulder_local_points.T).T
         velocity = np.zeros(6, dtype=np.float64)
         mujoco.mj_objectVelocity(
-            self.model, self.data, mujoco.mjtObj.mjOBJ_BODY,
-            self.torso_body, velocity, 0,
+            self.model,
+            self.data,
+            mujoco.mjtObj.mjOBJ_BODY,
+            self.torso_body,
+            velocity,
+            0,
         )
         omega, linear = velocity[:3], velocity[3:]
         forces = np.zeros((2, 3), dtype=np.float64)
@@ -200,8 +202,13 @@ class SuspendedMujocoPlant:
             if magnitude > 600.0:
                 force *= 600.0 / magnitude
             mujoco.mj_applyFT(
-                self.model, self.data, force, np.zeros(3), point,
-                self.torso_body, self.data.qfrc_applied,
+                self.model,
+                self.data,
+                force,
+                np.zeros(3),
+                point,
+                self.torso_body,
+                self.data.qfrc_applied,
             )
             forces[index] = force
         angular_drag = -self.shoulder_angular_damping_nms * omega
@@ -209,8 +216,13 @@ class SuspendedMujocoPlant:
         if drag_norm > 120.0:
             angular_drag *= 120.0 / drag_norm
         mujoco.mj_applyFT(
-            self.model, self.data, np.zeros(3), angular_drag, origin,
-            self.torso_body, self.data.qfrc_applied,
+            self.model,
+            self.data,
+            np.zeros(3),
+            angular_drag,
+            origin,
+            self.torso_body,
+            self.data.qfrc_applied,
         )
         self.shoulder_points = points
         self.last_suspension_forces = forces
@@ -220,22 +232,21 @@ class SuspendedMujocoPlant:
         if desired.shape != (29,) or not np.isfinite(desired).all():
             raise ValueError("target_model must be a finite 29-vector")
         direction = np.sign(desired - self.previous_desired)
-        command = desired.copy() if self.profile is None else self.profile.apply_29(
-            desired, direction
+        command = (
+            desired.copy() if self.profile is None else self.profile.apply_29(desired, direction)
         )
         effective = command.copy()
         for motor, fault in self.faults.items():
             delta = command[motor] - self.neutral[motor]
             raw = (
-                self.neutral[motor] + fault["gain"] * delta
+                self.neutral[motor]
+                + fault["gain"] * delta
                 + fault["bias_rad"]
                 + np.sign(direction[motor]) * fault["direction_bias_rad"]
             )
             tau = fault["lag_s"]
             alpha = 1.0 if tau <= 0 else self.control_dt / (tau + self.control_dt)
-            self.filtered_effective[motor] += alpha * (
-                raw - self.filtered_effective[motor]
-            )
+            self.filtered_effective[motor] += alpha * (raw - self.filtered_effective[motor])
             effective[motor] = self.filtered_effective[motor]
         self.data.ctrl[self.actuators] = effective
         for _ in range(self.decimation):
@@ -257,13 +268,15 @@ class SuspendedMujocoPlant:
         dq = np.asarray(self.data.qvel[self.vadr], dtype=np.float64).copy()
         tau = np.asarray(self.data.actuator_force[self.actuators], dtype=np.float64).copy()
         contact_pairs = []
-        for contact in self.data.contact[:self.data.ncon]:
-            geom1 = mujoco.mj_id2name(
-                self.model, mujoco.mjtObj.mjOBJ_GEOM, int(contact.geom1)
-            ) or f"geom_{int(contact.geom1)}"
-            geom2 = mujoco.mj_id2name(
-                self.model, mujoco.mjtObj.mjOBJ_GEOM, int(contact.geom2)
-            ) or f"geom_{int(contact.geom2)}"
+        for contact in self.data.contact[: self.data.ncon]:
+            geom1 = (
+                mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, int(contact.geom1))
+                or f"geom_{int(contact.geom1)}"
+            )
+            geom2 = (
+                mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, int(contact.geom2))
+                or f"geom_{int(contact.geom2)}"
+            )
             contact_pairs.append(f"{geom1}|{geom2}")
         return {
             "target_model": desired.copy(),
@@ -298,7 +311,7 @@ class SuspendedMujocoPlant:
         dim = int(self.model.sensor_dim[sensor])
         if dim != expected_dim:
             raise RuntimeError(f"sensor {name} has dimension {dim}, expected {expected_dim}")
-        return np.asarray(self.data.sensordata[start:start + dim], dtype=np.float64).copy()
+        return np.asarray(self.data.sensordata[start : start + dim], dtype=np.float64).copy()
 
     def joint_anchor(self, motor: int) -> np.ndarray:
         return np.asarray(self.data.xanchor[self.joint_ids[motor]], np.float64).copy()
