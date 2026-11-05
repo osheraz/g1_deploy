@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 def source_changes(manifest):
     """Compare against the captured checkout; never translate historical paths."""
     from hv2_common.artifacts import git_metadata
-    from motion_diffusion.inference.bundle import sha256
+    from hv2_common.artifacts import file_sha256
 
     changed = []
     if manifest["schema"] == "hv2.model_trace.v3":
@@ -32,7 +32,7 @@ def source_changes(manifest):
         return changed
     for name, digest in manifest["sources"].items():
         path = ROOT / name
-        if not path.is_file() or sha256(path) != digest:
+        if not path.is_file() or file_sha256(path) != digest:
             changed.append(name)
     return changed
 
@@ -67,7 +67,7 @@ def replay(
         engine_identity,
         load_trace_manifest,
     )
-    from motion_diffusion.inference.bundle import sha256
+    from hv2_common.artifacts import file_sha256
     from motion_diffusion.inference.execution import sample_snapshot, _ipc_tensors
     from motion_diffusion.inference.policy import load_controller
     from motion_diffusion.planner.runtime import load_frozen_planner
@@ -90,7 +90,7 @@ def replay(
         )
     config = deepcopy(manifest["config"])
     for key, spec in manifest["weights"].items():
-        if sha256(spec["path"]) != spec["sha256"]:
+        if file_sha256(spec["path"]) != spec["sha256"]:
             raise ValueError(f'Changed model weights: {spec["path"]}')
         config[key] = spec["path"]
     # Validate ALL bytes even when inference is restricted to a prefix/component.

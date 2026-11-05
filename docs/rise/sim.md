@@ -10,8 +10,8 @@ python g1_deploy/rise/sim.py --bundle "$HV2_RECOVERY_BUNDLE" --model ours --back
   --terrain flat --start supine --seed 42 --seconds 10 --no-depth-view
 ```
 
-Add `--viewer` for a window or `--video` for an MP4. Supply a new `--output` path
-outside home for generated files. `--bundle PATH` selects another verified bundle;
+Add `--viewer` for a window or `--video` for an MP4. Supply a new `--output` directory
+for generated files. `--bundle PATH` selects another verified bundle;
 its manifest must contain the requested model. The saved inference recipe is used
 unless an override is explicit.
 

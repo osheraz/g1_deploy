@@ -86,7 +86,7 @@ def test_explicit_bundle_overrides_environment_and_configured_pair(monkeypatch, 
 def test_unbound_model_requires_a_prepared_bundle(monkeypatch, name):
     monkeypatch.delenv("HV2_RECOVERY_BUNDLE", raising=False)
     profile = yaml.safe_load((CONFIG_ROOT / "models.yaml").read_text())
-    with pytest.raises(ValueError, match="deployment-catalog.*--bundle PATH.*HV2_RECOVERY_BUNDLE"):
+    with pytest.raises(ValueError, match="--bundle PATH.*HV2_RECOVERY_BUNDLE"):
         models.model_settings(profile, name)
 
 

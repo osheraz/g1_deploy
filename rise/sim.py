@@ -305,7 +305,7 @@ def arguments(argv=None):
             parser.error(
                 "--recorded-start preserves the recorded reset; no other reset or pre-physics options"
             )
-        from motion_diffusion.inference.bundle import sha256
+        from hv2_common.artifacts import file_sha256
 
         args.recorded_snapshot = json.loads(args.recorded_start.resolve().read_text())
         if args.recorded_snapshot.get("schema") != "hv2.recorded_sim_start.v1":
@@ -314,13 +314,13 @@ def arguments(argv=None):
         if "geometry" in terrain:
             path = Path(terrain["geometry"])
             args.terrain_geometry = recovery_asset(path)
-            if sha256(args.terrain_geometry) != terrain["sha256"]:
+            if file_sha256(args.terrain_geometry) != terrain["sha256"]:
                 parser.error("Measured terrain hash mismatch")
             args.terrain = "flat"
         else:
             path = Path(terrain["cache"])
             args.terrain_cache = recovery_asset(path)
-            if sha256(args.terrain_cache) != terrain["sha256"]:
+            if file_sha256(args.terrain_cache) != terrain["sha256"]:
                 parser.error("Recorded terrain hash mismatch")
             args.terrain = "fork3"
             args.terrain_seed = terrain["seed"]

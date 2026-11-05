@@ -1,11 +1,15 @@
 """Run RISE on G1. Sensor-only by default; --actuate enables remote-controlled execution."""
 
+
 import argparse
 import math
 from pathlib import Path
 import re
 import sys
 import time
+
+
+from hv2_common.artifacts import file_sha256, read_json, write_json
 
 from rise.paths import ROOT, CONFIG_ROOT
 
@@ -332,7 +336,7 @@ def main(argv=None):
         from motion_diffusion.inference.steering import motion_goal, with_guidance_scale
 
         _, goal_contract = motion_goal(
-            with_guidance_scale(bundle.read_json(args.goal_json), args.guidance_scale)
+            with_guidance_scale(read_json(args.goal_json), args.guidance_scale)
         )
         if args.default_pose:
             parser.error("Steering requires policy inference")
@@ -552,16 +556,16 @@ def main(argv=None):
                 directory=str(export),
                 precision=args.planner_precision if component == "planner" else "fp32",
                 execution_mode=args.engine_mode,
-                export_receipt_sha256=bundle.sha256(export / "export.json"),
+                export_receipt_sha256=file_sha256(export / "export.json"),
             )
     mode = "default_pose" if args.default_pose else f"{args.model}_{args.backend}"
     output = args.output or RESULTS_ROOT / f"robot_{mode}_{time.time_ns()}"
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     if config.get("start_pose") is not None:
-        bundle.write_json(output / "start_pose.json", config["start_pose"])
+        write_json(output / "start_pose.json", config["start_pose"])
     if args.goal_json:
-        bundle.write_json(output / "steering_goal.json", config["planner_options"]["motion_goal"])
+        write_json(output / "steering_goal.json", config["planner_options"]["motion_goal"])
     if args.record_sensors and args.odometry_mount.is_file():
         import shutil
 
@@ -594,8 +598,8 @@ def main(argv=None):
         ),
         release_controller_on_startup=bool(args.actuate),
     )
-    bundle.write_json(output / "session.json", receipt)
-    bundle.write_json(output / "resolved.json", config)
+    write_json(output / "session.json", receipt)
+    write_json(output / "resolved.json", config)
     print(f"Session: {output}", flush=True)
     if not args.default_pose:
         print(
@@ -620,7 +624,7 @@ def main(argv=None):
         print("Taking low-level control now. Keep the robot supported.", flush=True)
         ChannelFactoryInitialize(config["robot"]["domain_id"], config["robot"]["interface"])
         motion_switcher = release_active_motion_mode()
-        bundle.write_json(output / "controller_release.json", dict(released=True))
+        write_json(output / "controller_release.json", dict(released=True))
 
     try:
         if args.default_pose:
@@ -663,12 +667,12 @@ def main(argv=None):
             on_policy_start=recording.start if recording is not None else None,
         )
     except KeyboardInterrupt as exc:
-        bundle.write_json(output / "STOPPED.json", dict(reason=str(exc) or "operator interrupt"))
+        write_json(output / "STOPPED.json", dict(reason=str(exc) or "operator interrupt"))
         button = {"Remote A stop": "A", "Remote SELECT stop": "SELECT"}.get(str(exc))
         print(f"Stopped by {button}." if button else "Stopped by operator.", flush=True)
         return
     except BaseException as exc:
-        bundle.write_json(output / "FAILED.json", dict(error=str(exc)))
+        write_json(output / "FAILED.json", dict(error=str(exc)))
         raise
     finally:
         # run() closes/damps the robot before this potentially expensive save.
@@ -678,7 +682,7 @@ def main(argv=None):
             from rise.recording.session import session_manifest
 
             session_manifest(output)
-    bundle.write_json(output / "COMPLETE.json", result)
+    write_json(output / "COMPLETE.json", result)
     if args.preflight:
         print(
             f'Preflight complete: {result["startup_checks"]} live first-plan checks; '

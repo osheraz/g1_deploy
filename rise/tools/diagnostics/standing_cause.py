@@ -18,7 +18,7 @@ import numpy as np
 import torch
 
 from humanoidverse2.agents.action_vae.modules import ReconstructionHead
-from motion_diffusion.inference.bundle import sha256
+from hv2_common.artifacts import file_sha256
 from motion_diffusion.inference.policy import load_controller
 from rise.recording.depth import RecordedModelDepth
 from motion_diffusion.inference.model_trace import read_trace, load_trace_manifest
@@ -69,7 +69,7 @@ def investigate(session, events, interval, output, device="cuda"):
     manifest = load_trace_manifest(directory)
     config = dict(manifest["config"])
     for key, spec in manifest["weights"].items():
-        if sha256(spec["path"]) != spec["sha256"]:
+        if file_sha256(spec["path"]) != spec["sha256"]:
             raise ValueError(f'Changed checkpoint: {spec["path"]}')
         config[key] = spec["path"]
     # Retain captured TensorRT settings for the baseline, then test native FP32.
@@ -405,7 +405,7 @@ def investigate(session, events, interval, output, device="cuda"):
         measured_dq=[rows[k]["observation"]["dq"] for k in selected],
         standing_code=stand_code.cpu().numpy(),
     )
-    report["diagnostic_source_sha256"] = sha256(__file__)
+    report["diagnostic_source_sha256"] = file_sha256(__file__)
     (out / "report.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     print(json.dumps(report, indent=2), flush=True)
     return report
