@@ -1,6 +1,6 @@
 # Robot recovery
 
-Prepare a fresh bundle with the [deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/deployment.md)
+Prepare a fresh bundle with the [deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/evaluation/deployment.md)
 and keep its `HV2_RECOVERY_BUNDLE` setting. Robot/site settings are in
 [`rise/config/models.yaml`](../../rise/config/models.yaml). A prepared bundle is not hardware-qualified. Check sensor
 geometry, depth processing and clock alignment against its saved contract before

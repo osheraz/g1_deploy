@@ -1,9 +1,9 @@
 # MuJoCo
 
 Prepare a bundle and set `HV2_RECOVERY_BUNDLE` using the
-[deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/deployment.md).
+[deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/evaluation/deployment.md).
 MuJoCo supports interactive inspection of a published pair. Paper evaluation uses
-[the native Isaac workflow](https://github.com/osheraz/hv2/blob/master/docs/guides/evaluation.md).
+[the native Isaac workflow](https://github.com/osheraz/hv2/blob/master/docs/guides/evaluation/README.md).
 
 ```bash
 python g1_deploy/rise/sim.py --bundle "$HV2_RECOVERY_BUNDLE" --model ours --backend pytorch \

@@ -8,7 +8,7 @@
 | `r2_f50r_flow` | Flat prone comparison |
 
 Names select exact tracker/planner pairs, not aliases to newer weights.
-[Bundle preparation](https://github.com/osheraz/hv2/blob/master/docs/guides/deployment.md).
+[Bundle preparation](https://github.com/osheraz/hv2/blob/master/docs/guides/evaluation/deployment.md).
 
 ```bash
 python g1_deploy/rise/sim.py --preset supine --model s25r_diffusion --seed 42 --print-command

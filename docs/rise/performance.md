@@ -4,7 +4,7 @@ Measure planner sampling, tracker latency and asynchronous scheduling separately
 A lower replanning frequency changes policy behavior as well as compute load;
 use the saved recipe for reproduction.
 
-Prepare the selected pair with the [deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/deployment.md)
+Prepare the selected pair with the [deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/evaluation/deployment.md)
 and keep its `HV2_RECOVERY_BUNDLE` setting.
 
 ```bash
