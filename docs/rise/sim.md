@@ -26,15 +26,15 @@ unless an override is explicit.
 | `--terrain-geometry PATH.json` | Load measured static-box geometry |
 | `--goal-json PATH.json` | Apply an explicit steering command |
 
-Recorded starts preserve their terrain checksum and forbid hidden reset/preroll
-changes. The `hv2.recorded_sim_start.v1` format is unchanged. MuJoCo contacts and
-synchronous inference differ from native Isaac evaluation and robot deployment.
-Depth uses the checkpoint contract and the shared Warp renderer. See
+Recorded starts keep their terrain checksum and reject reset/preroll changes.
+The format remains `hv2.recorded_sim_start.v1`. MuJoCo contacts and synchronous
+inference differ from Isaac evaluation and hardware. Depth uses the model's
+saved settings and shared Warp renderer. See
 [steering](steering.md) and [standing mode](standing-hold.md) for optional controls.
 
-Configured timed and upright guidance release use the same criteria as hardware.
-They request an unguided solve immediately while preserving measured tracker
-history. Upright release latches until reset. Progress recipes that disable the
-upright cutoff retain their scheduled unguided solve. Y remains a separate
-encoded-standing intervention that bypasses planning. The simulation summary
-records the release reason, time and active upright thresholds.
+Timed and upright guidance release use the hardware criteria. Both request an
+unguided plan immediately and preserve tracker history. Upright release stays
+active until reset. Progress recipes without an upright cutoff use their scheduled release.
+
+Y bypasses planning and selects the encoded standing reference. The simulation
+summary records the guidance-release reason, time and upright thresholds.

@@ -1,9 +1,10 @@
 # Recording and replay
 
-The [deployment commands](deploy.md) support recording. Sensors warm up before A;
-**accepted policy A starts the episode**. Only bounded context is buffered first
-(0.5 s depth, 5 s raw motion), plus small setup/status receipts.
-A again / SELECT / Ctrl+C stops the policy; wait for sensor and model-trace saves.
+With the [deployment commands](deploy.md), sensors warm up before A. The episode
+starts when A is accepted. Before that, the recorder keeps 0.5 s of depth, 5 s of
+raw motion and small setup/status records.
+
+A again / SELECT / Ctrl+C stops the policy. Wait for sensors and model traces to save.
 
 | Location | Contents |
 | --- | --- |
@@ -15,9 +16,8 @@ A again / SELECT / Ctrl+C stops the policy; wait for sensor and model-trace save
 | `logs/aborted_deployments/` | Archived launches with no policy episode |
 | `paper/real_world/` | Only recordings the user explicitly moves there |
 
-Depth is saved once at source resolution after the selected server processing;
-model histories reference captures and reconstruct the checkpoint's crop/mask.
-It is not stored as a stack of repeated resized images.
+Depth is saved once at source resolution after server processing. Model histories
+reference those captures and reconstruct the model's crop/mask when needed.
 
 ## Viser
 
@@ -30,8 +30,8 @@ It is not stored as a stack of repeated resized images.
 A bare name resolves under `logs/real_world`; full paths and `sensors/` paths
 also work. Forward port **8081** in VS Code and open **http://localhost:8081**.
 Playback, external camera and depth controls are at the top. XYZ uses recorded
-live odometry when available. Orange / missing sections retain estimator validity
-information; display smoothing does not establish position accuracy.
+odometry when available. Orange or missing sections mark estimator validity issues.
+Display smoothing does not correct position accuracy.
 
 **Play** and **Loop** default on. **Speed (×)** changes synchronized robot/camera
 playback; `0.25` is quarter speed. Uncheck a control to pause or stop looping;
@@ -64,11 +64,13 @@ python -m rise.tools.diagnostics.analyze_run --help
 python -m rise.tools.diagnostics.standing_cause --help
 ```
 
-Uses saved observations/noise and verified model weights/engines; run after
-stopping deployment because it uses the GPU. This checks inference and issued
-commands, not physical dynamics. New recordings save Git revisions and modified-tree
-status; they do not copy the source tree. Exact reproduction requires the recorded
-checkout. Add `--allow-code-changes` for a comparison against current code;
-differences are listed in `review/model_replay.json`. Input-swap diagnostics probe
-network sensitivity; they do not establish a physical cause or replay contacts.
-Keep derived results separate from the original recording.
+This uses saved observations, noise and verified model weights. Stop deployment
+first because replay uses the GPU. It checks inference and issued commands,
+without simulating contacts or dynamics.
+
+Recordings save the Git revision and local-change status, not a source copy.
+Use the recorded checkout for exact reproduction. Add `--allow-code-changes` to
+compare current code; results go to `review/model_replay.json`.
+
+Input swaps test network sensitivity, not physical causes. Keep derived results
+separate from the original recording.

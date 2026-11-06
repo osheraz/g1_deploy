@@ -1,8 +1,8 @@
 # Measured-lab steering
 
-These S50R recipes bind a starting placement, paired model, steering target,
-planning rate and Y standing support. Do not substitute flat start joints for
-the measured terrain placement. Start images and local assets are checked by:
+Each S50R recipe selects a starting placement, model pair, target, planning rate
+and Y support. Use its measured terrain placement, not flat-ground start joints.
+Check start images and local files with:
 
 ```bash
 python -m rise.tools.verify_lab_gallery
@@ -41,9 +41,10 @@ python g1_deploy/rise/deploy.py --gallery robust_29_left --feedback estimated
 python g1_deploy/rise/deploy.py --gallery robust_30_right --feedback estimated
 ```
 
-These named robot commands enable actuation. A starts recovery and recording;
+**These named robot commands enable motor output.** A starts recovery and recording.
 START optionally moves to saved joints; Y requests standing; A again/SELECT stops.
-`estimated` permits experimental odometry bounds while retaining freshness checks.
+
+`estimated` permits experimental odometry bounds but keeps freshness checks.
 See [depth setup](deploy.md#terminal-1-depth) and [standing mode](standing-hold.md).
 
 For simulation, replace `deploy.py` with `sim.py`. The same target and Y reference

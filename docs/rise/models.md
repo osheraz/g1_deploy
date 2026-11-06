@@ -16,10 +16,11 @@ python g1_deploy/rise/deploy.py --gallery list
 python g1_deploy/rise/deploy.py --gallery robust_29_left --feedback estimated --print-command
 ```
 
-`--preset prone|supine` uses saved flat joint configurations. `--gallery` uses
-the [measured lab recipes](lab-steering.md). Inspect the resolved command first:
-named deploy presets enable motor output, while `--print-command` executes nothing
-and gallery `--sensor-only` removes actuation.
+`--preset prone|supine` selects saved flat joint configurations.
+`--gallery` selects a [measured lab recipe](lab-steering.md).
+
+Named deploy presets enable motor output. Inspect them first with `--print-command`,
+which runs nothing. For gallery recipes, `--sensor-only` disables actuation.
 
 For a separate checkout, `HV2_RECOVERY_ASSET_ROOT` selects the workspace containing
 saved inputs. New recordings still go to the running checkout's `logs/real_world`.

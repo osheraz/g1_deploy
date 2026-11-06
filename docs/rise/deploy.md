@@ -1,10 +1,11 @@
 # Robot recovery
 
-Prepare a fresh bundle with the [deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/evaluation/deployment.md)
-and keep its `HV2_RECOVERY_BUNDLE` setting. Robot/site settings are in
-[`rise/config/models.yaml`](../../rise/config/models.yaml). A prepared bundle is not hardware-qualified. Check sensor
-geometry, depth processing and clock alignment against its saved contract before
-commissioning it.
+Prepare a bundle using the [deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/evaluation/deployment.md)
+and keep `HV2_RECOVERY_BUNDLE` set. Robot settings live in
+[`rise/config/models.yaml`](../../rise/config/models.yaml).
+
+Bundle preparation does not verify hardware performance. Before use, check sensor
+geometry, depth processing and clock alignment against the model's saved settings.
 
 ```bash
 python g1_deploy/rise/deploy.py \
@@ -48,10 +49,15 @@ python g1_deploy/rise/deploy.py \
   --duration-s 30 --record-sensors --record-depth --record-model --output "$NEW_SESSION"
 ```
 
-Motor output requires the explicit `--actuate` flag. Stop other motor publishers
-before an actuated session. After readiness, A starts from the measured pose;
-START optionally moves to the default joints or an explicit `--start-pose` JSON.
-A again, SELECT or Ctrl+C stops the session. Wait for recording completion before
-reusing its files. `--standing-hold` enables the [manual Y mode](standing-hold.md).
+Motor output requires `--actuate`. Stop other motor publishers before using it.
+
+| Control | Action |
+| --- | --- |
+| A after readiness | Start recovery from the measured pose |
+| START (optional) | Move to default joints or `--start-pose` JSON |
+| A again / SELECT / Ctrl+C | Stop the session |
+| Y with `--standing-hold` | Request [standing mode](standing-hold.md) |
+
+Wait for recording to finish saving before using its files.
 
 Use [steering](steering.md) for explicit goals and [recording](recording.md) for review.

@@ -22,26 +22,27 @@ sonic_planner_version: 2
 sonic_planner_backend: tensorrt
 ```
 
-Set `sonic_planner_onnx` to the installed SONIC planner. Build its TensorRT
-engine on the deployment GPU; the hardware launcher requires direct TensorRT,
-FP32 and TF32 disabled. See [models](models.md).
+Set `sonic_planner_onnx` to the installed planner. Build its TensorRT engine on
+the deployment GPU. Hardware requires direct TensorRT in FP32, with TF32 disabled.
+See [models](models.md).
 
-Configure the PICO manager with `--zmq_feedback_host <deployment-ip>
---zmq_feedback_port 5558`. Port 5557 belongs to tactile input. Start deployment
-before entering `PLANNER_VR_3PT`, then verify measured-pose wrist recalibration
-in the manager. Keep feedback enabled for VR3.
+Configure the PICO manager with `--zmq_feedback_host <deployment-ip>` and
+`--zmq_feedback_port 5558`. Port 5557 is for tactile input.
+Start deployment before entering `PLANNER_VR_3PT`. Verify wrist recalibration
+from the measured pose, and keep VR3 feedback enabled.
 
 ## Frames and scheduling
 
-PICO movement and facing vectors already use the planner session frame; they
-must not be rotated by robot yaw again. Enter PLANNER after deployment is ready
-so both agree on the session's forward direction. Scripted and Unitree-remote
-inputs declare local framing and are converted once in `pico_reference.py`.
+Enter PLANNER after deployment is ready so both use the same forward direction.
+PICO movement and facing already use this frame; do not rotate them by robot yaw
+again. Scripted and Unitree-remote inputs use local frames and are converted once
+in `pico_reference.py`.
 
-A valid `vr_position` selects the teleop encoder in pico mode. Navigation-only
-messages select G1. Planner mode always selects G1 and ignores VR fields.
-After one second without a fresh complete message, commands transition to IDLE
-while preserving facing. VR endpoints are expressed in the pelvis frame.
+In pico mode, a valid `vr_position` selects the teleop encoder. Navigation-only
+messages select G1. Planner mode always uses G1 and ignores VR fields.
+
+After one second without a fresh complete message, commands switch to IDLE and
+keep the facing direction. VR endpoints use the pelvis frame.
 
 ## Message and code
 

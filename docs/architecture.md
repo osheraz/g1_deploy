@@ -1,7 +1,7 @@
 # Code map
 
-Three applications share robot I/O and recording primitives. Training and learned
-RISE inference belong to HV2; this repository connects them to devices and viewers.
+RISE, SONIC and VIGOR share robot I/O and recording tools. HV2 owns training and
+RISE model inference. This repository connects models to devices and viewers.
 
 ```text
 g1_deploy/
@@ -44,17 +44,14 @@ g1_deploy/
 
 ## Read RISE in this order
 
-1. `deploy.py`: arguments → model/site configuration → recorder → runtime.
-2. `hardware/runtime.py`: startup → active control → stop and cleanup.
-   `startup.py` handles preview/readiness; `unitree.py` handles robot state,
-   remote buttons and motor publication.
-3. `sensing/network_depth.py` and `odometry_receiver.py`: timestamped measurements
-   and freshness. `camera.py` pairs depth with robot observations; `measured_pose.py`
-   converts DLIO/camera-body geometry to pelvis pose.
-4. `recording/session.py`: child-process ownership and the A recording trigger.
-   `depth.py` and `telemetry.py` write/read their respective streams.
-5. `replay.py`: the single operator entrypoint for reviewing recordings.
-   Media tools are optional exports; they are not imported by the control loop.
+1. `deploy.py` reads arguments and connects configuration, recording and runtime.
+2. `hardware/runtime.py` runs startup, control and shutdown. `startup.py` checks
+   readiness; `unitree.py` handles state, remote buttons and motor commands.
+3. `sensing/` receives depth and odometry. `camera.py` pairs depth with robot state;
+   `measured_pose.py` converts DLIO pose to pelvis pose.
+4. `recording/session.py` manages recording processes and the A trigger.
+   `depth.py` and `telemetry.py` read and write their streams.
+5. `replay.py` opens recordings. Optional media exports stay outside the control loop.
 
 ## What is shared with HV2?
 
@@ -69,50 +66,41 @@ g1_deploy/
 | Camera geometry, corruption, rotations and terrain math | `hv2_common/` |
 | DDS/remote, hardware capture and recording processes | this repository |
 
-**RISE's `sim.py` is an application, not another physics engine or planner.**
-It creates the HV2 MuJoCo plant and calls the same recovery policy, tracker,
-guidance and Y standing implementation as deployment. Simulation advances on its
-own clock; robot deployment uses a wall-clock planner worker and DDS. Sharing
-model code does not make simulated contacts or sensor truth equal to hardware.
+RISE's `sim.py` uses HV2's MuJoCo physics and the same policy, tracker, steering
+and Y mode as deployment. Simulation advances on its own clock; hardware uses a
+planner worker and DDS in real time. Contacts and sensor measurements still differ.
 
-SONIC has its own model/reference interface. Its calibration plant measures
-joint mappings and actuator responses; it does not implement RISE inference.
-Keep that experiment separate from a recovery simulator.
+SONIC has its own model/reference interface. Its calibration simulator measures
+joint mappings and actuator response, separately from recovery simulation.
 
 ## Checks and boundaries that remain
 
-- Model dimensions, joint order, normalization, sampling and PD bindings must
-  agree. Check them when loading a model, not repeatedly inside each motor tick.
-- Depth/odometry age, clock uncertainty, finite actions and startup limits change
-  while running. They remain live checks. Recording shape/index checks protect
-  playback from incomplete writes.
-- VIGOR depth normalization and RISE metric depth/masks are different trained
-  inputs. They share transport and physical sensor definitions, not an assumed
-  identical neural input. SONIC's NumPy rotations use shared WXYZ helpers without
-  importing Torch; model-specific observation layout remains with SONIC.
-- Requested actions and applied commands are different values. Simulator truth
-  and measured pelvis estimates are different sources. Preserve both in logs.
+- **At model load:** check dimensions, joint order, normalization, sampling and PD settings.
+- **During control:** check sensor age, clock uncertainty, finite actions and startup limits.
+- **During recording/replay:** check array shapes and indices for incomplete writes.
+- **Model inputs:** VIGOR normalized depth differs from RISE depth/masks in metres.
+  Reuse transport, but preserve each model's preprocessing.
+- **SONIC rotations:** use shared NumPy WXYZ helpers without importing Torch.
+  Keep SONIC's observation layout with its model.
+- **Logs:** distinguish requested/applied actions and simulator truth/measured pelvis estimates.
 
 The Jetson server needs only `rise/sensing/native_depth_server.py` and
 `core/sensing/depth_wire.py`, copied together. ROS workers use system Python and
 bootstrap the checkout. Importing a model does not start ROS, cameras or DDS.
 
-There are no old-path forwarding modules or SDK-path patches. Use the original
-Git revision for historical execution; the current entrypoints use current paths.
+Use the original Git revision to run historical commands. Current commands use
+current paths, without forwarding modules or SDK-path patches.
 
 ## Where to add something
 
-- New checkpoint or experiment: a model config entry or saved goal/start, using
-  the existing deployment/simulation command. Do not copy a launcher per experiment.
-- New planner/tracker behavior: its HV2 library; both sim and robot consume it.
-- New device: `core/sensing` for reusable transport; `rise/sensing` for recovery
-  measurement pairing. New robot control: `core/robot` and its application adapter.
-- New recording field: the owning stream writer/reader. Use `core/review` for
-  shared display primitives and the application replay command for composition.
-- New operator command: its application's tools/scripts directory and existing
-  topic guide. Avoid another launcher chain or a second collection of notes.
+- **Checkpoint or experiment:** add model settings or a saved goal/start.
+  Reuse deployment and simulation commands.
+- **Planner/tracker behavior:** change its HV2 library so simulation and hardware share it.
+- **Device:** add transport in `core/sensing`, recovery pairing in `rise/sensing`,
+  or robot control in `core/robot` and its application adapter.
+- **Recording field:** extend its stream writer/reader. Reuse `core/review` for display.
+- **Operator command:** use the application's tools/scripts directory and existing guide.
 
-Changes to inference/history/control require matching old/new model outputs and
-simulation trajectories, not only import tests. Sensor and recording changes
-also require startup, stop, timestamp and export tests. Hardware qualification
-is a separate run on the robot.
+For inference or control changes, compare model outputs and simulation trajectories
+before and after. For sensors and recording, test startup, shutdown, timestamps
+and exports. Hardware validation is a separate robot trial.

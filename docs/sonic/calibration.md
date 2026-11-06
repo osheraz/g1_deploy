@@ -16,11 +16,17 @@ separate `sonic_cpp` checkout beside `g1_deploy`. `G1_PYTHON` overrides the pare
 checkout's Python. Outputs default to `logs/sonic/calibration/`.
 
 Physical measurement requires `--arm-real-robot`, a foreground terminal and both
-shoulder attachments with limbs clear. Startup moves slowly to the configured
-initial pose. After `INITIAL POSE READY`, hold F1+F3 to capture a steady baseline.
-A runs the displayed block; B skips or cancels through a neutral return;
-SELECT or Ctrl+C enters damping. Stale state, motor faults, excessive temperature
-or velocity also trigger damping. Inspect the pilot before `--protocol screening`.
+shoulder attachments, with limbs clear. Startup moves slowly to the initial pose.
+
+| Control | Action |
+| --- | --- |
+| F1+F3 after `INITIAL POSE READY` | Capture a steady baseline |
+| A | Run the displayed block |
+| B | Skip or cancel, returning through neutral |
+| SELECT / Ctrl+C | Enter damping |
+
+Stale state, motor faults, excessive temperature or velocity also trigger damping.
+Inspect the pilot before `--protocol screening`.
 
 For manual simulation rehearsal:
 
@@ -35,17 +41,17 @@ python g1_deploy/sonic/scripts/calibration/fit_suspended_calibration.py state.cs
   --coordinate-basis encoder_only --output provisional.json
 ```
 
-An encoder-only fit measures gain, lag and hysteresis; it cannot identify its own
-zero or contact compliance and cannot be approved for deployment. External joint
-measurements can be synchronized with `merge_external_calibration_truth.py` before
-fitting `--coordinate-basis external_truth`. They must supply `time_s` and
+An encoder-only fit measures gain, lag and hysteresis. It cannot establish joint
+zero or contact compliance, and is insufficient for deployment.
+
+Synchronize external measurements with `merge_external_calibration_truth.py`,
+then fit with `--coordinate-basis external_truth`. Supply `time_s` and
 `q_external_0` through `q_external_28` in the model frame.
 
-A coordinate correction belongs in both directions: measured encoder angles into
-model observations, and model targets into motor commands. A target-only correction
-would give the tracker inconsistent coordinates. Calibration does not automatically
-install a correction; external geometry and supported contact measurements are
-needed before using it during locomotion.
+Apply coordinate corrections in both directions: encoder angles to observations,
+and model targets to motor commands. Correcting targets alone makes coordinates
+inconsistent. Calibration does not install corrections automatically. Validate
+external geometry and supported contacts before using one during locomotion.
 
 Logs use 29-slot SONIC indexing; slots 13, 14, 20, 21, 27 and 28 are absent on the
 23-DoF robot and are never commanded.

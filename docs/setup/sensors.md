@@ -21,10 +21,9 @@ python g1_deploy/sonic/check_streams.py \
 
 Open **http://localhost:8080**. Over remote VS Code, forward port 8080.
 
-This displays all 29 joints, pelvis IMU orientation and uncropped 640×480
-streamed depth, including the server's selected filters. Position is anchored
-in the viewer, not measured odometry. RGB is blank
-because this publisher sends depth only. No policy or motor publisher is created.
+The viewer shows 29 joints, pelvis IMU orientation and uncropped 640×480 depth
+with the server's filters. Robot position is fixed for display; it is not odometry.
+RGB is blank because the publisher sends depth only. No policy or motor publisher runs.
 Stop both terminals with Ctrl+C.
 
 ## Depth contract
@@ -37,9 +36,9 @@ cropped 64×48 input. Preserve each checkpoint's calibration. Regenerate cached
 depth when changing capture geometry.
 
 [`native_depth_server.py`](../../rise/sensing/native_depth_server.py) publishes
-timestamped uint16 depth at 30 Hz, with intrinsics, scale, sequence and processing
-metadata. PNG and raw wire encoding preserve the same pixels; raw avoids
-compression but needs gigabit. Encoding and image processing are separate choices.
+30 Hz uint16 depth with timestamps, intrinsics, scale, sequence and processing metadata.
+PNG and raw transport preserve the same pixels. Raw avoids compression but needs
+gigabit. Choose image processing separately:
 
 | Processing | Effect |
 | --- | --- |
@@ -53,9 +52,8 @@ different model inputs even when their shapes match.
 The viewer shows the full streamed image in metres. The planner receives the
 calibrated 64×48 depth/mask and causal history, not that display image.
 
-A receive timestamp is not camera capture time. Deployment automatically uses
-the streamer's clock-reply endpoint (port 5558, forwarded as 15558) to align
-camera host time; the viewer itself does not require that second port.
+Receive time differs from capture time. Deployment aligns camera clocks through
+port 5558, forwarded as 15558. The viewer does not need this second port.
 
 ## LiDAR preview
 
@@ -68,8 +66,7 @@ cd /home/osher/hv2
 
 Open the printed Viser URL and forward its port in VS Code. Add
 `--depth-server 127.0.0.1 --depth-port 15556` to also show the existing depth stream.
-Ctrl+C closes the preview and its owned driver. Do this separately from the policy
-trial; it is not required for deployment. The live preview defaults to 50 Hz
-packets; the deployment recorder uses 30 Hz. Preview points are not a registered
-world map or qualified pelvis XYZ. For motion evaluation use
+Ctrl+C closes the preview and its driver. Run it separately from policy trials.
+Preview uses 50 Hz packets; deployment recording uses 30 Hz. These points are
+neither a registered world map nor validated pelvis XYZ. For motion evaluation use
 [the deployment replay](../rise/recording.md).

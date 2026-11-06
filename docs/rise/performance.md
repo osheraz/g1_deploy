@@ -14,7 +14,8 @@ python -m rise.tools.benchmarks.inference \
   --output "$NEW_BENCHMARK"
 ```
 
-Each published pair requires its matching prepared bundle. TensorRT profiles require
-matching validated exports in `config/models.yaml`; no legacy export is selected
-automatically. Synthetic timing excludes sensors, network transport and DDS.
-Use a recorded sensor-only session to measure the complete input pipeline.
+Use the matching bundle for each pair. TensorRT profiles need validated exports
+listed in `config/models.yaml`; older exports are not selected automatically.
+
+Synthetic timing excludes sensors, network and DDS. Measure the full input
+pipeline with a recorded sensor-only session.

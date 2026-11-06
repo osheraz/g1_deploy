@@ -11,9 +11,8 @@ python g1_deploy/vigor/deploy.py --help
 **This launcher moves the robot during startup.** It is not a sensor viewer.
 Use [sensor checks](setup/sensors.md) to inspect depth and state without motion.
 
-`vigor/policy_runner.py` assembles the trained observation/history layout;
-`student_model.py` builds the policy. VIGOR's depth preprocessing differs from
-RISE's calibrated metric-depth input. Preserve the selected checkpoint's contract.
+`vigor/policy_runner.py` assembles observations and history. `student_model.py`
+builds the policy. Keep the checkpoint's depth preprocessing; it differs from RISE's.
 
 Replay a saved VIGOR log with:
 

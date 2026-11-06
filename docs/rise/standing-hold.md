@@ -1,30 +1,30 @@
 # Manual standing mode — Y
 
-**Purpose: press Y after get-up to stop further recovery motion and settle into standing.**
-It does not wait for an automatic standing detector on the robot. It works with
-steered or unguided recovery. Enable it with `--standing-hold` on your existing
-robot command; the normal recovery is unchanged until you press Y.
+Add `--standing-hold` to a steered or unguided robot command. **Press Y after get-up
+to request standing.** It takes effect immediately, without waiting for a standing
+detector. Recovery runs normally until Y.
 
-- **A:** start recovery and recording. START remains optional joint preparation.
-- **Y after get-up:** stop planner requests, discard queued plans, and blend the
-  last executed latent into the paired tracker's original encoded standing
-  reference over 0.5 seconds. The frozen tracker keeps balancing with live
-  joints, IMU, depth and actual issued-action history.
-- **A again / SELECT / Ctrl+C:** existing stop behavior. Y does not stop motors.
-- Y before A is ignored. Repeated Y does not restart the transition. Standing
-  mode remains latched until the run ends; a later fall does not resume planning.
+- **A:** start recovery and recording. START is optional joint preparation.
+- **Y:** stop planning, discard queued plans and blend to the tracker's encoded
+  standing reference over 0.5 seconds. The tracker still uses live joints, IMU,
+  depth and issued-action history to balance.
+- **A again / SELECT / Ctrl+C:** stop. Y itself does not stop motors.
 
-The reference requests the checkpoint's default standing joints, zero joint
-velocities, upright pelvis and the heading at Y. It uses the original encoder
-and frozen normalizer. PD gains, action scaling and the startup-only limiter are
-unchanged. There is no fixed motor-target hold or additional post-Y slew limit.
-The encoder is loaded and warmed before startup; Y does no loading/compilation.
+Y before A is ignored. Repeated Y does not restart the blend. Standing mode lasts
+until the run ends; planning does not resume after a fall.
 
-Standing does not require DLIO: the reference uses local coordinates. It does
-**not** lock a world position. Steering before Y retains its existing feedback
-requirements. Sensor/model/external-camera recording remains unchanged; the Y
-activation, original encoder inputs, native codes and tracker outputs are recorded
-for model replay. New robot sessions remain under `logs/real_world`.
+The reference requests default standing joints, zero joint velocities, an upright
+pelvis and the heading measured at Y. It uses the original encoder and normalizer,
+loaded and warmed before startup.
 
-This optional control is separate from the published autonomous recovery
-evaluation and requires qualification for the selected pair.
+PD gains, action scaling and the startup-only limiter stay unchanged. The tracker
+continues predicting actions; Y adds neither fixed motor targets nor a slew limit.
+
+Standing uses local coordinates and needs no DLIO. It does **not** hold a world
+position. Steering before Y still requires its usual feedback.
+
+Recording continues under `logs/real_world`, including Y activation, encoder inputs,
+latents and tracker outputs for model replay.
+
+This manual mode is outside the published autonomous evaluation. Validate it
+with the selected model pair.

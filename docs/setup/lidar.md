@@ -16,10 +16,10 @@ Configuration lives in
 Adjust `MID360_bluefin.json` for another host. The recording worker needs the
 Unitree SDK on its system-Python path.
 
-Raw Livox IMU acceleration is saved unchanged and converted from g to SI for
-DLIO. Three 30 Hz cloud packets form one estimator window, preserving point
-timestamps for deskew. The live recovery path records its selected mount
-calibration. Independent dynamic XYZ accuracy remains unverified.
+The recorder saves raw Livox acceleration; DLIO receives it converted from g to SI.
+Each estimator window contains three 30 Hz cloud packets, with point timestamps
+for motion correction. Recording also saves the mount calibration.
+Dynamic XYZ accuracy has not been independently verified.
 
 `livox_system_spdlog.patch` resolves the SDK/ROS logging-library conflict at
 shutdown. `dlio_initialized_pose.patch` prevents odometry publication before IMU
