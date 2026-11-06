@@ -1,6 +1,6 @@
 # Robot recovery
 
-Prepare a fresh bundle with the [deployment guide](https://github.com/osheraz/hv2/blob/proposal/reorganization-20261031/docs/guides/deployment.md)
+Prepare a fresh bundle with the [deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/deployment.md)
 and keep its `HV2_RECOVERY_BUNDLE` setting. Use the robot/site configuration in
 `config/models.yaml`. The selected pair is not hardware-qualified. Check sensor
 geometry, depth processing and clock alignment against its saved contract before

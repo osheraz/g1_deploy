@@ -6,7 +6,7 @@ initial pelvis origin with causal heading; physical time does not restart when
 the planner replans. `--guidance-scale` overrides strength without modifying the
 target, gains or checkpoint.
 
-Prepare the selected pair with the [deployment guide](https://github.com/osheraz/hv2/blob/proposal/reorganization-20261031/docs/guides/deployment.md)
+Prepare the selected pair with the [deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/deployment.md)
 and keep its `HV2_RECOVERY_BUNDLE` setting.
 
 ```bash
@@ -22,5 +22,5 @@ experimental clock bounds while retaining freshness and geometry checks.
 Invalid feedback suspends steering according to the saved execution policy.
 
 For the paper's starts, shared targets and replanning comparisons, use
-[the evaluation workflow](https://github.com/osheraz/hv2/blob/proposal/reorganization-20261031/docs/guides/evaluation.md). These generic
+[the evaluation workflow](https://github.com/osheraz/hv2/blob/master/docs/guides/evaluation.md). These generic
 MuJoCo/robot commands do not substitute for native evaluation.
