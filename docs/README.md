@@ -9,7 +9,7 @@
 | Test in MuJoCo | [Simulation](rise/sim.md) |
 | Steer a recovery | [Steering](rise/steering.md), [lab recipes](rise/lab-steering.md) |
 | Press Y to request standing | [Standing mode](rise/standing-hold.md) |
-| Inspect recordings | [Replay](rise/recording.md), [diagnostics](rise/standing-diagnosis.md) |
+| Inspect recordings and model decisions | [Replay and diagnostics](rise/recording.md) |
 | Diagnose depth and odometry | [Troubleshooting](rise/troubleshooting.md) |
 | Measure inference timing | [Performance](rise/performance.md) |
 | Run SONIC | [Joystick](sonic/joystick.md), [PICO](sonic/pico.md), [models](sonic/models.md) |

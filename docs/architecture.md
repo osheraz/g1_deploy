@@ -102,7 +102,8 @@ Git revision for historical execution; the current entrypoints use current paths
 
 ## Where to add something
 
-- New checkpoint or experiment: model config, saved goal/start, or preset.
+- New checkpoint or experiment: a model config entry or saved goal/start, using
+  the existing deployment/simulation command. Do not copy a launcher per experiment.
 - New planner/tracker behavior: its HV2 library; both sim and robot consume it.
 - New device: `core/sensing` for reusable transport; `rise/sensing` for recovery
   measurement pairing. New robot control: `core/robot` and its application adapter.

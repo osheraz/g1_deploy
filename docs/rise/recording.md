@@ -33,11 +33,9 @@ Playback, external camera and depth controls are at the top. XYZ uses recorded
 live odometry when available. Orange / missing sections retain estimator validity
 information; display smoothing does not establish position accuracy.
 
-**Play** and **Loop** are enabled by default. **Speed (×)** changes playback speed (0.25 = quarter speed,
-0.5 = half speed, 1 = normal); **Loop** repeats the selected recording.
-Robot motion, external camera and depth advance together. These options also
-work when browsing a folder and do not change saved videos or recovery marks.
-Uncheck either control to pause or stop looping; `--no-loop` disables looping at launch.
+**Play** and **Loop** default on. **Speed (×)** changes synchronized robot/camera
+playback; `0.25` is quarter speed. Uncheck a control to pause or stop looping;
+`--no-loop` disables looping at launch. Playback does not modify recordings.
 
 Mark **start** and **standing / end**, then **Save & next recording**.
 Marks are saved in `RUN/review/recovery_interval.json`.
@@ -62,6 +60,8 @@ Picked images remain under `logs/real_world_hightlight/` (historical spelling).
 
 ```bash
 .venv/bin/python -m rise.review.model logs/real_world/RUN_NAME --max-calls 5
+python -m rise.tools.diagnostics.analyze_run --help
+python -m rise.tools.diagnostics.standing_cause --help
 ```
 
 Uses saved observations/noise and verified model weights/engines; run after
@@ -69,5 +69,6 @@ stopping deployment because it uses the GPU. This checks inference and issued
 commands, not physical dynamics. New recordings save Git revisions and modified-tree
 status; they do not copy the source tree. Exact reproduction requires the recorded
 checkout. Add `--allow-code-changes` for a comparison against current code;
-differences are listed in `review/model_replay.json`. Existing recordings retain
-their original archive and weight checksums. Old filenames are not translated.
+differences are listed in `review/model_replay.json`. Input-swap diagnostics probe
+network sensitivity; they do not establish a physical cause or replay contacts.
+Keep derived results separate from the original recording.

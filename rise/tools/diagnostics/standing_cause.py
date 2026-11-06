@@ -1,6 +1,6 @@
 """Recorded-input standing/tracker attribution. Never connects to the robot.
 
-Run with the recovery package on PYTHONPATH (see docs/standing-diagnosis.md).
+See docs/rise/recording.md for replay and diagnostics.
 Every intervention retains recorded measurements and previous-issued actions.
 These are pointwise sensitivity probes, NOT alternative physical rollouts.
 """

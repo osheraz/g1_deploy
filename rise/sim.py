@@ -28,32 +28,32 @@ def arguments(argv=None):
     parser.add_argument(
         "--blend-ticks",
         type=int,
-        help="Latent-plan overlap in 50 Hz control ticks; default uses the bundle recipe",
+        help="Plan overlap in 50 Hz ticks; defaults to the bundle recipe",
     )
     parser.add_argument(
         "--replan-hz",
         type=float,
-        help="Override saved cadence on whole 50 Hz ticks; e.g. 2.5, 5, 10. Simulation time, not a compute guarantee",
+        help="Planner frequency in simulation time; tracker remains at 50 Hz",
     )
     parser.add_argument(
         "--guidance-scale",
         type=float,
-        help="Override goal steering strength; does not change the trajectory or motor PD gains",
+        help="Steering strength; does not change motor gains",
     )
     parser.add_argument(
         "--goal-json",
         type=Path,
-        help="Shared Stanley steering cost; simulator pelvis feedback, PyTorch planner and selected tracker backend",
+        help="Steering goal JSON; uses simulator pelvis feedback",
     )
     parser.add_argument(
         "--noise-policy",
         choices=("fresh", "fixed_episode"),
-        help="fresh: new noise every plan; fixed_episode: sample once per episode and reuse; default follows model bundle",
+        help="fresh: sample each plan; fixed_episode: reuse noise; defaults to the bundle recipe",
     )
     parser.add_argument(
         "--bundle",
         type=Path,
-        help="Prepared deployment bundle; required unless supplied by the selected model or HV2_RECOVERY_BUNDLE",
+        help="Model bundle; overrides the model config and HV2_RECOVERY_BUNDLE",
     )
     parser.add_argument(
         "--robot", type=Path, help="Robot URDF or MJCF; defaults to the training G1-29 URDF"
@@ -216,7 +216,7 @@ def arguments(argv=None):
         "--depth-startup",
         choices=("prefill", "cold", "stationary"),
         default="prefill",
-        help="Default: acquire delivered depth history at rest before control, matching Stanley; cold/stationary retain older diagnostics",
+        help="prefill: acquire depth at rest before control; cold/stationary select startup diagnostics",
     )
     parser.add_argument(
         "--tracker-startup",

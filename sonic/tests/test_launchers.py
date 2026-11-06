@@ -98,8 +98,10 @@ def test_mujoco_keeps_selected_inputs_and_adaptation(launch):
     assert "--record-dir" not in args
 
 
-def test_mujoco_preset_keeps_slow_gait_and_recording(launch):
-    args = command(launch("presets/forward_stable_23_mujoco.sh", "--slow-gait"))
+def test_mujoco_keeps_slow_gait_and_recording(launch):
+    args = command(launch("mujoco.sh", "--model-profile", "original-release",
+                          "--embodiment", "g1_23dof", "--adaptation", "forward-stable-23",
+                          "--slow-gait"))
     assert {"--slow-gait", "--record-dir", "--native-gamepad"}.issubset(args)
     assert args[args.index("--config") + 1] == "forward.yaml"
 

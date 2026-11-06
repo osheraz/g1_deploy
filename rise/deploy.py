@@ -94,39 +94,39 @@ def main(argv=None):
     parser.add_argument(
         "--blend-ticks",
         type=int,
-        help="Latent-plan overlap in 50 Hz control ticks; default uses the bundle recipe",
+        help="Plan overlap in 50 Hz ticks; defaults to the bundle recipe",
     )
     parser.add_argument(
         "--replan-hz",
         type=float,
-        help="Planner rate, e.g. 2.5, 5 or 10 Hz; tracker stays 50 Hz; existing asynchronous horizon/age checks apply",
+        help="Planner frequency; tracker remains at 50 Hz",
     )
     parser.add_argument(
         "--max-plan-age-ticks",
         type=int,
-        help="Explicit asynchronous reply-age budget at 50 Hz; must fit the horizon and measured hardware latency",
+        help="Maximum planner reply age in 50 Hz ticks; must fit the plan horizon",
     )
     parser.add_argument(
         "--goal-json",
         type=Path,
-        help="Stanley physical-clock steering goal; PyTorch planner + selected tracker backend; invalid measured XYZ falls back to unguided recovery",
+        help="Steering goal JSON; unavailable pelvis feedback disables guidance",
     )
     parser.add_argument(
         "--guidance-scale",
         type=float,
-        help="Override trajectory steering strength, e.g. 50 versus source 300; does not change motor PD gains",
+        help="Steering strength; does not change motor gains",
     )
     parser.add_argument(
         "--steering-feedback",
         choices=("qualified", "estimated"),
         default="qualified",
-        help="estimated explicitly permits experimental XYZ with receipt-estimated clock; geometry and freshness checks remain",
+        help="estimated permits unqualified odometry; geometry and freshness checks still apply",
     )
     parser.add_argument(
         "--noise-policy",
         choices=("fresh", "fixed_episode"),
         default="fresh",
-        help="fresh: new noise every plan (default); fixed_episode: sample once at policy start and reuse for replanning",
+        help="fresh: sample each plan; fixed_episode: reuse noise until the episode ends",
     )
     parser.add_argument(
         "--seed",
@@ -136,7 +136,7 @@ def main(argv=None):
     )
     parser.add_argument(
         "--start-pose",
-        help="prone or a prone/supine joint-preset JSON: optional START moves to it; A starts from the current pose; requires --actuate",
+        help="prone or joint-pose JSON; START positions the robot, A starts from its measured pose",
     )
     parser.add_argument(
         "--start-pose-jitter-deg",
@@ -162,7 +162,7 @@ def main(argv=None):
     parser.add_argument(
         "--depth-processing",
         choices=("raw", "vigor", "vigor_legacy"),
-        help="Require this server processing profile; explicitly permits filtered depth deployment without changing its training contract",
+        help="Required server processing; must match the model's depth input",
     )
     parser.add_argument(
         "--planner-precision",
@@ -182,7 +182,7 @@ def main(argv=None):
     parser.add_argument(
         "--standing-hold",
         action="store_true",
-        help="Enable remote Y after get-up: 0.5 s transition to encoded standing intent; live tracker balances; latched until stop",
+        help="Y switches to encoded standing intent over 0.5 s; latched until stop",
     )
     parser.add_argument("--actuate", action="store_true")
     parser.add_argument(
@@ -205,7 +205,7 @@ def main(argv=None):
         "--record-sensors",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Record raw LiDAR + robot state; default for actuation/live odometry, opt-in for sensor-only inference",
+        help="Record LiDAR and robot state; defaults on with actuation or live odometry",
     )
     parser.add_argument(
         "--record-depth",
@@ -217,7 +217,7 @@ def main(argv=None):
         "--record-model",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Save exact planner/tracker inputs, RNG, outputs and code provenance for offline model replay (default on)",
+        help="Record model inputs, noise, outputs and Git revisions for replay (default on)",
     )
     parser.add_argument(
         "--existing-lidar-driver", action="store_true", help="Use an already-running Livox driver"
@@ -231,8 +231,7 @@ def main(argv=None):
         "--external-camera",
         nargs="?",
         const=DEFAULT_CAMERA,
-        help=f"Record a fixed external USB camera through a v4l2-ctl child of the sensor recorder (kernel-only MJPEG dump "
-        f"with driver timestamps; the control process never touches it). No value selects {DEFAULT_CAMERA}",
+        help=f"Record an external USB camera; omit the device value to use {DEFAULT_CAMERA}",
     )
     parser.add_argument(
         "--camera-size",
@@ -243,7 +242,7 @@ def main(argv=None):
         "--camera-fps",
         type=int,
         default=30,
-        help="requested rate; the driver clamps to what the mode offers and the report shows the rate set",
+        help="Requested capture rate; the saved report records the driver-selected rate",
     )
     parser.add_argument(
         "--live-odometry",
@@ -255,7 +254,7 @@ def main(argv=None):
         "--odometry-mode",
         choices=["monitor", "required"],
         default="monitor",
-        help="Monitor labels unqualified estimates; required enforces the existing steering receiver contract",
+        help="monitor records estimates; required stops on invalid odometry",
     )
     parser.add_argument(
         "--odometry-mount",
@@ -266,7 +265,7 @@ def main(argv=None):
     parser.add_argument(
         "--odometry-clock",
         type=Path,
-        help="Independent clock calibration JSON; never infer qualification from arrival jitter",
+        help="Independent odometry clock calibration JSON",
     )
     from rise.presets import add_arguments
 

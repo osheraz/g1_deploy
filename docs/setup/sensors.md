@@ -29,42 +29,29 @@ Stop both terminals with Ctrl+C.
 
 ## Depth contract
 
-Current lens at **640×480**: `[fx, fy, cx, cy] =
-[388.811767578125, 388.811767578125, 326.99853515625, 238.08714294433594]`.
-The physical camera is configured in
-[`rise/config/models.yaml`](../../rise/config/models.yaml), under
-`camera.base_intrinsics`. New simulated planner depth uses
-[`DEFAULT_DEPTH_CAPTURE`](../../../humanoidverse2/simulator/sensors/depth_capture.py);
-the environment default is also updated in
-[`legged_base.yaml`](../../../humanoidverse2/config/env/legged_base.yaml).
-These are full-resolution intrinsics, before cropping/resizing. Use the shared
-builder to derive the processed rays; do not paste these values as 64×48 intrinsics.
-Existing checkpoints keep their saved calibration. For new training, regenerate
-any cached depth with the new capture settings; changing metadata alone does
-not change old rendered images.
+Hardware calibration lives in [`rise/config/models.yaml`](../../rise/config/models.yaml),
+under `camera.base_intrinsics`. Shared simulation defaults live in
+[`depth_config.py`](https://github.com/osheraz/hv2/blob/master/hv2_common/sensors/depth_config.py).
+The intrinsics describe full-resolution images; the shared sampler derives the
+cropped 64×48 input. Preserve each checkpoint's calibration. Regenerate cached
+depth when changing capture geometry.
 
 [`native_depth_server.py`](../../rise/sensing/native_depth_server.py) publishes
-`[JSON metadata, lossless uint16 pixels]` with 30 Hz capture. PNG is the default
-wire encoding; `--encoding raw` removes camera-side compression on gigabit.
-The viewer accepts both. See [server update and launch](../rise/deploy.md#terminal-1-depth).
-Metadata carries capture time,
-clock domain, sequence, serial, intrinsics, depth scale and processing mode.
-The server default `--processing vigor_legacy` applies VIGOR smoothing and
-hole filling; the RISE launch command explicitly selects `--processing raw`. Filled positive
-pixels become valid depth for the viewer and policy. Explicit `--processing vigor`
-applies the same filters, then restores pixels whose missing/near/far classification
-changed; original holes therefore remain. `--processing raw` bypasses filtering.
-No mode applies color alignment or the old unused 3 m threshold.
+timestamped uint16 depth at 30 Hz, with intrinsics, scale, sequence and processing
+metadata. PNG and raw wire encoding preserve the same pixels; raw avoids
+compression but needs gigabit. Encoding and image processing are separate choices.
 
-The hole-filled default differs from the unified-depth-v3 contract,
-which specifies raw hardware processing and unknown pixels remaining invalid.
-Processing provenance remains in every stream/recording; do not label the two
-input contracts interchangeable or infer training compatibility from image shape.
+| Processing | Effect |
+| --- | --- |
+| `raw` | No filtering; selected explicitly by the RISE launch command |
+| `vigor` | Smoothing while preserving source missing/near/far categories |
+| `vigor_legacy` | Smoothing and hole filling; the server's standalone default |
 
-The viewer shows streamed depth in metres. It is **not** the planner's processed
-image. Current inference uses the shared calibrated crop/ray sampler,
-64×48 range/mask and causal history; see [deployment](../rise/deploy.md).
-The old square-crop VIGOR preprocessing is not used by the current planner.
+Match the selected model's processing contract. Raw and hole-filled images are
+different model inputs even when their shapes match.
+
+The viewer shows the full streamed image in metres. The planner receives the
+calibrated 64×48 depth/mask and causal history, not that display image.
 
 A receive timestamp is not camera capture time. Deployment automatically uses
 the streamer's clock-reply endpoint (port 5558, forwarded as 15558) to align

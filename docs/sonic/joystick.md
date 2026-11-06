@@ -26,4 +26,7 @@ These scripts require the separate `sonic_cpp` checkout beside `g1_deploy`.
 The C++ command defaults to preflight; `--arm-real-robot` enables its physical
 path. Never run two motor publishers together.
 
+For the 23-joint adapted gait, select `--adaptation forward-stable-23` on either
+command. Add `--slow-gait` for its slower reference; no separate preset script.
+
 [PICO](pico.md) · [Recording/replay](replay.md) · [Calibration](calibration.md).

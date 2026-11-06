@@ -1,8 +1,8 @@
 # Robot recovery
 
 Prepare a fresh bundle with the [deployment guide](https://github.com/osheraz/hv2/blob/master/docs/guides/deployment.md)
-and keep its `HV2_RECOVERY_BUNDLE` setting. Use the robot/site configuration in
-`config/models.yaml`. The selected pair is not hardware-qualified. Check sensor
+and keep its `HV2_RECOVERY_BUNDLE` setting. Robot/site settings are in
+[`rise/config/models.yaml`](../../rise/config/models.yaml). A prepared bundle is not hardware-qualified. Check sensor
 geometry, depth processing and clock alignment against its saved contract before
 commissioning it.
 
@@ -11,13 +11,9 @@ python g1_deploy/rise/deploy.py \
   --bundle "$HV2_RECOVERY_BUNDLE" --model ours --check
 ```
 
-The generated bundle records its two-tick reply-age budget. This is an executable
-timing contract, not measured hardware qualification. The historical bundle records
-an invalid 50-tick budget; do not use it unchanged or edit its receipt. Unbound
-models require `--bundle` or `HV2_RECOVERY_BUNDLE`. An explicit flag takes precedence;
-named retained pairs keep their configured bundles ahead of the environment fallback. This check opens no sensors
-or motor channels. Other published pairs need their own matching prepared bundle;
-the planner and tracker must stay paired.
+This check opens no sensors or motor channels. `--bundle` overrides the configured
+model bundle; `HV2_RECOVERY_BUNDLE` is the fallback for unbound models.
+Keep each planner paired with its matching tracker.
 
 ## Terminal 1: depth
 
@@ -58,6 +54,4 @@ START optionally moves to the default joints or an explicit `--start-pose` JSON.
 A again, SELECT or Ctrl+C stops the session. Wait for recording completion before
 reusing its files. `--standing-hold` enables the [manual Y mode](standing-hold.md).
 
-Use [steering](steering.md) for explicit goals and [recording](recording.md) for
-review. Sensor settings and historical hardware evidence do not confer
-qualification on a different checkpoint.
+Use [steering](steering.md) for explicit goals and [recording](recording.md) for review.
