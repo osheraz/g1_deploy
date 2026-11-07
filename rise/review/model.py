@@ -96,13 +96,13 @@ def replay(
     # Validate ALL bytes even when inference is restricted to a prefix/component.
     totals = {name: sum(1 for _ in read_trace(directory / name)) for name in ("control", "planner")}
     depth_archive = None
-    if manifest.get("depth_storage") == "metric_capture_refs_v1":
+    if manifest.get("depth_storage") in ("metric_capture_refs_v1", "capture_refs"):
         from rise.recording.depth import RecordedModelDepth
 
         depth_archive = RecordedModelDepth(root / "sensors/depth")
 
     def restore_depth(view, view_config):
-        if view is not None and view.get("storage") == "metric_capture_refs_v1":
+        if view is not None and view.get("storage") in ("metric_capture_refs_v1", "image_capture_refs"):
             if depth_archive is None:
                 raise ValueError("Missing metric depth archive for model references")
             return depth_archive.restore(view, view_config)
@@ -184,11 +184,7 @@ def replay(
                 kwargs = (
                     {}
                     if depth is None
-                    else dict(
-                        depth_frames=depth["frames"],
-                        depth_metadata=depth["metadata"],
-                        depth_available=depth["available"],
-                    )
+                    else {f"depth_{key}": depth[key] for key in ("frames", "metadata", "available") if key in depth}
                 )
                 action = controller(
                     torch.from_numpy(row["history"]), torch.from_numpy(row["native_code"]), **kwargs

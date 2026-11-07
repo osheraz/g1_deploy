@@ -370,11 +370,15 @@ class RecordedModelDepth:
         import torch
         from humanoidverse2.observations.depth import prepare_depth_history
 
-        if view is None or view.get("storage") != "metric_capture_refs_v1":
+        if view is None or view.get("storage") not in ("metric_capture_refs_v1", "image_capture_refs"):
             return view
-        available = np.asarray(view["available"], dtype=bool)
+        from hv2_common.sensors.depth_config import image_depth, depth_frame_count
         captures = np.asarray(view["capture_s"])
-        if available.shape != (1, config["history_steps"]) or captures.shape != available.shape:
+        images_only = image_depth(config)
+        if images_only != (view["storage"] == "image_capture_refs"):
+            raise ValueError("Recorded depth input differs from model")
+        available = np.ones_like(captures, dtype=bool) if images_only else np.asarray(view["available"], dtype=bool)
+        if available.shape != (1, depth_frame_count(config)) or captures.shape != available.shape:
             raise ValueError("Depth exposure reference shape differs from model")
         if not np.array_equal(available, captures >= 0):
             raise ValueError("Depth exposure reference availability mismatch")
@@ -393,6 +397,10 @@ class RecordedModelDepth:
                     self.cache.popitem(last=False)
             self.cache.move_to_end(index)
             depth[0, slot], valid[0, slot] = self.cache[index]
+        if images_only:
+            from hv2_common.sensors.depth_frames import normalize_depth
+            image = torch.where(torch.from_numpy(valid), torch.from_numpy(depth), config["far"])
+            return {"frames": normalize_depth(image, config["near"], config["far"])[:, :, None]}
         # Reuse the model's actual pixel transform. Metadata was already small;
         # retain its exact float32 age/capture-state/relative-attitude values.
         metadata = torch.as_tensor(view["metadata"])

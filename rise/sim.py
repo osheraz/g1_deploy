@@ -793,14 +793,21 @@ def run_episode(policy, plant, capture, args, output, seed, viewer=None, control
                             {prefix + "depth_" + key: value for key, value in depth.items()}
                         )
                         if not prefix:
-                            availability = depth["available"][0].cpu().numpy()
+                            from hv2_common.sensors.depth_config import image_depth
+                            images_only = image_depth(config)
+                            availability = (np.ones(config["num_frames"], dtype=bool) if images_only
+                                            else depth["available"][0].cpu().numpy())
                             if viewer and args.depth_view:
                                 from humanoidverse2.simulator.mujoco.terrain import depth_panel
 
+                                frames = depth["frames"][0].detach().cpu().numpy()
+                                if images_only:
+                                    metres = (frames[:, 0] + .5) * (config["far"] - config["near"]) + config["near"]
+                                    frames = np.stack((metres, np.ones_like(metres)), axis=1)
                                 panel = depth_panel(
-                                    depth["frames"][0].detach().cpu().numpy(),
+                                    frames,
                                     availability,
-                                    config["max_depth_m"],
+                                    config["far"] if images_only else config["max_depth_m"],
                                 )
                                 viewer.set_images(
                                     (mujoco.MjrRect(12, 12, panel.shape[1], panel.shape[0]), panel)
@@ -1190,6 +1197,8 @@ def main(argv=None):
             f"Bundle does not contain {name}; supply its verified bundle with --bundle"
         )
     row = manifest["models"][name]
+    from rise.models import check_depth_input
+    check_depth_input(selected, (row["inspected_contract"]["planner_depth"], row["inspected_contract"]["tracker_depth"]))
     controller_path = asset_path(bundle, row["controller"])
     planner_path = asset_path(bundle, row["planner"])
     training = OmegaConf.load(asset_path(bundle, row["controller_training_config"]))

@@ -31,23 +31,27 @@ exports: {}
 # Osher retained execution pairs; saved checkpoints and recipes stay authoritative.
 models:
   s25r_diffusion:
+    depth_input: metric_state
     default_backend: tensorrt
     bundle: logs/native_recovery/bundles/s25r_40k_20260921
     exports:
       controller: logs/native_recovery/exports_s25r_20260921/controller
       s25r_diffusion: logs/native_recovery/exports_s25r_20260921/planner
   s50r_diffusion:
+    depth_input: metric_state
     default_backend: pytorch
     bundle: logs/native_recovery/bundles/stage3_40k_20260921
     exports:
       controller: logs/native_recovery/exports_s25r_20260921/controller
   r8_s50r_diffusion:
+    depth_input: metric_state
     default_backend: tensorrt
     bundle: logs/native_recovery/bundles/r8_s50r_20260915a
     exports:
       controller: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_controller
       r8_s50r_diffusion: logs/native_recovery/exports_five_20260915/r8_s50r_diffusion_planner
   r8_s25_diffusion:
+    depth_input: metric_state
     default_backend: pytorch
     bundle: logs/native_recovery/bundles/r8_s25_20260914a
     guided_timing:
@@ -58,6 +62,7 @@ models:
       controller: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_controller
       r8_s25_diffusion: logs/native_recovery/exports_r2r8_20260914/r8_s25_diffusion_planner
   r2_f50r_flow:
+    depth_input: metric_state
     default_backend: pytorch
     bundle: logs/native_recovery/bundles/r2_r8_40k_20260914b
     exports:

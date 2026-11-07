@@ -10,6 +10,10 @@
 Names select exact tracker/planner pairs, not aliases to newer weights.
 [Bundle preparation](https://github.com/osheraz/hv2/blob/master/docs/guides/evaluation/deployment.md).
 
+Retained visual models declare `depth_input: metric_state`; their saved metric
+depth, mask and capture-state inputs stay unchanged. New image-only pairs use
+`depth_input: images` and normalized depth. Loading checks the selected mode.
+
 ```bash
 python g1_deploy/rise/sim.py --preset supine --model s25r_diffusion --seed 42 --print-command
 python g1_deploy/rise/deploy.py --gallery list

@@ -370,6 +370,8 @@ def main(argv=None):
             f"Bundle does not contain {args.model}; supply its verified bundle with --bundle"
         )
     row = manifest["models"][args.model]
+    from rise.models import check_depth_input
+    check_depth_input(settings, (row["inspected_contract"]["planner_depth"], row["inspected_contract"]["tracker_depth"]))
     import torch
 
     torch.set_num_threads(1)

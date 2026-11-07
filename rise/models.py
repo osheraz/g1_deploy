@@ -46,6 +46,7 @@ def model_settings(settings, model, *, bundle=None):
     selected.update(selected.get("models", {}).get(model, {}))
     if bundle is not None:
         selected["bundle"] = str(Path(bundle).expanduser().resolve())
+        selected.pop("depth_input", None)
     elif selected.get("bundle"):
         selected["bundle"] = str(recovery_asset(selected["bundle"]))
     elif os.environ.get("HV2_RECOVERY_BUNDLE"):
@@ -53,12 +54,22 @@ def model_settings(settings, model, *, bundle=None):
     else:
         raise ValueError(
             f"No bundle configured for {model}. Pass --bundle PATH or set "
-            "HV2_RECOVERY_BUNDLE; see docs/guides/deployment.md for bundle preparation."
+            "HV2_RECOVERY_BUNDLE; see docs/rise/models.md for bundle preparation."
         )
     selected["exports"] = {
         name: str(recovery_asset(path)) for name, path in selected.get("exports", {}).items()
     }
     return selected
+
+
+def check_depth_input(settings, contracts):
+    """Retained model pairs must keep their trained preprocessing."""
+    from hv2_common.sensors.depth_config import depth_input_type
+    expected = settings.get("depth_input")
+    if expected is not None:
+        for config in contracts:
+            if config.get("enabled") and depth_input_type(config) != expected:
+                raise ValueError(f"This model pair requires {expected} depth")
 
 
 def hardware_settings(config, contract):

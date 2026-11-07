@@ -115,7 +115,7 @@ def investigate(session, events, interval, output, device="cuda"):
         key = row["control_tick"]
         if key not in depth_cache:
             view = row["depth"]
-            if view.get("storage") == "metric_capture_refs_v1":
+            if view.get("storage") in ("metric_capture_refs_v1", "image_capture_refs"):
                 view = depth_archive.restore(view, controller.depth_config)
             depth_cache[key] = {
                 k: tensor(v) for k, v in view.items() if k in ("frames", "metadata", "available")
@@ -130,8 +130,8 @@ def investigate(session, events, interval, output, device="cuda"):
             tensor(history),
             tensor(code),
             depth_frames=d["frames"],
-            depth_metadata=d["metadata"],
-            depth_available=d["available"],
+            depth_metadata=d.get("metadata"),
+            depth_available=d.get("available"),
         )
         return default + scale * action.cpu().numpy()[0]
 
