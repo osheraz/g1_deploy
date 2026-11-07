@@ -78,8 +78,7 @@ joint mappings and actuator response, separately from recovery simulation.
 - **At model load:** check dimensions, joint order, normalization, sampling and PD settings.
 - **During control:** check sensor age, clock uncertainty, finite actions and startup limits.
 - **During recording/replay:** check array shapes and indices for incomplete writes.
-- **Model inputs:** VIGOR normalized depth differs from RISE depth/masks in metres.
-  Reuse transport, but preserve each model's preprocessing.
+- **Model inputs:** reuse transport and preserve the checkpoint's depth mode and preprocessing.
 - **SONIC rotations:** use shared NumPy WXYZ helpers without importing Torch.
   Keep SONIC's observation layout with its model.
 - **Logs:** distinguish requested/applied actions and simulator truth/measured pelvis estimates.
